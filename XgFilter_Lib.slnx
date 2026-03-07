@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="../ConvertXgToJson_Lib/ConvertXgToJson_Lib/ConvertXgToJson_Lib.csproj" />
+  <Project Path="XgFilter_Lib.Tests/XgFilter_Lib.Tests.csproj" Id="aa0d296e-6ae5-4f16-89aa-cf1581923496" />
+  <Project Path="XgFilter_Lib/XgFilter_Lib.csproj" />
+</Solution>
