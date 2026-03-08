@@ -1,4 +1,5 @@
 ﻿using XgFilter_Lib.Filtering;
+using XgFilter_Lib.Projection;
 
 namespace XgFilter_Lib.Tests.Integration;
 
@@ -40,6 +41,83 @@ public class FilteredDecisionIteratorTests
         }
         Console.WriteLine(new string('-', 210));
         Console.WriteLine($"Total: {rows.Count} decisions");
+
+        rows.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void IterateXgDirectory_FilterByMatchScoreCubeOnlyNonZeroError_ListsDecisions()
+    {
+        var filters = new DecisionFilterSet()
+            .Add(new MatchScoreFilter(["11a11a"]))
+            .Add(new DecisionTypeFilter(DecisionTypeOption.CubeOnly))
+            .Add(new ErrorRangeFilter(min: double.Epsilon));
+
+        var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
+
+        var selector = new ColumnSelector();
+
+        Console.WriteLine(selector.Header);
+        Console.WriteLine(new string('-', selector.Header.Length));
+        foreach (var row in rows.Take(32))
+            Console.WriteLine(selector.Serialize(row));
+        Console.WriteLine(new string('-', selector.Header.Length));
+        Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
+    }
+
+    [Fact]
+    public void IterateXgDirectory_FilterByMatchScoreAndCubeOnly_ListsDecisions()
+    {
+        var filters = new DecisionFilterSet()
+            .Add(new MatchScoreFilter(["11a11a"]))
+            .Add(new DecisionTypeFilter(DecisionTypeOption.CubeOnly));
+
+        var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
+
+        var selector = new ColumnSelector();
+
+        Console.WriteLine(selector.Header);
+        Console.WriteLine(new string('-', selector.Header.Length));
+        foreach (var row in rows.Take(32))
+            Console.WriteLine(selector.Serialize(row));
+        Console.WriteLine(new string('-', selector.Header.Length));
+        Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
+    }
+
+    [Fact]
+    public void IterateXgDirectory_FilterByMatchScore_ListsDecisions()
+    {
+        var filters = new DecisionFilterSet()
+            .Add(new MatchScoreFilter(["11a11a"]));
+
+        var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
+
+        var selector = new ColumnSelector();
+
+        Console.WriteLine(selector.Header);
+        Console.WriteLine(new string('-', selector.Header.Length));
+        foreach (var row in rows.Take(32))
+            Console.WriteLine(selector.Serialize(row));
+        Console.WriteLine(new string('-', selector.Header.Length));
+        Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
+    }
+
+    [Fact]
+    public void IterateXgDirectory_FilterByPlayer_CustomColumns()
+    {
+        var filters = new DecisionFilterSet()
+            .Add(new PlayerFilter(["halheinrich"]));
+
+        var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
+
+        var selector = new ColumnSelector(["Player", "Match", "Game", "MoveNum", "Roll", "Error", "Equity"]);
+
+        Console.WriteLine(selector.Header);
+        Console.WriteLine(new string('-', selector.Header.Length));
+        foreach (var row in rows.Take(32))
+            Console.WriteLine(selector.Serialize(row));
+        Console.WriteLine(new string('-', selector.Header.Length));
+        Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
 
         rows.Should().NotBeEmpty();
     }
