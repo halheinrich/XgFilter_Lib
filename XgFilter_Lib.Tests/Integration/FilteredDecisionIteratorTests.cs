@@ -1,4 +1,5 @@
-﻿using XgFilter_Lib.Filtering;
+﻿using XgFilter_Lib.Enums;
+using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Projection;
 
 namespace XgFilter_Lib.Tests.Integration;
@@ -11,7 +12,16 @@ public class FilteredDecisionIteratorTests
 {
     private static readonly string XgDir = Path.Combine(
         AppContext.BaseDirectory, "TestData", "xg");
+    [Fact]
+    public void TestDataDirectory_Exists_AndContainsXgFiles()
+    {
+        Directory.Exists(XgDir).Should().BeTrue(
+            because: $"TestData\\xg directory should be copied to output: {XgDir}");
 
+        Directory.GetFiles(XgDir, "*.xg")
+            .Should().NotBeEmpty(
+            because: "TestData\\xg should contain at least one .xg file");
+    }
     [Fact]
     public void IterateXgDirectory_FilterByPlayer_ReturnsOnlyMatchingRows()
     {
@@ -120,6 +130,63 @@ public class FilteredDecisionIteratorTests
         Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
 
         rows.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void IterateXgDirectory_FilterByRace_ListsDecisions()
+    {
+        var filters = new DecisionFilterSet()
+            .Add(new PositionTypeFilter([PositionType.Race]));
+
+        var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
+
+        var selector = new ColumnSelector();
+
+        Console.WriteLine(selector.Header);
+        Console.WriteLine(new string('-', selector.Header.Length));
+        foreach (var row in rows.Take(32))
+            Console.WriteLine(selector.Serialize(row));
+        Console.WriteLine(new string('-', selector.Header.Length));
+        Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
+
+        rows.Should().OnlyContain(r => r.Board.Length == 26);
+    }
+
+    [Fact]
+    public void IterateXgDirectory_FilterByContact_ListsDecisions()
+    {
+        var filters = new DecisionFilterSet()
+            .Add(new PositionTypeFilter([PositionType.Contact]));
+
+        var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
+
+        var selector = new ColumnSelector();
+
+        Console.WriteLine(selector.Header);
+        Console.WriteLine(new string('-', selector.Header.Length));
+        foreach (var row in rows.Take(32))
+            Console.WriteLine(selector.Serialize(row));
+        Console.WriteLine(new string('-', selector.Header.Length));
+        Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
+
+        rows.Should().OnlyContain(r => r.Board.Length == 26);
+    }
+
+    [Fact]
+    public void IterateXgDirectory_RaceAndContactAreComplementary()
+    {
+        var allFilters = new DecisionFilterSet();
+        var raceFilters = new DecisionFilterSet().Add(new PositionTypeFilter([PositionType.Race]));
+        var contactFilters = new DecisionFilterSet().Add(new PositionTypeFilter([PositionType.Contact]));
+
+        var all = FilteredDecisionIterator.IterateXgDirectory(XgDir, allFilters).ToList();
+        var race = FilteredDecisionIterator.IterateXgDirectory(XgDir, raceFilters).ToList();
+        var contact = FilteredDecisionIterator.IterateXgDirectory(XgDir, contactFilters).ToList();
+
+        (race.Count + contact.Count).Should().Be(all.Count,
+            "Race and Contact should be mutually exclusive and exhaustive");
+
+        Console.WriteLine($"Total: {all.Count}  Race: {race.Count}  Contact: {contact.Count}");
     }
 
     [Fact]
