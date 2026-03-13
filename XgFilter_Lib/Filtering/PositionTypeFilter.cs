@@ -1,19 +1,19 @@
 using ConvertXgToJson_Lib.Models;
+using XgFilter_Lib.Classification;
 using XgFilter_Lib.Enums;
 
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Passes rows where the position type (derived from <see cref="DecisionRow.Xgid"/>)
+/// Passes rows where the position type (derived from <see cref="DecisionRow.Board"/>)
 /// matches any entry in the include list.
 /// </summary>
-/// <remarks>
-/// STUB: <see cref="ClassifyPosition"/> always returns <see cref="PositionType.Contact"/>
-/// until the XGID decoder is implemented.
-/// </remarks>
 public sealed class PositionTypeFilter : IDecisionFilter
 {
     private readonly HashSet<PositionType> _types;
+
+    private static readonly RaceClassifier _race = new();
+    private static readonly ContactClassifier _contact = new();
 
     public PositionTypeFilter(IEnumerable<PositionType> types)
     {
@@ -21,15 +21,14 @@ public sealed class PositionTypeFilter : IDecisionFilter
     }
 
     public bool Matches(DecisionRow row) =>
-        _types.Contains(ClassifyPosition(row.Xgid));
+        _types.Contains(ClassifyPosition(row.Board));
 
-    // -------------------------------------------------------------------
-    //  Stub — replace with real XGID board-state analysis
-    // -------------------------------------------------------------------
-
-    private static PositionType ClassifyPosition(string xgid)
+    private static PositionType ClassifyPosition(int[] board)
     {
-        // TODO: decode checker positions from xgid and classify.
+        if (_race.Matches(board)) return PositionType.Race;
+        if (_contact.Matches(board)) return PositionType.Contact;
+
+        // Fallback — should not be reached since Contact = !Race
         return PositionType.Contact;
     }
 }

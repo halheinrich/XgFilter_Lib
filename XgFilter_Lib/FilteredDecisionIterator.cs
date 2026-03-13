@@ -7,6 +7,8 @@ namespace XgFilter_Lib;
 /// <summary>
 /// Iterates over .xg files in a directory and yields only the
 /// <see cref="DecisionRow"/> records that pass the supplied filters.
+/// Applies match- and game-level early-exit optimizations via
+/// <see cref="XgIteratorState"/>.
 /// </summary>
 public static class FilteredDecisionIterator
 {
@@ -18,9 +20,43 @@ public static class FilteredDecisionIterator
         string xgDir,
         DecisionFilterSet filters)
     {
-        foreach (var row in XgDecisionIterator.IterateXgDirectory(xgDir))
-            if (filters.Matches(row))
+        var state = new XgIteratorState();
+
+        foreach (var path in Directory.EnumerateFiles(xgDir, "*.xg"))
+        {
+            XgFile file;
+            try { file = XgFileReader.ReadFile(path); }
+            catch { continue; }
+
+            state.AdvanceNextMatch = false;
+            state.AdvanceNextGame = false;
+            state.MatchInfo = XgDecisionIterator.ExtractMatchInfo(file);
+            state.GameInfo = null;
+
+            if (filters.ShouldSkipMatch(state.MatchInfo))
+                continue;
+
+            string matchId = Path.GetFileNameWithoutExtension(path);
+
+            foreach (var row in XgDecisionIterator.Iterate(file, matchId, state))
+            {
+                // GameInfo is freshly populated by Iterate() at each GameHeaderRecord.
+                // Check it before deciding whether to skip the game.
+                if (state.GameInfo != null && filters.ShouldSkipGame(state.GameInfo))
+                {
+                    state.AdvanceNextGame = true;
+                    state.GameInfo = null;
+                    continue;
+                }
+
+                if (!filters.Matches(row)) continue;
+
+                state.AdvanceNextGame = filters.ShouldAdvanceGame(row);
+                state.AdvanceNextMatch = filters.ShouldAdvanceMatch(row);
+
                 yield return row;
+            }
+        }
     }
 
     /// <summary>
@@ -31,8 +67,40 @@ public static class FilteredDecisionIterator
         string jsonDir,
         DecisionFilterSet filters)
     {
-        foreach (var row in XgDecisionIterator.IterateJsonDirectory(jsonDir))
-            if (filters.Matches(row))
+        var state = new XgIteratorState();
+
+        foreach (var path in Directory.EnumerateFiles(jsonDir, "*.json"))
+        {
+            XgFile file;
+            try { file = XgFileReader.ReadJson(path); }
+            catch { continue; }
+
+            state.AdvanceNextMatch = false;
+            state.AdvanceNextGame = false;
+            state.MatchInfo = XgDecisionIterator.ExtractMatchInfo(file);
+            state.GameInfo = null;
+
+            if (filters.ShouldSkipMatch(state.MatchInfo))
+                continue;
+
+            string matchId = Path.GetFileNameWithoutExtension(path);
+
+            foreach (var row in XgDecisionIterator.Iterate(file, matchId, state))
+            {
+                if (state.GameInfo != null && filters.ShouldSkipGame(state.GameInfo))
+                {
+                    state.AdvanceNextGame = true;
+                    state.GameInfo = null;
+                    continue;
+                }
+
+                if (!filters.Matches(row)) continue;
+
+                state.AdvanceNextGame = filters.ShouldAdvanceGame(row);
+                state.AdvanceNextMatch = filters.ShouldAdvanceMatch(row);
+
                 yield return row;
+            }
+        }
     }
 }

@@ -1,3 +1,4 @@
+using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
 
 namespace XgFilter_Lib.Filtering;
@@ -28,4 +29,28 @@ public sealed class DecisionFilterSet
     /// </summary>
     public IEnumerable<DecisionRow> Apply(IEnumerable<DecisionRow> rows) =>
         rows.Where(Matches);
+
+    /// <summary>
+    /// Returns true if any IMatchFilter in the set votes to skip this match.
+    /// </summary>
+    public bool ShouldSkipMatch(XgMatchInfo match) =>
+        _filters.OfType<IMatchFilter>().Any(f => f.ShouldSkipMatch(match));
+
+    /// <summary>
+    /// Returns true if any IMatchFilter in the set votes to skip this game.
+    /// </summary>
+    public bool ShouldSkipGame(XgGameInfo game) =>
+        _filters.OfType<IMatchFilter>().Any(f => f.ShouldSkipGame(game));
+
+    /// <summary>
+    /// Returns true if any filter votes to skip remaining decisions in this game.
+    /// </summary>
+    public bool ShouldAdvanceGame(DecisionRow row) =>
+        _filters.Any(f => f.ShouldAdvanceGame(row));
+
+    /// <summary>
+    /// Returns true if any filter votes to skip remaining decisions in this match.
+    /// </summary>
+    public bool ShouldAdvanceMatch(DecisionRow row) =>
+        _filters.Any(f => f.ShouldAdvanceMatch(row));
 }
