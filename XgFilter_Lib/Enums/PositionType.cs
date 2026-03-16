@@ -10,4 +10,5 @@ public enum PositionType
     Priming,
     Blitz,
     HoldingGame,
+    InnerBoard631,
 }

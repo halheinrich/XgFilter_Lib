@@ -5,8 +5,9 @@ using XgFilter_Lib.Enums;
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Passes rows where the position type (derived from <see cref="DecisionRow.Board"/>)
-/// matches any entry in the include list.
+/// Passes rows where the board matches any of the selected position types.
+/// A position may match multiple types (e.g. Contact AND InnerBoard631).
+/// Priming, Blitz, and HoldingGame are not yet implemented and never match.
 /// </summary>
 public sealed class PositionTypeFilter : IDecisionFilter
 {
@@ -14,21 +15,28 @@ public sealed class PositionTypeFilter : IDecisionFilter
 
     private static readonly RaceClassifier _race = new();
     private static readonly ContactClassifier _contact = new();
+    private static readonly InnerBoard631Classifier _innerBoard631 = new();
 
     public PositionTypeFilter(IEnumerable<PositionType> types)
     {
         _types = new HashSet<PositionType>(types);
     }
 
-    public bool Matches(DecisionRow row) =>
-        _types.Contains(ClassifyPosition(row.Board));
-
-    private static PositionType ClassifyPosition(int[] board)
+    public bool Matches(DecisionRow row)
     {
-        if (_race.Matches(board)) return PositionType.Race;
-        if (_contact.Matches(board)) return PositionType.Contact;
-
-        // Fallback — should not be reached since Contact = !Race
-        return PositionType.Contact;
+        foreach (var type in _types)
+            if (Classify(row.Board, type)) return true;
+        return false;
     }
+
+    private static bool Classify(int[] board, PositionType type) => type switch
+    {
+        PositionType.Race => _race.Matches(board),
+        PositionType.Contact => _contact.Matches(board),
+        PositionType.InnerBoard631 => _innerBoard631.Matches(board),
+        PositionType.Priming => false,
+        PositionType.Blitz => false,
+        PositionType.HoldingGame => false,
+        _ => false,
+    };
 }
