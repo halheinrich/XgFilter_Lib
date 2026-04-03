@@ -16,6 +16,7 @@ public sealed class PositionTypeFilter : IDecisionFilter
     private static readonly RaceClassifier _race = new();
     private static readonly ContactClassifier _contact = new();
     private static readonly InnerBoard631Classifier _innerBoard631 = new();
+    private static readonly InnerBoard54321Classifier _innerBoard54321 = new();
 
     public PositionTypeFilter(IEnumerable<PositionType> types)
     {
@@ -34,6 +35,7 @@ public sealed class PositionTypeFilter : IDecisionFilter
         PositionType.Race => _race.Matches(board),
         PositionType.Contact => _contact.Matches(board),
         PositionType.InnerBoard631 => _innerBoard631.Matches(board),
+        PositionType.InnerBoard54321 => _innerBoard54321.Matches(board),
         PositionType.Priming => false,
         PositionType.Blitz => false,
         PositionType.HoldingGame => false,

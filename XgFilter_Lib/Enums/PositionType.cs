@@ -11,4 +11,5 @@ public enum PositionType
     Blitz,
     HoldingGame,
     InnerBoard631,
+    InnerBoard54321,
 }

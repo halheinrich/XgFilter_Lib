@@ -1,4 +1,4 @@
-﻿namespace XgFilter_Lib.Classification;
+﻿using XgFilter_Lib.Classification;
 
 /// <summary>
 /// Returns true when the player on roll holds an inner-board 6-3-1 structure:
@@ -8,7 +8,7 @@
 /// Board index convention: board[1]–board[24] = points 1–24 from player on roll's perspective.
 /// Positive values = player on roll's checkers.
 /// </summary>
-public sealed class InnerBoard631Classifier : IPositionClassifier
+public sealed class InnerBoard54321Classifier : IPositionClassifier
 {
     private static readonly RaceClassifier _race = new();
 
@@ -16,11 +16,11 @@ public sealed class InnerBoard631Classifier : IPositionClassifier
     {
         if (_race.Matches(board)) return false;
 
-        return board[6] >= 2
+        return board[6] < 2
+            && board[5] >= 2
+            && board[4] >= 2
             && board[3] >= 2
-            && board[1] >= 2
-            && board[5] < 2
-            && board[4] < 2
-            && board[2] < 2;
+            && board[2] >= 2
+            && board[1] >= 2;
     }
 }
