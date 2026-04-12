@@ -1,4 +1,4 @@
-using ConvertXgToJson_Lib.Models;
+using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
 
 namespace XgFilter_Lib.Filtering;
@@ -22,19 +22,18 @@ public sealed class PlayTypeFilter : IDecisionFilter
         _types = new HashSet<PlayType>(types);
     }
 
-    public bool Matches(DecisionRow row)
+    public bool Matches(IDecisionFilterData data)
     {
         // Cube decisions have no play type — let them pass.
-        if (row.IsCube) return true;
-
-        return _types.Contains(ClassifyPlay(row));
+        if (data.IsCube) return true;
+        return _types.Contains(ClassifyPlay(data));
     }
 
     // -------------------------------------------------------------------
     //  Stub — replace with real move classification logic
     // -------------------------------------------------------------------
 
-    private static PlayType ClassifyPlay(DecisionRow row)
+    private static PlayType ClassifyPlay(IDecisionFilterData data)
     {
         // TODO: analyse Xgid + candidate moves to determine play type.
         return PlayType.RunningPlay;

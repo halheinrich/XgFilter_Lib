@@ -6,7 +6,7 @@ namespace XgFilter_Lib.Tests.Filtering;
 public class DecisionFilterSetTests
 {
     [Fact]
-    public void Apply_WithNoFilters_ReturnsAllRows()
+    public void Matches_WithNoFilters_PassesAllRows()
     {
         var set = new DecisionFilterSet();
         var rows = new[]
@@ -15,11 +15,11 @@ public class DecisionFilterSetTests
             DecisionRowBuilder.Build(player: "Bob"),
         };
 
-        set.Apply(rows).Should().HaveCount(2);
+        rows.Where(set.Matches).Should().HaveCount(2);
     }
 
     [Fact]
-    public void Apply_WithSingleFilter_ReturnsMatchingRows()
+    public void Matches_WithSingleFilter_PassesMatchingRows()
     {
         var set = new DecisionFilterSet()
             .Add(new PlayerFilter(["Alice"]));
@@ -30,28 +30,27 @@ public class DecisionFilterSetTests
             DecisionRowBuilder.Build(player: "Bob"),
         };
 
-        var result = set.Apply(rows).ToList();
+        var result = rows.Where(set.Matches).ToList();
 
         result.Should().HaveCount(1);
         result[0].Player.Should().Be("Alice");
     }
 
     [Fact]
-    public void Apply_WithMultipleFilters_AndSemantics()
+    public void Matches_WithMultipleFilters_AndSemantics()
     {
-        // Only rows where Player = Alice AND Error >= 0.05 should pass
         var set = new DecisionFilterSet()
             .Add(new PlayerFilter(["Alice"]))
             .Add(new ErrorRangeFilter(min: 0.05, max: null));
 
         var rows = new[]
         {
-            DecisionRowBuilder.Build(player: "Alice", error: 0.10),  // pass
-            DecisionRowBuilder.Build(player: "Alice", error: 0.02),  // fail error
-            DecisionRowBuilder.Build(player: "Bob",   error: 0.10),  // fail player
+            DecisionRowBuilder.Build(player: "Alice", error: 0.10),
+            DecisionRowBuilder.Build(player: "Alice", error: 0.02),
+            DecisionRowBuilder.Build(player: "Bob",   error: 0.10),
         };
 
-        var result = set.Apply(rows).ToList();
+        var result = rows.Where(set.Matches).ToList();
 
         result.Should().HaveCount(1);
         result[0].Player.Should().Be("Alice");
@@ -59,7 +58,7 @@ public class DecisionFilterSetTests
     }
 
     [Fact]
-    public void Apply_WhenNoRowsMatch_ReturnsEmpty()
+    public void Matches_WhenNoRowsMatch_ReturnsEmpty()
     {
         var set = new DecisionFilterSet()
             .Add(new PlayerFilter(["Charlie"]));
@@ -70,11 +69,11 @@ public class DecisionFilterSetTests
             DecisionRowBuilder.Build(player: "Bob"),
         };
 
-        set.Apply(rows).Should().BeEmpty();
+        rows.Where(set.Matches).Should().BeEmpty();
     }
 
     [Fact]
-    public void Apply_WithDecisionTypeAndPlayerFilters_CombinesCorrectly()
+    public void Matches_WithDecisionTypeAndPlayerFilters_CombinesCorrectly()
     {
         var set = new DecisionFilterSet()
             .Add(new PlayerFilter(["Alice"]))
@@ -82,12 +81,12 @@ public class DecisionFilterSetTests
 
         var rows = new[]
         {
-            DecisionRowBuilder.Build(player: "Alice", roll: 31),   // pass
-            DecisionRowBuilder.BuildCube(player: "Alice"),          // fail type
-            DecisionRowBuilder.Build(player: "Bob", roll: 31),     // fail player
+            DecisionRowBuilder.Build(player: "Alice", roll: 31),
+            DecisionRowBuilder.BuildCube(player: "Alice"),
+            DecisionRowBuilder.Build(player: "Bob", roll: 31),
         };
 
-        var result = set.Apply(rows).ToList();
+        var result = rows.Where(set.Matches).ToList();
 
         result.Should().HaveCount(1);
         result[0].IsCube.Should().BeFalse();

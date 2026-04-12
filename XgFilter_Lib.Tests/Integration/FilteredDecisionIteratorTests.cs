@@ -149,7 +149,7 @@ public class FilteredDecisionIteratorTests
         Console.WriteLine(new string('-', selector.Header.Length));
         Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
 
-        rows.Should().OnlyContain(r => r.Board.Length == 26);
+        rows.Should().OnlyContain(r => r.Board.Count == 26);
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public class FilteredDecisionIteratorTests
         Console.WriteLine(new string('-', selector.Header.Length));
         Console.WriteLine($"Showing {Math.Min(32, rows.Count)} of {rows.Count} decisions");
 
-        rows.Should().OnlyContain(r => r.Board.Length == 26);
+        rows.Should().OnlyContain(r => r.Board.Count == 26);
     }
 
     [Fact]

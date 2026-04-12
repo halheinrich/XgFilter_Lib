@@ -1,4 +1,4 @@
-using ConvertXgToJson_Lib.Models;
+using BgDataTypes_Lib;
 using XgFilter_Lib.Classification;
 using XgFilter_Lib.Enums;
 
@@ -23,14 +23,14 @@ public sealed class PositionTypeFilter : IDecisionFilter
         _types = new HashSet<PositionType>(types);
     }
 
-    public bool Matches(DecisionRow row)
+    public bool Matches(IDecisionFilterData data)
     {
         foreach (var type in _types)
-            if (Classify(row.Board, type)) return true;
+            if (Classify(data.Board, type)) return true;
         return false;
     }
 
-    private static bool Classify(int[] board, PositionType type) => type switch
+    private static bool Classify(IReadOnlyList<int> board, PositionType type) => type switch
     {
         PositionType.Race => _race.Matches(board),
         PositionType.Contact => _contact.Matches(board),

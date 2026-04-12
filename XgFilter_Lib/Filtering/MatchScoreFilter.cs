@@ -1,5 +1,5 @@
+using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
-using ConvertXgToJson_Lib.Models;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -10,15 +10,13 @@ namespace XgFilter_Lib.Filtering;
 /// </summary>
 public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
 {
-    private readonly HashSet<string> _scores;
     private readonly List<(int Away1, int Away2, bool IsCrawford)> _tuples;
     private readonly bool _includesMoney;
 
     public MatchScoreFilter(IEnumerable<string> scores)
     {
         var list = scores.ToList();
-        _scores = new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
-        _includesMoney = _scores.Contains("money");
+        _includesMoney = list.Any(s => s.Equals("money", StringComparison.OrdinalIgnoreCase));
         _tuples = list
             .Where(s => !s.Equals("money", StringComparison.OrdinalIgnoreCase))
             .Select(ParseScore)
@@ -27,8 +25,16 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
             .ToList();
     }
 
-    public bool Matches(DecisionRow row) =>
-        _scores.Contains(row.MatchScore);
+    public bool Matches(IDecisionFilterData data)
+    {
+        if (data.MatchLength == 0)
+            return _includesMoney;
+
+        return _tuples.Any(t =>
+            t.Away1 == data.OnRollNeeds &&
+            t.Away2 == data.OpponentNeeds &&
+            t.IsCrawford == data.IsCrawford);
+    }
 
     /// <summary>
     /// Skip the match if:

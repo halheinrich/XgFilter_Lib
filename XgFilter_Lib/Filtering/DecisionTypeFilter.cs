@@ -1,4 +1,4 @@
-using ConvertXgToJson_Lib.Models;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -25,10 +25,10 @@ public sealed class DecisionTypeFilter : IDecisionFilter
         _option = option;
     }
 
-    public bool Matches(DecisionRow row) => _option switch
+    public bool Matches(IDecisionFilterData data) => _option switch
     {
-        DecisionTypeOption.CheckerPlaysOnly => !row.IsCube,
-        DecisionTypeOption.CubeOnly         =>  row.IsCube,
+        DecisionTypeOption.CheckerPlaysOnly => !data.IsCube,
+        DecisionTypeOption.CubeOnly         => data.IsCube,
         DecisionTypeOption.Both             =>  true,
         _ => true,
     };

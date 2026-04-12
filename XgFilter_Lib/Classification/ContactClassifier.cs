@@ -8,5 +8,5 @@ public sealed class ContactClassifier : IPositionClassifier
 {
     private static readonly RaceClassifier _race = new();
 
-    public bool Matches(int[] board) => !_race.Matches(board);
+    public bool Matches(IReadOnlyList<int> board) => !_race.Matches(board);
 }

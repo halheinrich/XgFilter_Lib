@@ -2,7 +2,7 @@
 
 public sealed class RaceClassifier : IPositionClassifier
 {
-    public bool Matches(int[] board)
+    public bool Matches(IReadOnlyList<int> board)
     {
         int playerLast = -1;
         int opponentFirst = 26;

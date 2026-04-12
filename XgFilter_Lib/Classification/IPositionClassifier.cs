@@ -9,5 +9,5 @@
 /// </summary>
 public interface IPositionClassifier
 {
-    bool Matches(int[] board);
+    bool Matches(IReadOnlyList<int> board);
 }

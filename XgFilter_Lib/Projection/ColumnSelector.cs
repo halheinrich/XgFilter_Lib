@@ -1,5 +1,5 @@
 using System.Text;
-using ConvertXgToJson_Lib.Models;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Projection;
 

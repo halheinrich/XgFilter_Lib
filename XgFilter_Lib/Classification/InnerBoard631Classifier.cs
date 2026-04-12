@@ -12,7 +12,7 @@ public sealed class InnerBoard631Classifier : IPositionClassifier
 {
     private static readonly RaceClassifier _race = new();
 
-    public bool Matches(int[] board)
+    public bool Matches(IReadOnlyList<int> board)
     {
         if (_race.Matches(board)) return false;
 

@@ -1,4 +1,4 @@
-using ConvertXgToJson_Lib.Models;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -17,7 +17,10 @@ public sealed class ErrorRangeFilter : IDecisionFilter
         _max = max;
     }
 
-    public bool Matches(DecisionRow row) =>
-        (_min is null || row.Error >= _min.Value) &&
-        (_max is null || row.Error <= _max.Value);
+    public bool Matches(IDecisionFilterData data)
+    {
+        if (data.FilterError is not double error) return false;
+        return (_min is null || error >= _min.Value) &&
+               (_max is null || error <= _max.Value);
+    }
 }

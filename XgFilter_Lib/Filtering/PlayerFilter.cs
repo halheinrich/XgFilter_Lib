@@ -1,5 +1,5 @@
+using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
-using ConvertXgToJson_Lib.Models;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -16,8 +16,7 @@ public sealed class PlayerFilter : IDecisionFilter, IMatchFilter
         _players = new HashSet<string>(players, StringComparer.OrdinalIgnoreCase);
     }
 
-    public bool Matches(DecisionRow row) =>
-        _players.Contains(row.Player);
+    public bool Matches(IDecisionFilterData data) => _players.Contains(data.Player);
 
     /// <summary>
     /// Skip the match if neither player is in the include list.

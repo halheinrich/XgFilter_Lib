@@ -1,4 +1,5 @@
-﻿using ConvertXgToJson_Lib;
+﻿using BgDataTypes_Lib;
+using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
 using XgFilter_Lib.Filtering;
 
