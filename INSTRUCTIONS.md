@@ -7,7 +7,7 @@ Part of the Backgammon tools ecosystem: https://github.com/halheinrich/backgammo
 
 https://github.com/halheinrich/XgFilter_Lib
 **Branch:** main
-**Current commit:** `f134d90`
+**Current commit:** `5931fe8`
 
 ## Stack
 
@@ -19,89 +19,39 @@ C# / .NET 10 / Class Library / Visual Studio 2026 / Windows
 
 ## Depends on
 
-* ConvertXgToJson_Lib — provides DecisionRow, XgIteratorState, XgMatchInfo, XgGameInfo, XgDecisionIterator, XgFileReader
+* BgDataTypes_Lib (commit `a0b6203`) — provides IDecisionFilterData, DecisionRow, BgDecisionData, PositionData, DecisionData, DescriptiveData
+* ConvertXgToJson_Lib (commit `a058132`) — provides XgDecisionIterator, XgIteratorState, XgMatchInfo, XgGameInfo, XgFileReader, XgFile
 
-## Repo directory tree
+## Key files (commit 5931fe8)
 
-```
-XgFilter_Lib/
-  XgFilter_Lib/
-    Classification/
-      ContactClassifier.cs
-      InnerBoard54321Classifier.cs
-      InnerBoard631Classifier.cs
-      IPositionClassifier.cs
-      RaceClassifier.cs
-    Enums/
-      PlayType.cs
-      PositionType.cs
-    Filtering/
-      DecisionFilterSet.cs
-      DecisionTypeFilter.cs
-      ErrorRangeFilter.cs
-      IDecisionFilter.cs
-      IMatchFilter.cs
-      MatchScoreFilter.cs
-      PlayerFilter.cs
-      PlayTypeFilter.cs
-      PositionTypeFilter.cs
-    Projection/
-      ColumnSelector.cs
-    FilteredDecisionIterator.cs
-    XgFilter_Lib.csproj
-  XgFilter_Lib.Tests/
-    Classification/
-      InnerBoard631ClassifierTests.cs
-    Helpers/
-      DecisionRowBuilder.cs
-    FilteredDecisionIteratorTests.cs
-    GlobalUsings.cs
-    RaceClassifierTests.cs
-    TestPaths.cs
-    XgFilter_Lib.Tests.csproj
-  XgFilter_Lib.slnx
-  INSTRUCTIONS.md
-```
-
-## Key files
-
-* XgFilter_Lib.csproj: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/XgFilter_Lib.csproj
-* Tests.csproj: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib.Tests/XgFilter_Lib.Tests.csproj
-* GlobalUsings.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib.Tests/GlobalUsings.cs
-* Enums/PositionType.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Enums/PositionType.cs
-* Enums/PlayType.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Enums/PlayType.cs
-* Filtering/IDecisionFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/IDecisionFilter.cs
-* Filtering/IMatchFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/IMatchFilter.cs
-* Filtering/DecisionFilterSet.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/DecisionFilterSet.cs
-* Filtering/PlayerFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/PlayerFilter.cs
-* Filtering/DecisionTypeFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/DecisionTypeFilter.cs
-* Filtering/MatchScoreFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/MatchScoreFilter.cs
-* Filtering/ErrorRangeFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/ErrorRangeFilter.cs
-* Filtering/PositionTypeFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/PositionTypeFilter.cs
-* Filtering/PlayTypeFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Filtering/PlayTypeFilter.cs
-* Classification/IPositionClassifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Classification/IPositionClassifier.cs
-* Classification/RaceClassifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Classification/RaceClassifier.cs
-* Classification/ContactClassifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Classification/ContactClassifier.cs
-* Classification/InnerBoard631Classifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Classification/InnerBoard631Classifier.cs
-* Classification/InnerBoard54321Classifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Classification/InnerBoard54321Classifier.cs
-* Projection/ColumnSelector.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/Projection/ColumnSelector.cs
-* FilteredDecisionIterator.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib/FilteredDecisionIterator.cs
-* Tests/Helpers/DecisionRowBuilder.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib.Tests/Helpers/DecisionRowBuilder.cs
-* Tests/Classification/RaceClassifierTests.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib.Tests/Classification/RaceClassifierTests.cs
-* Tests/FilteredDecisionIteratorTests.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib.Tests/FilteredDecisionIteratorTests.cs
-* Tests/Classification/InnerBoard631ClassifierTests.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib.Tests/Classification/InnerBoard631ClassifierTests.cs
-* Tests/TestPaths.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/f134d90/XgFilter_Lib.Tests/TestPaths.cs
-
-## Dependency files
-
-### ConvertXgToJson_Lib
-Files needed from this dependency (fetch URLs from umbrella INSTRUCTIONS.md):
-* Models/DecisionRow.cs
-* XgDecisionIterator.cs
-* XgMatchInfo.cs
-* XgGameInfo.cs
-* XgFileReader.cs
-* BackgammonConstants.cs
+* XgFilter_Lib.csproj: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/XgFilter_Lib.csproj
+* Tests.csproj: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/XgFilter_Lib.Tests.csproj
+* GlobalUsings.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/GlobalUsings.cs
+* Enums/PositionType.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Enums/PositionType.cs
+* Enums/PlayType.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Enums/PlayType.cs
+* Filtering/IDecisionFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/IDecisionFilter.cs
+* Filtering/IMatchFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/IMatchFilter.cs
+* Filtering/DecisionFilterSet.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/DecisionFilterSet.cs
+* Filtering/PlayerFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/PlayerFilter.cs
+* Filtering/DecisionTypeFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/DecisionTypeFilter.cs
+* Filtering/MatchScoreFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/MatchScoreFilter.cs
+* Filtering/ErrorRangeFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/ErrorRangeFilter.cs
+* Filtering/PositionTypeFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/PositionTypeFilter.cs
+* Filtering/PlayTypeFilter.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Filtering/PlayTypeFilter.cs
+* Classification/IPositionClassifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Classification/IPositionClassifier.cs
+* Classification/RaceClassifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Classification/RaceClassifier.cs
+* Classification/ContactClassifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Classification/ContactClassifier.cs
+* Classification/InnerBoard631Classifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Classification/InnerBoard631Classifier.cs
+* Classification/InnerBoard54321Classifier.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Classification/InnerBoard54321Classifier.cs
+* Projection/ColumnSelector.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/Projection/ColumnSelector.cs
+* FilteredDecisionIterator.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib/FilteredDecisionIterator.cs
+* Tests/Helpers/DecisionRowBuilder.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/Helpers/DecisionRowBuilder.cs
+* Tests/Helpers/BgDecisionDataBuilder.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/Helpers/BgDecisionDataBuilder.cs
+* Tests/Classification/RaceClassifierTests.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/Classification/RaceClassifierTests.cs
+* Tests/Filtering/BgDecisionDataFilterTests.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/Filtering/BgDecisionDataFilterTests.cs
+* Tests/Filtering/DecisionFilterSetTests.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/Filtering/DecisionFilterSetTests.cs
+* Tests/Filtering/MatchScoreFilterTests.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/Filtering/MatchScoreFilterTests.cs
+* Tests/Integration/FilteredDecisionIteratorTests.cs: https://raw.githack.com/halheinrich/XgFilter_Lib/5931fe8/XgFilter_Lib.Tests/Integration/FilteredDecisionIteratorTests.cs
 
 ## Architecture
 
@@ -112,19 +62,19 @@ Files needed from this dependency (fetch URLs from umbrella INSTRUCTIONS.md):
 
 ### Filtering
 
-* `IDecisionFilter` — `bool Matches(DecisionRow row)`; default methods `ShouldAdvanceGame`, `ShouldAdvanceMatch` (both default false)
+* `IDecisionFilter` — `bool Matches(IDecisionFilterData data)`; default methods `ShouldAdvanceGame`, `ShouldAdvanceMatch` (both default false)
 * `IMatchFilter` — `bool ShouldSkipMatch(XgMatchInfo match)`; `bool ShouldSkipGame(XgGameInfo game)`
-* `DecisionFilterSet` — ordered list of IDecisionFilter, AND semantics; fluent `Add()`; `Matches()`; `Apply()`; `ShouldSkipMatch()`; `ShouldSkipGame()`; `ShouldAdvanceGame()`; `ShouldAdvanceMatch()`
+* `DecisionFilterSet` — ordered list of IDecisionFilter, AND semantics; fluent `Add()`; `Matches()`; `ShouldSkipMatch()`; `ShouldSkipGame()`; `ShouldAdvanceGame()`; `ShouldAdvanceMatch()`
 * `PlayerFilter` — implements IDecisionFilter + IMatchFilter; include list of player name strings; ShouldSkipMatch skips if neither player is in list
-* `DecisionTypeFilter` — checker play, cube, or both; uses `DecisionRow.IsCube`
-* `MatchScoreFilter` — implements IDecisionFilter + IMatchFilter; include list of score strings e.g. `"3a5a"`, `"1a1aC"`, `"money"`; ShouldSkipMatch detects money/match mismatch and impossible away scores; ShouldSkipGame skips if game score doesn't match any target tuple; stores targets as `(Away1, Away2, IsCrawford)` tuples internally; money = `(0, 0, false)`
-* `ErrorRangeFilter` — min/max double
-* `PositionTypeFilter` — include list of PositionType; uses `row.Board` via classifiers — never parses Xgid
+* `DecisionTypeFilter` — checker play, cube, or both; uses `IDecisionFilterData.IsCube`
+* `MatchScoreFilter` — implements IDecisionFilter + IMatchFilter; Matches uses tuple comparison of (OnRollNeeds, OpponentNeeds, IsCrawford) plus MatchLength == 0 for money; constructor accepts string list e.g. `"3a5a"`, `"1a5aC"`, `"money"` and parses to tuples; ShouldSkipMatch detects money/match mismatch and impossible away scores; ShouldSkipGame skips if game score doesn't match any target tuple; stores targets as `(Away1, Away2, IsCrawford)` tuples internally; money = `(0, 0, false)`
+* `ErrorRangeFilter` — min/max double; returns false when FilterError is null
+* `PositionTypeFilter` — include list of PositionType; uses `data.Board` via classifiers
 * `PlayTypeFilter` — stub
 
 ### Classification
 
-* `IPositionClassifier` — `bool Matches(int[] board)`
+* `IPositionClassifier` — `bool Matches(IReadOnlyList<int> board)`
 * `RaceClassifier` — true when no contact between checker blocks
 * `ContactClassifier` — Contact = !Race (exhaustive and mutually exclusive for now)
 * `InnerBoard631Classifier` — classifies inner board 6-3-1 structure
@@ -133,7 +83,7 @@ Files needed from this dependency (fetch URLs from umbrella INSTRUCTIONS.md):
 
 ### Projection
 
-* `ColumnSelector` — explicit column registry, no reflection; ordered list drives CSV header and row serialization
+* `ColumnSelector` — explicit column registry, no reflection; ordered list drives CSV header and row serialization; typed to DecisionRow (CSV-specific)
 * Board is never exposed in CSV output
 
 ### Early-exit optimization
@@ -143,9 +93,9 @@ Files needed from this dependency (fetch URLs from umbrella INSTRUCTIONS.md):
 * Per game: `XgDecisionIterator.Iterate()` populates `state.GameInfo` from `GameHeaderRecord`; evaluates `ShouldSkipGame` and sets `AdvanceNextGame` if true
 * Per row: evaluates `ShouldAdvanceGame` / `ShouldAdvanceMatch` — sets flags for future filters (currently all return false)
 
-### Board layout (DecisionRow.Board)
+### Board layout (IDecisionFilterData.Board)
 
-* `int[]` 26 elements
+* `IReadOnlyList<int>` 26 elements
 * `board[0]` = opponent bar (never positive)
 * `board[1–24]` = points 1–24 from player on roll's perspective
 * `board[25]` = player bar (never negative)
@@ -154,7 +104,7 @@ Files needed from this dependency (fetch URLs from umbrella INSTRUCTIONS.md):
 
 ## Current status
 
-✅ Complete — all filters, classifiers, ColumnSelector, FilteredDecisionIterator with early-exit optimization, full test suite passing
+✅ Complete — all filters operate on IDecisionFilterData, supporting both DecisionRow and BgDecisionData; classifiers, ColumnSelector, FilteredDecisionIterator with early-exit optimization, full test suite passing
 
 ## Deferred
 
@@ -165,11 +115,33 @@ Files needed from this dependency (fetch URLs from umbrella INSTRUCTIONS.md):
 
 ## Key decisions
 
+* Filters operate on `IDecisionFilterData` (from BgDataTypes_Lib) — both `DecisionRow` and `BgDecisionData` are supported
+* `IPositionClassifier.Matches` accepts `IReadOnlyList<int>` to match `IDecisionFilterData.Board`
+* `MatchScoreFilter.Matches` uses structured tuple comparison (OnRollNeeds, OpponentNeeds, IsCrawford), not string matching
+* `ErrorRangeFilter` returns false when `FilterError` is null (BgDecisionData may have null errors)
+* `DecisionFilterSet.Apply` removed — unused; filtering is done via `Matches` bool predicate
 * Contact = !Race (exhaustive and mutually exclusive for now)
-* PositionTypeFilter uses row.Board via classifiers — never parses Xgid
+* PositionTypeFilter uses data.Board via classifiers — never parses Xgid
 * Board not exposed in CSV/ColumnSelector
-* ColumnSelector uses explicit registry — no reflection
+* ColumnSelector uses explicit registry — no reflection; stays typed to DecisionRow
 * IMatchFilter is a separate interface — filters implement it alongside IDecisionFilter where applicable
 * FilteredDecisionIterator owns XgIteratorState and iterates files directly via XgDecisionIterator.Iterate()
 * MatchScoreFilter stores targets as (Away1, Away2, IsCrawford) tuples internally; money = (0, 0, false)
 * TestData lives at shared `backgammon\TestData`; referenced via `..\..\TestData` with `Link` in Tests.csproj
+* Crawford constraint: isCrawford may only be true if one away score == 1 and the other > 1
+* Away score constraint: onRollNeeds/opponentNeeds may only be zero if matchLength == 0 (money)
+
+## Shared rules
+
+See `AGENTS.md` in the umbrella repo — applies to all sub-projects.
+`https://raw.githack.com/halheinrich/backgammon/main/AGENTS.md`
+
+## Session handoff
+
+After committing:
+
+1. `git rev-parse HEAD` in this subproject dir — note the short hash
+2. Update commit hash in this doc and all raw URLs
+3. Add URLs for any new files created
+4. Update In progress / Deferred / Key decisions
+5. Return to Backgammon Umbrella project — update umbrella instructions doc
