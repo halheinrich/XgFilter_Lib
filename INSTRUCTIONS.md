@@ -1,146 +1,266 @@
-# XgFilter_Lib — Project Instructions
+# XgFilter_Lib
 
-Part of the Backgammon tools ecosystem: https://github.com/halheinrich/backgammon
-
-## Repo
-
-https://github.com/halheinrich/XgFilter_Lib
-**Branch:** main
+> Session conventions: [`../CLAUDE.md`](../CLAUDE.md)
+> Umbrella status & dependency graph: [`../INSTRUCTIONS.md`](../INSTRUCTIONS.md)
+> Mission & principles: [`../VISION.md`](../VISION.md)
 
 ## Stack
 
-C# / .NET 10 / Class Library / Visual Studio 2026 / Windows
+C# / .NET 10 / Class Library / xUnit. Filtering, classification, and column
+projection for backgammon decision records produced by `ConvertXgToJson_Lib`.
 
 ## Solution
 
 `D:\Users\Hal\Documents\Visual Studio 2026\Projects\backgammon\XgFilter_Lib\XgFilter_Lib.slnx`
 
+## Repo
+
+https://github.com/halheinrich/XgFilter_Lib — branch `main`.
+
 ## Depends on
 
-* **BgDataTypes_Lib** — IDecisionFilterData, DecisionRow, BgDecisionData, PositionData, DecisionData, DescriptiveData
-* **ConvertXgToJson_Lib** — XgDecisionIterator, XgIteratorState, XgMatchInfo, XgGameInfo, XgFileReader, XgFile
-
-## Dependency files
-
-### BgDataTypes_Lib
-* BgDataTypes_Lib/IDecisionFilterData.cs
-* BgDataTypes_Lib/DecisionRow.cs
-* BgDataTypes_Lib/BgDecisionData.cs
-* BgDataTypes_Lib/PositionData.cs
-* BgDataTypes_Lib/DecisionData.cs
-
-### ConvertXgToJson_Lib
-* ConvertXgToJson_Lib/XgDecisionIterator.cs
-* ConvertXgToJson_Lib/XgIteratorState.cs
-* ConvertXgToJson_Lib/XgMatchInfo.cs
-* ConvertXgToJson_Lib/XgGameInfo.cs
+* **BgDataTypes_Lib** — `IDecisionFilterData` (the substrate filters operate
+  on), `DecisionRow`, `BgDecisionData`, `PositionData`, `DecisionData`,
+  `DescriptiveData`.
+* **ConvertXgToJson_Lib** — `XgDecisionIterator`, `XgIteratorState`,
+  `XgMatchInfo`, `XgGameInfo`, `XgFileReader`, `XgFile`. Used by
+  `FilteredDecisionIterator` to walk `.xg` files and drive early-exit.
 
 ## Directory tree
 
 ```
+XgFilter_Lib.slnx
 XgFilter_Lib/
-  XgFilter_Lib/
-    XgFilter_Lib.csproj
-    FilteredDecisionIterator.cs
-    Enums/
-      PlayType.cs
-      PositionType.cs
-    Filtering/
-      IDecisionFilter.cs
-      IMatchFilter.cs
-      DecisionFilterSet.cs
-      PlayerFilter.cs
-      DecisionTypeFilter.cs
-      MatchScoreFilter.cs
-      ErrorRangeFilter.cs
-      PositionTypeFilter.cs
-      PlayTypeFilter.cs
-    Classification/
-      IPositionClassifier.cs
-      RaceClassifier.cs
-      ContactClassifier.cs
-      InnerBoard631Classifier.cs
-      InnerBoard54321Classifier.cs
-    Projection/
-      ColumnSelector.cs
-  XgFilter_Lib.Tests/
-    XgFilter_Lib.Tests.csproj
-    GlobalUsings.cs
-    TestPaths.cs
-    Helpers/
-      DecisionRowBuilder.cs
-      BgDecisionDataBuilder.cs
-    Classification/
-      RaceClassifierTests.cs
-    Filtering/
-      BgDecisionDataFilterTests.cs
-      DecisionFilterSetTests.cs
-      MatchScoreFilterTests.cs
-    Integration/
-      FilteredDecisionIteratorTests.cs
+  XgFilter_Lib.csproj
+  FilteredDecisionIterator.cs
+  Enums/
+    PlayType.cs
+    PositionType.cs
+  Filtering/
+    IDecisionFilter.cs
+    IMatchFilter.cs
+    DecisionFilterSet.cs
+    PlayerFilter.cs
+    DecisionTypeFilter.cs
+    MatchScoreFilter.cs
+    ErrorRangeFilter.cs
+    PositionTypeFilter.cs
+    PlayTypeFilter.cs
+  Classification/
+    IPositionClassifier.cs
+    RaceClassifier.cs
+    ContactClassifier.cs
+    InnerBoard631Classifier.cs
+    InnerBoard54321Classifier.cs
+  Projection/
+    ColumnSelector.cs
+XgFilter_Lib.Tests/
+  XgFilter_Lib.Tests.csproj
+  GlobalUsings.cs
+  TestPaths.cs
+  Helpers/
+    DecisionRowBuilder.cs
+    BgDecisionDataBuilder.cs
+  Classification/
+    RaceClassifierTests.cs
+  Filtering/
+    BgDecisionDataFilterTests.cs
+    DecisionFilterSetTests.cs
+    MatchScoreFilterTests.cs
+  Integration/
+    FilteredDecisionIteratorTests.cs
 ```
 
 ## Architecture
 
+### Substrate
+
+All row-level filters operate on `IDecisionFilterData`, defined in
+`BgDataTypes_Lib` and implemented by both `DecisionRow` (CSV-shaped) and
+`BgDecisionData` (diagram-shaped). A single filter instance applies to either
+type — no parallel hierarchies, no conversion at the filter boundary.
+
 ### Enums
 
-* `PositionType` — Contact, Race, Priming, Blitz, HoldingGame
-* `PlayType` — Hit, MakePoint, HitAndMakePoint, SlotAndGo, RunningPlay
+* `PositionType` — Contact, Race, Priming, Blitz, HoldingGame.
+* `PlayType` — Hit, MakePoint, HitAndMakePoint, SlotAndGo, RunningPlay.
 
 ### Filtering
 
-* `IDecisionFilter` — `bool Matches(IDecisionFilterData data)`; default methods `ShouldAdvanceGame`, `ShouldAdvanceMatch` (both default false)
-* `IMatchFilter` — `bool ShouldSkipMatch(XgMatchInfo match)`; `bool ShouldSkipGame(XgGameInfo game)`
-* `DecisionFilterSet` — ordered list of IDecisionFilter, AND semantics; fluent `Add()`; `Matches()`; `ShouldSkipMatch()`; `ShouldSkipGame()`; `ShouldAdvanceGame()`; `ShouldAdvanceMatch()`
-* `PlayerFilter` — IDecisionFilter + IMatchFilter; ShouldSkipMatch skips if neither player is in list
-* `DecisionTypeFilter` — checker play, cube, or both; uses `IsCube`
-* `MatchScoreFilter` — IDecisionFilter + IMatchFilter; tuple comparison of (OnRollNeeds, OpponentNeeds, IsCrawford); parses strings like `"3a5a"`, `"1a5aC"`, `"money"`; ShouldSkipMatch detects money/match mismatch and impossible away scores; ShouldSkipGame skips if game score doesn't match
-* `ErrorRangeFilter` — min/max double; returns false when FilterError is null
-* `PositionTypeFilter` — include list of PositionType; uses `data.Board` via classifiers
-* `PlayTypeFilter` — stub
+* `IDecisionFilter` — `bool Matches(IDecisionFilterData data)`. Two virtual
+  defaults for game/match-level early-exit hints:
+  `ShouldAdvanceGame(data)` and `ShouldAdvanceMatch(data)`, both returning
+  `false` unless a filter opts in.
+* `IMatchFilter` — optional extension for filters that can skip an entire
+  match or game before any rows are yielded:
+  `ShouldSkipMatch(XgMatchInfo)` and `ShouldSkipGame(XgGameInfo)`. Filters
+  implement both interfaces where applicable.
+* `DecisionFilterSet` — ordered list of `IDecisionFilter` combined with AND
+  semantics. Fluent `Add()`. `Matches()` passes when every filter passes (or
+  the set is empty). `ShouldSkipMatch` / `ShouldSkipGame` delegate to any
+  filter in the set that also implements `IMatchFilter`.
+* `PlayerFilter` — implements both interfaces. `Matches` admits rows where
+  the on-roll player is in the include list; `ShouldSkipMatch` drops the
+  whole file when neither player is in the list.
+* `DecisionTypeFilter` — checker play, cube, or both. Dispatches on
+  `data.IsCube`.
+* `MatchScoreFilter` — implements both interfaces. Targets are stored as
+  `(OnRollNeeds, OpponentNeeds, IsCrawford)` tuples; money is `(0, 0, false)`.
+  Parses strings like `"3a5a"`, `"1a5aC"`, `"money"`. `ShouldSkipMatch`
+  detects money-vs-match mismatches and impossible away scores;
+  `ShouldSkipGame` drops games whose post-header score cannot reach any
+  target.
+* `ErrorRangeFilter` — `double?` min / max on `FilterError`. Returns `false`
+  when `FilterError` is `null`, i.e. unanalysed rows are excluded, not
+  passed through.
+* `PositionTypeFilter` — include list of `PositionType`. Reads
+  `data.Board` and delegates to `IPositionClassifier` instances. Never
+  parses the XGID.
+* `PlayTypeFilter` — stub; shape in place, predicate not yet implemented.
 
 ### Classification
 
-* `IPositionClassifier` — `bool Matches(IReadOnlyList<int> board)`
-* `RaceClassifier` — true when no contact between checker blocks
-* `ContactClassifier` — !Race (exhaustive and mutually exclusive for now)
-* `InnerBoard631Classifier` — classifies inner board 6-3-1 structure
-* `InnerBoard54321Classifier` — classifies inner board 5-4-3-2-1 structure
+* `IPositionClassifier` — `bool Matches(IReadOnlyList<int> board)`. Board
+  is the 26-element on-roll-relative layout from `ConvertXgToJson_Lib`.
+* `RaceClassifier` — true when no contact exists between the two checker
+  blocks.
+* `ContactClassifier` — `!RaceClassifier`. Race and Contact are exhaustive
+  and mutually exclusive today; adding Priming/Blitz/HoldingGame will need
+  to be reconciled with that invariant rather than bolted on.
+* `InnerBoard631Classifier`, `InnerBoard54321Classifier` — inner-board
+  shape classifiers.
 
 ### Projection
 
-* `ColumnSelector` — explicit column registry, no reflection; typed to DecisionRow (CSV-specific)
+* `ColumnSelector` — explicit column registry, no reflection. Typed to
+  `DecisionRow` because the projection target is CSV; `Board` is
+  deliberately not exposed as a column.
 
-### Early-exit optimization
+### FilteredDecisionIterator
 
-* `FilteredDecisionIterator` owns `XgIteratorState`, iterates .xg files directly
-* Per file: `ExtractMatchInfo` → `ShouldSkipMatch` → skip entire file if true
-* Per game: `ShouldSkipGame` → sets `AdvanceNextGame` if true
-* Per row: `ShouldAdvanceGame` / `ShouldAdvanceMatch` flags (currently all return false)
+The top-level integration point. Owns an `XgIteratorState` and iterates
+`.xg` files in a directory, yielding only `DecisionRow` records that pass
+the supplied `DecisionFilterSet`.
 
-## Current status
+Early-exit pipeline, applied in this order:
 
-✅ Complete — all filters operate on IDecisionFilterData; full test suite passing
+1. **Per file** — `XgDecisionIterator.ExtractMatchInfo` → `ShouldSkipMatch`.
+   Skip the entire file if true.
+2. **Per game** — `ShouldSkipGame` sets `state.AdvanceNextGame` so the
+   underlying iterator jumps straight to the next game.
+3. **Per row** — `ShouldAdvanceGame` / `ShouldAdvanceMatch` flags on the
+   filter set (all `false` today, reserved for future filters that can
+   decide to cut from mid-game).
 
-## Deferred
+## Public API
 
-* Priming, Blitz, HoldingGame classifiers
-* PlayTypeFilter implementation
-* ShouldAdvanceGame / ShouldAdvanceMatch implementations
-* ColumnSelector wired into ExtractFromXgToCsv UI
+```csharp
+namespace XgFilter_Lib.Filtering;
 
-## Key decisions
+public interface IDecisionFilter
+{
+    bool Matches(IDecisionFilterData data);
+    virtual bool ShouldAdvanceGame (IDecisionFilterData data) => false;
+    virtual bool ShouldAdvanceMatch(IDecisionFilterData data) => false;
+}
 
-* Filters operate on `IDecisionFilterData` — both DecisionRow and BgDecisionData supported
-* `IPositionClassifier.Matches` accepts `IReadOnlyList<int>`
-* `MatchScoreFilter` uses structured tuple comparison, not string matching
-* `ErrorRangeFilter` returns false when `FilterError` is null
-* Contact = !Race (exhaustive and mutually exclusive)
-* PositionTypeFilter uses `data.Board` via classifiers — never parses Xgid
-* Board not exposed in CSV/ColumnSelector
-* ColumnSelector uses explicit registry — no reflection
-* IMatchFilter separate from IDecisionFilter — filters implement both where applicable
-* MatchScoreFilter stores targets as (Away1, Away2, IsCrawford) tuples; money = (0, 0, false)
-* TestData at shared `backgammon\TestData`; referenced via `..\..\TestData` with `Link` in Tests.csproj
-* Crawford constraint: isCrawford only true if one away == 1 and other > 1
-* Away score constraint: needs may only be zero if matchLength == 0 (money)
+public interface IMatchFilter
+{
+    bool ShouldSkipMatch(XgMatchInfo match);
+    bool ShouldSkipGame (XgGameInfo  game);
+}
+
+public sealed class DecisionFilterSet
+{
+    public DecisionFilterSet Add(IDecisionFilter filter);
+    public bool Matches          (IDecisionFilterData data);
+    public bool ShouldSkipMatch  (XgMatchInfo match);
+    public bool ShouldSkipGame   (XgGameInfo  game);
+    public bool ShouldAdvanceGame (IDecisionFilterData data);
+    public bool ShouldAdvanceMatch(IDecisionFilterData data);
+}
+
+public sealed class PlayerFilter      : IDecisionFilter, IMatchFilter { /* ... */ }
+public sealed class DecisionTypeFilter : IDecisionFilter              { /* ... */ }
+public sealed class MatchScoreFilter   : IDecisionFilter, IMatchFilter { /* ... */ }
+public sealed class ErrorRangeFilter   : IDecisionFilter              { /* ... */ }
+public sealed class PositionTypeFilter : IDecisionFilter              { /* ... */ }
+public sealed class PlayTypeFilter     : IDecisionFilter              { /* ... */ }
+```
+
+```csharp
+namespace XgFilter_Lib.Classification;
+
+public interface IPositionClassifier
+{
+    bool Matches(IReadOnlyList<int> board);
+}
+
+public sealed class RaceClassifier            : IPositionClassifier { /* ... */ }
+public sealed class ContactClassifier         : IPositionClassifier { /* ... */ }
+public sealed class InnerBoard631Classifier   : IPositionClassifier { /* ... */ }
+public sealed class InnerBoard54321Classifier : IPositionClassifier { /* ... */ }
+```
+
+```csharp
+namespace XgFilter_Lib;
+
+public static class FilteredDecisionIterator
+{
+    public static IEnumerable<DecisionRow> IterateXgDirectory(
+        string xgDir, DecisionFilterSet filters);
+
+    public static IEnumerable<DecisionRow> IterateJsonDirectory(
+        string jsonDir, DecisionFilterSet filters);
+}
+```
+
+```csharp
+namespace XgFilter_Lib.Projection;
+
+public sealed class ColumnSelector
+{
+    public static readonly IReadOnlyList<string> AllColumns;
+
+    public ColumnSelector();
+    public ColumnSelector(IEnumerable<string> columns);
+
+    public IReadOnlyList<string> SelectedColumns { get; }
+    public string Header { get; }
+    public string Serialize(DecisionRow row);
+    public string BuildCsv (IEnumerable<DecisionRow> rows);
+}
+```
+
+## Pitfalls
+
+* **`PositionTypeFilter` reads `data.Board`, never the XGID.** The board
+  array is already in on-roll-relative form; parsing the XGID would
+  re-derive it and risk perspective bugs. Classifiers must keep taking
+  `IReadOnlyList<int>`.
+* **`ErrorRangeFilter` drops unanalysed rows.** When `FilterError` is
+  `null` the filter returns `false` — unanalysed `.xgp` positions are
+  excluded, not admitted as "zero error". Changing that silently regresses
+  CSV exports.
+* **`MatchScoreFilter` has coupled constraints.** Money matches only if
+  `matchLength == 0`; a non-zero `IsCrawford` target requires exactly one
+  side at 1-away and the other at `> 1`. `ShouldSkipMatch` enforces both;
+  adding parse shortcuts that bypass these checks will let impossible
+  targets through.
+* **`IDecisionFilter.ShouldAdvanceGame` / `ShouldAdvanceMatch` default to
+  `false`.** A filter that *can* early-exit mid-game must override them.
+  Missing an override is silent — rows just stop being skipped.
+* **Contact = !Race is exhaustive and mutually exclusive.** Priming,
+  Blitz, and HoldingGame will overlap with Contact when introduced;
+  `PositionTypeFilter` membership semantics need a design decision before
+  those classifiers land, not after.
+* **Shared `TestData` at `backgammon\TestData`.** Referenced via
+  `..\..\TestData` with `Link` in the Tests csproj and resolved at runtime
+  by `TestPaths`. Moving TestData or changing csproj output depth breaks
+  every file-touching test.
+
+## Subproject-internal next steps
+
+None. Cross-cutting items (new classifiers, PlayTypeFilter implementation,
+downstream UI wiring, filter early-exit extensions) live in the umbrella
+`INSTRUCTIONS.md` "Next up" / "Deferred" sections.
