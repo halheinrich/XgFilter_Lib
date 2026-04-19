@@ -20,7 +20,7 @@ public class ColumnSelectorTests
         header.Should().Contain("MatchScore");
         header.Should().Contain("MatchLength");
         header.Should().Contain("Player");
-        header.Should().Contain("Match");
+        header.Should().Contain("SourceFile");
         header.Should().Contain("Game");
         header.Should().Contain("MoveNum");
         header.Should().Contain("Roll");
@@ -136,6 +136,6 @@ public class ColumnSelectorTests
         var csv = selector.BuildCsv([]);
         var firstLine = csv.Split('\n')[0].TrimEnd('\r');
 
-        firstLine.Should().Be("Xgid,Error,MatchScore,MatchLength,Player,Match,Game,MoveNum,Roll,AnalysisDepth,Equity");
+        firstLine.Should().Be("Xgid,Error,MatchScore,MatchLength,Player,SourceFile,Game,MoveNum,Roll,AnalysisDepth,Equity");
     }
 }

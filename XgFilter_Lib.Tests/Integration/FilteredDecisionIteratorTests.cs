@@ -43,11 +43,11 @@ public class FilteredDecisionIteratorTests
         var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
 
         // Output all columns matching DecisionRow field order
-        Console.WriteLine($"{"Xgid",-52} {"Error",8} {"MatchScore",-12} {"MatchLength",11} {"Player",-15} {"Match",-45} {"Game",4} {"MoveNum",7} {"Roll",4} {"AnalysisDepth",-30} {"Equity",8}");
+        Console.WriteLine($"{"Xgid",-52} {"Error",8} {"MatchScore",-12} {"MatchLength",11} {"Player",-15} {"SourceFile",-45} {"Game",4} {"MoveNum",7} {"Roll",4} {"AnalysisDepth",-30} {"Equity",8}");
         Console.WriteLine(new string('-', 210));
         foreach (var row in rows)
         {
-            Console.WriteLine($"{row.Xgid,-52} {row.Error,8:F4} {row.MatchScore,-12} {row.MatchLength,11} {row.Player,-15} {row.Match,-45} {row.Game,4} {row.MoveNum,7} {row.Roll,4} {row.AnalysisDepth,-30} {row.Equity,8:F4}");
+            Console.WriteLine($"{row.Xgid,-52} {row.Error,8:F4} {row.MatchScore,-12} {row.MatchLength,11} {row.Player,-15} {row.SourceFile,-45} {row.Game,4} {row.MoveNum,7} {row.Roll,4} {row.AnalysisDepth,-30} {row.Equity,8:F4}");
         }
         Console.WriteLine(new string('-', 210));
         Console.WriteLine($"Total: {rows.Count} decisions");
@@ -120,7 +120,7 @@ public class FilteredDecisionIteratorTests
 
         var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
 
-        var selector = new ColumnSelector(["Player", "Match", "Game", "MoveNum", "Roll", "Error", "Equity"]);
+        var selector = new ColumnSelector(["Player", "SourceFile", "Game", "MoveNum", "Roll", "Error", "Equity"]);
 
         Console.WriteLine(selector.Header);
         Console.WriteLine(new string('-', selector.Header.Length));
