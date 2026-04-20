@@ -1,12 +1,13 @@
-﻿using XgFilter_Lib.Classification;
+namespace XgFilter_Lib.Classification;
 
 /// <summary>
-/// Returns true when the player on roll holds an inner-board 6-3-1 structure:
-///   - Points 6, 3, and 1 each have ≥ 2 checkers (player on roll)
-///   - Points 5, 4, and 2 each have fewer than 2 checkers (player on roll)
+/// Returns true when the player on roll holds a full 5-4-3-2-1 inner-board
+/// structure:
+///   - Points 5, 4, 3, 2, and 1 each have ≥ 2 checkers (player on roll)
+///   - Point 6 has fewer than 2 checkers (player on roll)
 ///   - Position must be contact (not a race)
-/// Board index convention: board[1]–board[24] = points 1–24 from player on roll's perspective.
-/// Positive values = player on roll's checkers.
+/// Board index convention: board[1]–board[24] = points 1–24 from player on
+/// roll's perspective. Positive values = player on roll's checkers.
 /// </summary>
 public sealed class InnerBoard54321Classifier : IPositionClassifier
 {
