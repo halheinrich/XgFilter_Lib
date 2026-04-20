@@ -45,7 +45,6 @@ XgFilter_Lib/
     MatchScoreFilter.cs
     ErrorRangeFilter.cs
     PositionTypeFilter.cs
-    PlayTypeFilter.cs
   Classification/
     IPositionClassifier.cs
     IPlayTypeClassifier.cs
@@ -99,10 +98,11 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   several (e.g. Contact + InnerBoard631). The unifying property is
   that each is determinable from the on-roll-relative board array
   alone — no XGID parsing.
-* `PlayType` — Hit, MakePoint, Make20Pt, HitAndMakePoint, SlotAndGo,
-  RunningPlay. Each value pairs (or will pair) with an
-  `IPlayTypeClassifier` implementation; today only `Make20Pt` does,
-  the others remain enum-only pending their classifiers.
+* `PlayType` — Make20Pt. Each value pairs with an
+  `IPlayTypeClassifier` implementation; the single-value shape
+  reflects that only `Make20Pt` has a classifier today. The enum
+  grows as each new play-shape classifier lands alongside its
+  matching value.
 
 ### Filtering
 
@@ -135,10 +135,11 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `PositionTypeFilter` — include list of `PositionType`. Reads
   `data.Board` and delegates to `IPositionClassifier` instances. Never
   parses the XGID.
-* `PlayTypeFilter` — stub; shape in place, `ClassifyPlay` always returns
-  `RunningPlay`. `IPlayTypeClassifier` implementations (e.g.
-  `Make20PtClassifier`) cannot be invoked here until
-  `IDecisionFilterData` grows the three boards they require.
+
+No `IDecisionFilter` for `PlayType` today. The old `PlayTypeFilter`
+stub was removed — any viable wrapper needs the three boards an
+`IPlayTypeClassifier` takes, and `IDecisionFilterData` exposes only
+the pre-play board. Reintroduce once the substrate grows.
 
 ### Classification
 
@@ -225,7 +226,6 @@ public sealed class DecisionTypeFilter : IDecisionFilter              { /* ... *
 public sealed class MatchScoreFilter   : IDecisionFilter, IMatchFilter { /* ... */ }
 public sealed class ErrorRangeFilter   : IDecisionFilter              { /* ... */ }
 public sealed class PositionTypeFilter : IDecisionFilter              { /* ... */ }
-public sealed class PlayTypeFilter     : IDecisionFilter              { /* ... */ }
 ```
 
 ```csharp
@@ -303,6 +303,7 @@ public sealed class ColumnSelector
 
 ## Subproject-internal next steps
 
-None. Cross-cutting items (new classifiers, PlayTypeFilter implementation,
-downstream UI wiring, filter early-exit extensions) live in the umbrella
+None. Cross-cutting items (new classifiers, play-type filter
+reintroduction once the three-board substrate lands, downstream UI
+wiring, filter early-exit extensions) live in the umbrella
 `INSTRUCTIONS.md` "Next up" / "Deferred" sections.
