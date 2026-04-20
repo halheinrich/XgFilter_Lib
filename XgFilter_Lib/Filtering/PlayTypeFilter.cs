@@ -9,7 +9,12 @@ namespace XgFilter_Lib.Filtering;
 /// </summary>
 /// <remarks>
 /// STUB: <see cref="ClassifyPlay"/> always returns <see cref="PlayType.RunningPlay"/>
-/// until move-analysis logic is implemented.
+/// until the three-board substrate lands. Per-type classifiers take three
+/// 26-element boards — before play, after best play, after user play — see
+/// <see cref="Classification.Make20PtClassifier"/> for the first implementation.
+/// Wiring requires <see cref="IDecisionFilterData"/> (or a richer substrate)
+/// to expose all three boards; today it exposes only the pre-play board, so
+/// this filter cannot yet invoke the classifiers.
 /// Only applicable to checker-play rows (<see cref="DecisionRow.IsCube"/> == false).
 /// Cube rows always pass.
 /// </remarks>
@@ -35,7 +40,8 @@ public sealed class PlayTypeFilter : IDecisionFilter
 
     private static PlayType ClassifyPlay(IDecisionFilterData data)
     {
-        // TODO: analyse Xgid + candidate moves to determine play type.
+        // TODO: invoke per-PlayType classifiers (e.g. Make20PtClassifier)
+        // once the substrate exposes before / after-best / after-user boards.
         return PlayType.RunningPlay;
     }
 }

@@ -52,6 +52,7 @@ XgFilter_Lib/
     ContactClassifier.cs
     InnerBoard631Classifier.cs
     InnerBoard54321Classifier.cs
+    Make20PtClassifier.cs
   Projection/
     ColumnSelector.cs
 XgFilter_Lib.Tests/
@@ -65,6 +66,7 @@ XgFilter_Lib.Tests/
     ContactClassifierTests.cs
     InnerBoard631ClassifierTests.cs
     InnerBoard54321ClassifierTests.cs
+    Make20PtClassifierTests.cs
   Filtering/
     PlayerFilterTests.cs
     DecisionTypeFilterTests.cs
@@ -96,7 +98,11 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   several (e.g. Contact + InnerBoard631). The unifying property is
   that each is determinable from the on-roll-relative board array
   alone — no XGID parsing.
-* `PlayType` — Hit, MakePoint, HitAndMakePoint, SlotAndGo, RunningPlay.
+* `PlayType` — Hit, MakePoint, Make20Pt, HitAndMakePoint, SlotAndGo,
+  RunningPlay. Per-type classifiers operate on three 26-element
+  on-roll-POV boards: before play, after best play, after user play.
+  Today only `Make20Pt` has a classifier implementation; the others
+  remain enum-only pending their classifiers.
 
 ### Filtering
 
@@ -129,7 +135,10 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `PositionTypeFilter` — include list of `PositionType`. Reads
   `data.Board` and delegates to `IPositionClassifier` instances. Never
   parses the XGID.
-* `PlayTypeFilter` — stub; shape in place, predicate not yet implemented.
+* `PlayTypeFilter` — stub; shape in place, `ClassifyPlay` always returns
+  `RunningPlay`. Per-type detection exists for `Make20Pt` (see
+  `Make20PtClassifier`) but cannot be invoked here until
+  `IDecisionFilterData` grows the three boards the classifiers require.
 
 ### Classification
 
@@ -142,6 +151,13 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   framework contract — see the multi-membership pitfall below.
 * `InnerBoard631Classifier`, `InnerBoard54321Classifier` — inner-board
   shape classifiers.
+* `Make20PtClassifier` — first play-shape classifier. Signature
+  `Matches(before, afterBest, afterUser)` over three 26-element
+  on-roll-POV boards. True when the 20-point is not already made
+  (`before[20] < 2`) and exactly one of the two plays makes it
+  (`afterBest[20] >= 2` XOR `afterUser[20] >= 2`). No `IPlayClassifier`
+  interface yet — reintroduce when a second play-shape classifier
+  arrives.
 
 ### Projection
 

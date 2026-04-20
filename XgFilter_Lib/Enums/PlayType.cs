@@ -7,6 +7,7 @@ public enum PlayType
 {
     Hit,
     MakePoint,
+    Make20Pt,
     HitAndMakePoint,
     SlotAndGo,
     RunningPlay,
