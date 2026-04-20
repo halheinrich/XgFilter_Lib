@@ -30,6 +30,7 @@ public sealed class DecisionTypeFilter : IDecisionFilter
         DecisionTypeOption.CheckerPlaysOnly => !data.IsCube,
         DecisionTypeOption.CubeOnly         => data.IsCube,
         DecisionTypeOption.Both             =>  true,
-        _ => true,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(_option), _option, "Unknown DecisionTypeOption"),
     };
 }

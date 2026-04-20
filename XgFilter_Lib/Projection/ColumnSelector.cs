@@ -6,8 +6,7 @@ namespace XgFilter_Lib.Projection;
 /// <summary>
 /// Explicit registry of all available CSV columns.
 /// Maintains an ordered list of selected columns that drives both the CSV header
-/// and row serialization — replacing <see cref="DecisionRow.ToCsvLine()"/> for
-/// callers that need column projection.
+/// and row serialization.
 /// </summary>
 public sealed class ColumnSelector
 {
@@ -76,7 +75,6 @@ public sealed class ColumnSelector
 
     /// <summary>
     /// Builds a complete CSV string (header + rows) for the given sequence.
-    /// Replaces <c>XgProcessingService.BuildCsv</c> when column projection is needed.
     /// </summary>
     public string BuildCsv(IEnumerable<DecisionRow> rows)
     {

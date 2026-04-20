@@ -3,8 +3,9 @@ using BgDataTypes_Lib;
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Passes rows where <see cref="DecisionRow.Error"/> falls within [min, max] (inclusive).
-/// Either bound may be omitted (null) to leave that end open.
+/// Passes rows where <see cref="IDecisionFilterData.FilterError"/> falls within
+/// [min, max] (inclusive). Either bound may be omitted (null) to leave that end open.
+/// Rows with a null <c>FilterError</c> (unanalysed positions) do not pass.
 /// </summary>
 public sealed class ErrorRangeFilter : IDecisionFilter
 {
