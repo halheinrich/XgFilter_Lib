@@ -33,7 +33,7 @@ public class BgDecisionDataFilterTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void DecisionTypeFilter_CheckerPlaysOnly_RejectssCube()
+    public void DecisionTypeFilter_CheckerPlaysOnly_RejectsCube()
     {
         var filter = new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly);
         var data = BgDecisionDataBuilder.Build(isCube: true);

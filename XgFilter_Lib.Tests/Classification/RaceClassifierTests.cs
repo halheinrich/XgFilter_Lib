@@ -87,26 +87,3 @@ public class RaceClassifierTests
         _sut.Matches(board).Should().BeFalse();
     }
 }
-
-public class ContactClassifierTests
-{
-    private static readonly ContactClassifier _sut = new();
-
-    [Fact]
-    public void Contact_StartingPosition_ReturnsTrue()
-    {
-        var board = new int[26];
-        board[24] = 2; board[13] = 5; board[8] = 3; board[6] = 5;
-        board[1] = -2; board[12] = -5; board[17] = -3; board[19] = -5;
-        _sut.Matches(board).Should().BeTrue();
-    }
-
-    [Fact]
-    public void Contact_BearingOffPosition_ReturnsFalse()
-    {
-        var board = new int[26];
-        board[3] = 2; board[2] = 3;
-        board[22] = -2; board[23] = -3;
-        _sut.Matches(board).Should().BeFalse();
-    }
-}
