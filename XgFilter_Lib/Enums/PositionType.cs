@@ -10,9 +10,6 @@ public enum PositionType
 {
     Contact,
     Race,
-    Priming,
-    Blitz,
-    HoldingGame,
     InnerBoard631,
     InnerBoard54321,
 }

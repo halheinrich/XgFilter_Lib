@@ -7,7 +7,6 @@ namespace XgFilter_Lib.Filtering;
 /// <summary>
 /// Passes rows where the board matches any of the selected position types.
 /// A position may match multiple types (e.g. Contact AND InnerBoard631).
-/// Priming, Blitz, and HoldingGame are not yet implemented and never match.
 /// </summary>
 public sealed class PositionTypeFilter : IDecisionFilter
 {
@@ -36,9 +35,7 @@ public sealed class PositionTypeFilter : IDecisionFilter
         PositionType.Contact => _contact.Matches(board),
         PositionType.InnerBoard631 => _innerBoard631.Matches(board),
         PositionType.InnerBoard54321 => _innerBoard54321.Matches(board),
-        PositionType.Priming => false,
-        PositionType.Blitz => false,
-        PositionType.HoldingGame => false,
-        _ => false,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(type), type, "Unknown PositionType"),
     };
 }

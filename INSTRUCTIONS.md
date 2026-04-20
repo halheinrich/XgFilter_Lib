@@ -91,11 +91,11 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 ### Enums
 
 * `PositionType` — board-derived classifications a position can carry.
-  Members: Contact, Race, Priming, Blitz, HoldingGame, InnerBoard631,
-  InnerBoard54321. Categories are **not** mutually exclusive: a single
-  position may satisfy several (e.g. Contact + InnerBoard631). The
-  unifying property is that each is determinable from the on-roll-
-  relative board array alone — no XGID parsing.
+  Members: Contact, Race, InnerBoard631, InnerBoard54321. Categories
+  are **not** mutually exclusive: a single position may satisfy
+  several (e.g. Contact + InnerBoard631). The unifying property is
+  that each is determinable from the on-roll-relative board array
+  alone — no XGID parsing.
 * `PlayType` — Hit, MakePoint, HitAndMakePoint, SlotAndGo, RunningPlay.
 
 ### Filtering
@@ -270,8 +270,8 @@ public sealed class ColumnSelector
   `PositionTypeFilter` takes the union: a row passes when *any* selected
   type matches. Race and Contact happen to be mutually exclusive and
   exhaustive today, but that's a property of those two classifiers, not a
-  contract at the filter level — Priming, Blitz, and HoldingGame will
-  overlap with Contact when introduced and do not need a carve-out.
+  contract at the filter level — future categories introduced alongside
+  Contact will overlap with it and do not need a carve-out.
 * **Shared `TestData` at `backgammon\TestData`.** Referenced via
   `..\..\TestData` with `Link` in the Tests csproj. Moving TestData or
   changing csproj output depth breaks every file-touching test.
