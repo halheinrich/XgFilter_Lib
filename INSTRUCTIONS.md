@@ -128,7 +128,12 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   Parses strings like `"3a5a"`, `"1a5aC"`, `"money"`. `ShouldSkipMatch`
   detects money-vs-match mismatches and impossible away scores;
   `ShouldSkipGame` drops games whose post-header score cannot reach any
-  target.
+  target. `ShouldAdvanceMatch` overrides the default to cut the rest of
+  the file when no target tuple is reachable from the current state —
+  exploits monotonic away-score decrease and the once-per-match Crawford
+  rule, branching on (in-Crawford, post-Crawford, pre-Crawford). Crawford
+  flag is matched strictly on reachability: a Crawford tuple is
+  unreachable from any state where Crawford has already occurred.
 * `ErrorRangeFilter` — `double?` min / max on `FilterError`. Returns `false`
   when `FilterError` is `null`, i.e. unanalysed rows are excluded, not
   passed through.
@@ -140,6 +145,62 @@ No `IDecisionFilter` for `PlayType` today. The old `PlayTypeFilter`
 stub was removed — any viable wrapper needs the three boards an
 `IPlayTypeClassifier` takes, and `IDecisionFilterData` exposes only
 the pre-play board. Reintroduce once the substrate grows.
+
+#### PlayTypeFilter substrate contract (pending `BgDataTypes_Lib`)
+
+The producer-side extension `PlayTypeFilter` needs on
+`IDecisionFilterData` is two additional read-only properties:
+
+```csharp
+/// 26-element board after the best-play has been applied, in the
+/// convention used by IPlayTypeClassifier: opponent-on-roll
+/// perspective (the turn has flipped), decision-maker's checkers
+/// stored negatively, index 25 − X for decision-maker's point X.
+/// Populated for checker-play rows. Empty list (Count == 0) for
+/// cube rows — PlayTypeFilter never consults it on cube rows.
+IReadOnlyList<int> AfterBestBoard { get; }
+
+/// Same convention, applied to the play the user actually made.
+/// Equal to AfterBestBoard iff the user chose the best play.
+/// Populated for checker-play rows. Empty list (Count == 0) for
+/// cube rows.
+IReadOnlyList<int> AfterPlayerBoard { get; }
+```
+
+Naming mirrors the existing `IPlayTypeClassifier.Matches` parameters
+(`afterBestBoard`, `afterPlayerBoard`) — same perspective, same
+numbering, same contract. Both must be populated by
+`ConvertXgToJson_Lib` when producing `DecisionRow` and by whatever
+produces `BgDecisionData`.
+
+Once the substrate lands, `PlayTypeFilter` shape is:
+
+```csharp
+public sealed class PlayTypeFilter : IDecisionFilter
+{
+    private readonly IReadOnlyList<IPlayTypeClassifier> _classifiers;
+
+    public PlayTypeFilter(IEnumerable<IPlayTypeClassifier> classifiers)
+    {
+        _classifiers = classifiers.ToList();
+    }
+
+    public bool Matches(IDecisionFilterData data)
+    {
+        if (data.IsCube) return false;
+        return _classifiers.Any(c => c.Matches(
+            data.Board, data.AfterBestBoard, data.AfterPlayerBoard));
+    }
+}
+```
+
+Cube rows always fail (no play was made, so no play-type applies).
+OR semantics across classifiers, parallel to `PositionTypeFilter`.
+Empty classifier collection → always false (empty OR).
+
+This filter lands in an XgFilter_Lib session that follows both the
+`BgDataTypes_Lib` substrate extension and the `ConvertXgToJson_Lib`
+population work — producer-first per umbrella CLAUDE.md.
 
 ### Classification
 
@@ -190,8 +251,10 @@ Early-exit pipeline, applied in this order:
 2. **Per game** — `ShouldSkipGame` sets `state.AdvanceNextGame` so the
    underlying iterator jumps straight to the next game.
 3. **Per row** — `ShouldAdvanceGame` / `ShouldAdvanceMatch` flags on the
-   filter set (all `false` today, reserved for future filters that can
-   decide to cut from mid-game).
+   filter set. Any filter that overrides the virtual defaults (today:
+   `MatchScoreFilter.ShouldAdvanceMatch`) can vote to cut mid-stream
+   after the just-yielded row. `state.AdvanceNextGame` /
+   `state.AdvanceNextMatch` are set accordingly before the yield.
 
 ## Public API
 
