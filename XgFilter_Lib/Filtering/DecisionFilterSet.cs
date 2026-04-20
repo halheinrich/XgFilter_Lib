@@ -24,24 +24,28 @@ public sealed class DecisionFilterSet
     public bool Matches(IDecisionFilterData data) => _filters.All(f => f.Matches(data));
 
     /// <summary>
-    /// Returns true if any IMatchFilter in the set votes to skip this match.
+    /// Pre-stream: true if any <see cref="IMatchFilter"/> in the set votes to
+    /// skip the match from header metadata alone.
     /// </summary>
     public bool ShouldSkipMatch(XgMatchInfo match) =>
         _filters.OfType<IMatchFilter>().Any(f => f.ShouldSkipMatch(match));
 
     /// <summary>
-    /// Returns true if any IMatchFilter in the set votes to skip this game.
+    /// Pre-stream: true if any <see cref="IMatchFilter"/> in the set votes to
+    /// skip the game from header metadata alone.
     /// </summary>
     public bool ShouldSkipGame(XgGameInfo game) =>
         _filters.OfType<IMatchFilter>().Any(f => f.ShouldSkipGame(game));
 
     /// <summary>
-    /// Returns true if any filter votes to skip remaining decisions in this game.
+    /// Mid-stream: true if any filter — evaluating the just-matched row —
+    /// votes to cut the rest of the current game.
     /// </summary>
     public bool ShouldAdvanceGame(IDecisionFilterData data) => _filters.Any(f => f.ShouldAdvanceGame(data));
 
     /// <summary>
-    /// Returns true if any filter votes to skip remaining decisions in this match.
+    /// Mid-stream: true if any filter — evaluating the just-matched row —
+    /// votes to cut the rest of the current match.
     /// </summary>
     public bool ShouldAdvanceMatch(IDecisionFilterData data) => _filters.Any(f => f.ShouldAdvanceMatch(data));
 }

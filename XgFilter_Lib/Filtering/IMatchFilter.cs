@@ -1,23 +1,28 @@
-﻿using ConvertXgToJson_Lib;
+using ConvertXgToJson_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Optional extension for filters that can make skip decisions at the
-/// match or game level, before any rows are yielded.
-/// Implement alongside <see cref="IDecisionFilter"/> where applicable.
+/// Optional extension for filters that can decide to skip an entire match or
+/// game from header metadata alone, before any rows are yielded. Header-input,
+/// pre-stream — distinct from <see cref="IDecisionFilter.ShouldAdvanceGame"/>
+/// / <see cref="IDecisionFilter.ShouldAdvanceMatch"/>, which are row-input and
+/// evaluated mid-stream after a row has matched. Implement alongside
+/// <see cref="IDecisionFilter"/> where applicable.
 /// </summary>
 public interface IMatchFilter
 {
     /// <summary>
-    /// Returns true if the entire match should be skipped.
-    /// Called once per .xg file before any rows are yielded.
+    /// Pre-stream hint: return true if no row in <paramref name="match"/> can
+    /// match this filter. Called once per .xg file after the match header is
+    /// extracted and before any rows are yielded.
     /// </summary>
     bool ShouldSkipMatch(XgMatchInfo match);
 
     /// <summary>
-    /// Returns true if the entire game should be skipped.
-    /// Called once per game before any rows are yielded.
+    /// Pre-stream hint: return true if no row in <paramref name="game"/> can
+    /// match this filter. Called once per game header and before any rows of
+    /// that game are yielded.
     /// </summary>
     bool ShouldSkipGame(XgGameInfo game);
 }
