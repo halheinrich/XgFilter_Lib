@@ -76,6 +76,69 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
             t.IsCrawford == game.IsCrawfordGame);
     }
 
+    /// <summary>
+    /// Mid-stream: return true when no future game in this match can reach
+    /// any target tuple, so the rest of the file can be skipped. Money rows
+    /// always return false (no "match" concept). Within a match, reachability
+    /// exploits the fact that away-scores decrease monotonically game-to-game
+    /// and Crawford happens at most once per match.
+    /// </summary>
+    public bool ShouldAdvanceMatch(IDecisionFilterData data)
+    {
+        if (data.MatchLength == 0) return false;
+        return !_tuples.Any(t => IsReachable(t, data));
+    }
+
+    /// <summary>
+    /// True if <paramref name="t"/> can match some future game reachable from
+    /// <paramref name="current"/>. Excludes the current game itself (strict
+    /// monotone decrease on at least one axis).
+    /// </summary>
+    private static bool IsReachable(
+        (int Away1, int Away2, bool IsCrawford) t,
+        IDecisionFilterData current)
+    {
+        if (t.Away1 < 1 || t.Away2 < 1) return false;
+
+        int ca = current.OnRollNeeds;
+        int cb = current.OpponentNeeds;
+        if (ca < 1 || cb < 1) return false;
+
+        int minT = Math.Min(t.Away1, t.Away2);
+        int maxT = Math.Max(t.Away1, t.Away2);
+        int maxC = Math.Max(ca, cb);
+        int minC = Math.Min(ca, cb);
+
+        // Current is in Crawford, or past it (one side at 1-away, non-Crawford flag).
+        // No further Crawford possible; only continuing post-Crawford (1, m, false)
+        // with m strictly below the non-1 side's current count.
+        if (current.IsCrawford || minC == 1)
+        {
+            if (t.IsCrawford) return false;
+            return minT == 1 && maxT < maxC;
+        }
+
+        // Pre-Crawford: ca > 1, cb > 1, non-Crawford.
+        if (t.IsCrawford)
+        {
+            // Crawford is reached as (1, m, true) when whichever side drops to
+            // 1-away first; m is the other side's count at that moment, so
+            // m is bounded by the current count of whichever side stays.
+            // Reachable iff one side of the tuple is 1 and the other is in
+            // [2, max(ca, cb)].
+            return minT == 1 && maxT >= 2 && maxT <= maxC;
+        }
+
+        // Non-Crawford tuple. Future state {p1, p2} is reachable iff
+        // {t.Away1, t.Away2} fits as multiset under (ca, cb) with strict
+        // decrement on at least one axis. Either player may be on-roll
+        // in the future game, so check both orderings.
+        bool fits1 = t.Away1 <= ca && t.Away2 <= cb;
+        bool fits2 = t.Away2 <= ca && t.Away1 <= cb;
+        bool strictSum = t.Away1 + t.Away2 < ca + cb;
+        return (fits1 || fits2) && strictSum;
+    }
+
     private static (int Away1, int Away2, bool IsCrawford)? ParseScore(string s)
     {
         bool isCrawford = s.EndsWith("C", StringComparison.OrdinalIgnoreCase);
