@@ -9,12 +9,13 @@ namespace XgFilter_Lib.Filtering;
 /// </summary>
 /// <remarks>
 /// STUB: <see cref="ClassifyPlay"/> always returns <see cref="PlayType.RunningPlay"/>
-/// until the three-board substrate lands. Per-type classifiers take three
-/// 26-element boards — before play, after best play, after user play — see
+/// until the three-board substrate lands. Each <see cref="PlayType"/> pairs (or
+/// will pair) with an <see cref="Classification.IPlayTypeClassifier"/> — see
 /// <see cref="Classification.Make20PtClassifier"/> for the first implementation.
 /// Wiring requires <see cref="IDecisionFilterData"/> (or a richer substrate)
-/// to expose all three boards; today it exposes only the pre-play board, so
-/// this filter cannot yet invoke the classifiers.
+/// to expose the prior / after-best / after-user boards the classifiers take;
+/// today it exposes only the pre-play board, so this filter cannot yet invoke
+/// them.
 /// Only applicable to checker-play rows (<see cref="DecisionRow.IsCube"/> == false).
 /// Cube rows always pass.
 /// </remarks>
