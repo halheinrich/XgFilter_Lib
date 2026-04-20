@@ -57,16 +57,24 @@ XgFilter_Lib/
 XgFilter_Lib.Tests/
   XgFilter_Lib.Tests.csproj
   GlobalUsings.cs
-  TestPaths.cs
   Helpers/
     DecisionRowBuilder.cs
     BgDecisionDataBuilder.cs
   Classification/
     RaceClassifierTests.cs
+    ContactClassifierTests.cs
+    InnerBoard631ClassifierTests.cs
+    InnerBoard54321ClassifierTests.cs
   Filtering/
-    BgDecisionDataFilterTests.cs
-    DecisionFilterSetTests.cs
+    PlayerFilterTests.cs
+    DecisionTypeFilterTests.cs
+    ErrorRangeFilterTests.cs
     MatchScoreFilterTests.cs
+    PositionTypeFilterTests.cs
+    DecisionFilterSetTests.cs
+    BgDecisionDataFilterTests.cs
+  Projection/
+    ColumnSelectorTests.cs
   Integration/
     FilteredDecisionIteratorTests.cs
 ```
@@ -82,7 +90,12 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 
 ### Enums
 
-* `PositionType` — Contact, Race, Priming, Blitz, HoldingGame.
+* `PositionType` — board-derived classifications a position can carry.
+  Members: Contact, Race, Priming, Blitz, HoldingGame, InnerBoard631,
+  InnerBoard54321. Categories are **not** mutually exclusive: a single
+  position may satisfy several (e.g. Contact + InnerBoard631). The
+  unifying property is that each is determinable from the on-roll-
+  relative board array alone — no XGID parsing.
 * `PlayType` — Hit, MakePoint, HitAndMakePoint, SlotAndGo, RunningPlay.
 
 ### Filtering
@@ -124,9 +137,9 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   is the 26-element on-roll-relative layout from `ConvertXgToJson_Lib`.
 * `RaceClassifier` — true when no contact exists between the two checker
   blocks.
-* `ContactClassifier` — `!RaceClassifier`. Race and Contact are exhaustive
-  and mutually exclusive today; adding Priming/Blitz/HoldingGame will need
-  to be reconciled with that invariant rather than bolted on.
+* `ContactClassifier` — `!RaceClassifier`. These two partition positions
+  today, but that's a local property of the Race/Contact pair, not a
+  framework contract — see the multi-membership pitfall below.
 * `InnerBoard631Classifier`, `InnerBoard54321Classifier` — inner-board
   shape classifiers.
 
@@ -139,8 +152,10 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 ### FilteredDecisionIterator
 
 The top-level integration point. Owns an `XgIteratorState` and iterates
-`.xg` files in a directory, yielding only `DecisionRow` records that pass
-the supplied `DecisionFilterSet`.
+`.xg` or `.json` files in a directory, yielding only `DecisionRow` records
+that pass the supplied `DecisionFilterSet`. The two public methods
+(`IterateXgDirectory`, `IterateJsonDirectory`) share a private helper
+that differs only in file glob and reader delegate.
 
 Early-exit pipeline, applied in this order:
 
@@ -250,14 +265,16 @@ public sealed class ColumnSelector
 * **`IDecisionFilter.ShouldAdvanceGame` / `ShouldAdvanceMatch` default to
   `false`.** A filter that *can* early-exit mid-game must override them.
   Missing an override is silent — rows just stop being skipped.
-* **Contact = !Race is exhaustive and mutually exclusive.** Priming,
-  Blitz, and HoldingGame will overlap with Contact when introduced;
-  `PositionTypeFilter` membership semantics need a design decision before
-  those classifiers land, not after.
+* **`PositionType` is multi-membership by design.** A position can satisfy
+  several categories at once (e.g. Contact + InnerBoard631).
+  `PositionTypeFilter` takes the union: a row passes when *any* selected
+  type matches. Race and Contact happen to be mutually exclusive and
+  exhaustive today, but that's a property of those two classifiers, not a
+  contract at the filter level — Priming, Blitz, and HoldingGame will
+  overlap with Contact when introduced and do not need a carve-out.
 * **Shared `TestData` at `backgammon\TestData`.** Referenced via
-  `..\..\TestData` with `Link` in the Tests csproj and resolved at runtime
-  by `TestPaths`. Moving TestData or changing csproj output depth breaks
-  every file-touching test.
+  `..\..\TestData` with `Link` in the Tests csproj. Moving TestData or
+  changing csproj output depth breaks every file-touching test.
 
 ## Subproject-internal next steps
 
