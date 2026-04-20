@@ -154,13 +154,19 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `IPlayTypeClassifier` —
   `bool Matches(IReadOnlyList<int> priorBoard,
   IReadOnlyList<int> afterBestBoard,
-  IReadOnlyList<int> afterUserBoard)`. Three 26-element on-roll-POV
-  boards: before any play, after the best play, after the user's play.
-  Implementations classify one `PlayType` each.
+  IReadOnlyList<int> afterPlayerBoard)`. Three 26-element boards, each
+  from the on-roll player's perspective at that moment: priorBoard has
+  the decision-maker on roll; the two after-boards have the opponent on
+  roll (the turn has flipped). Consequence: what was the decision-
+  maker's point X in priorBoard is point `(25 - X)` in the after-boards,
+  with their checkers stored negatively. Implementations classify one
+  `PlayType` each.
 * `Make20PtClassifier` — first `IPlayTypeClassifier` implementation.
-  True when the 20-point is not already made (`priorBoard[20] < 2`)
-  and exactly one of the two plays makes it
-  (`afterBestBoard[20] >= 2` XOR `afterUserBoard[20] >= 2`).
+  True when the decision-maker's 20-point is not already made
+  (`priorBoard[20] < 2`) and exactly one of the two plays makes it —
+  under the flipped after-POV the decision-maker's 20-point is index 5
+  and their checkers are negative, so "makes" is `afterBoard[5] <= -2`:
+  `afterBestBoard[5] <= -2` XOR `afterPlayerBoard[5] <= -2`.
 
 ### Projection
 

@@ -13,7 +13,7 @@ namespace XgFilter_Lib.Filtering;
 /// will pair) with an <see cref="Classification.IPlayTypeClassifier"/> — see
 /// <see cref="Classification.Make20PtClassifier"/> for the first implementation.
 /// Wiring requires <see cref="IDecisionFilterData"/> (or a richer substrate)
-/// to expose the prior / after-best / after-user boards the classifiers take;
+/// to expose the prior / after-best / after-player boards the classifiers take;
 /// today it exposes only the pre-play board, so this filter cannot yet invoke
 /// them.
 /// Only applicable to checker-play rows (<see cref="DecisionRow.IsCube"/> == false).
