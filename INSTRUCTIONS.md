@@ -45,6 +45,7 @@ XgFilter_Lib/
     MatchScoreFilter.cs
     ErrorRangeFilter.cs
     PositionTypeFilter.cs
+    PlayTypeFilter.cs
   Classification/
     IPositionClassifier.cs
     IPlayTypeClassifier.cs
@@ -73,6 +74,7 @@ XgFilter_Lib.Tests/
     ErrorRangeFilterTests.cs
     MatchScoreFilterTests.cs
     PositionTypeFilterTests.cs
+    PlayTypeFilterTests.cs
     DecisionFilterSetTests.cs
     BgDecisionDataFilterTests.cs
   Projection/
@@ -140,67 +142,13 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `PositionTypeFilter` — include list of `PositionType`. Reads
   `data.Board` and delegates to `IPositionClassifier` instances. Never
   parses the XGID.
-
-No `IDecisionFilter` for `PlayType` today. The old `PlayTypeFilter`
-stub was removed — any viable wrapper needs the three boards an
-`IPlayTypeClassifier` takes, and `IDecisionFilterData` exposes only
-the pre-play board. Reintroduce once the substrate grows.
-
-#### PlayTypeFilter substrate contract (pending `BgDataTypes_Lib`)
-
-The producer-side extension `PlayTypeFilter` needs on
-`IDecisionFilterData` is two additional read-only properties:
-
-```csharp
-/// 26-element board after the best-play has been applied, in the
-/// convention used by IPlayTypeClassifier: opponent-on-roll
-/// perspective (the turn has flipped), decision-maker's checkers
-/// stored negatively, index 25 − X for decision-maker's point X.
-/// Populated for checker-play rows. Empty list (Count == 0) for
-/// cube rows — PlayTypeFilter never consults it on cube rows.
-IReadOnlyList<int> AfterBestBoard { get; }
-
-/// Same convention, applied to the play the user actually made.
-/// Equal to AfterBestBoard iff the user chose the best play.
-/// Populated for checker-play rows. Empty list (Count == 0) for
-/// cube rows.
-IReadOnlyList<int> AfterPlayerBoard { get; }
-```
-
-Naming mirrors the existing `IPlayTypeClassifier.Matches` parameters
-(`afterBestBoard`, `afterPlayerBoard`) — same perspective, same
-numbering, same contract. Both must be populated by
-`ConvertXgToJson_Lib` when producing `DecisionRow` and by whatever
-produces `BgDecisionData`.
-
-Once the substrate lands, `PlayTypeFilter` shape is:
-
-```csharp
-public sealed class PlayTypeFilter : IDecisionFilter
-{
-    private readonly IReadOnlyList<IPlayTypeClassifier> _classifiers;
-
-    public PlayTypeFilter(IEnumerable<IPlayTypeClassifier> classifiers)
-    {
-        _classifiers = classifiers.ToList();
-    }
-
-    public bool Matches(IDecisionFilterData data)
-    {
-        if (data.IsCube) return false;
-        return _classifiers.Any(c => c.Matches(
-            data.Board, data.AfterBestBoard, data.AfterPlayerBoard));
-    }
-}
-```
-
-Cube rows always fail (no play was made, so no play-type applies).
-OR semantics across classifiers, parallel to `PositionTypeFilter`.
-Empty classifier collection → always false (empty OR).
-
-This filter lands in an XgFilter_Lib session that follows both the
-`BgDataTypes_Lib` substrate extension and the `ConvertXgToJson_Lib`
-population work — producer-first per umbrella CLAUDE.md.
+* `PlayTypeFilter` — constructed from an `IEnumerable<IPlayTypeClassifier>`.
+  `Matches` reads `data.Board`, `data.AfterBestBoard`, and
+  `data.AfterPlayerBoard` and returns true when any classifier matches
+  (OR semantics, parallel to `PositionTypeFilter`). Cube rows always
+  fail — no play was made, so no play-type applies, and the after-boards
+  are empty on cube rows by contract. Empty classifier collection →
+  always false (empty OR).
 
 ### Classification
 
@@ -289,6 +237,7 @@ public sealed class DecisionTypeFilter : IDecisionFilter              { /* ... *
 public sealed class MatchScoreFilter   : IDecisionFilter, IMatchFilter { /* ... */ }
 public sealed class ErrorRangeFilter   : IDecisionFilter              { /* ... */ }
 public sealed class PositionTypeFilter : IDecisionFilter              { /* ... */ }
+public sealed class PlayTypeFilter     : IDecisionFilter              { /* ... */ }
 ```
 
 ```csharp
@@ -303,6 +252,16 @@ public sealed class RaceClassifier            : IPositionClassifier { /* ... */ 
 public sealed class ContactClassifier         : IPositionClassifier { /* ... */ }
 public sealed class InnerBoard631Classifier   : IPositionClassifier { /* ... */ }
 public sealed class InnerBoard54321Classifier : IPositionClassifier { /* ... */ }
+
+public interface IPlayTypeClassifier
+{
+    bool Matches(
+        IReadOnlyList<int> priorBoard,
+        IReadOnlyList<int> afterBestBoard,
+        IReadOnlyList<int> afterPlayerBoard);
+}
+
+public sealed class Make20PtClassifier : IPlayTypeClassifier { /* ... */ }
 ```
 
 ```csharp
@@ -366,7 +325,6 @@ public sealed class ColumnSelector
 
 ## Subproject-internal next steps
 
-None. Cross-cutting items (new classifiers, play-type filter
-reintroduction once the three-board substrate lands, downstream UI
-wiring, filter early-exit extensions) live in the umbrella
-`INSTRUCTIONS.md` "Next up" / "Deferred" sections.
+None. Cross-cutting items (new classifiers, downstream UI wiring,
+filter early-exit extensions) live in the umbrella `INSTRUCTIONS.md`
+"Next up" / "Deferred" sections.
