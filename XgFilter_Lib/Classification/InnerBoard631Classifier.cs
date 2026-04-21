@@ -8,7 +8,7 @@
 /// Board index convention: board[1]–board[24] = points 1–24 from player on roll's perspective.
 /// Positive values = player on roll's checkers.
 /// </summary>
-public sealed class InnerBoard631Classifier : IPositionClassifier
+internal sealed class InnerBoard631Classifier : IPositionClassifier
 {
     private static readonly RaceClassifier _race = new();
 

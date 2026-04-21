@@ -1,6 +1,6 @@
 ﻿namespace XgFilter_Lib.Classification;
 
-public sealed class RaceClassifier : IPositionClassifier
+internal sealed class RaceClassifier : IPositionClassifier
 {
     public bool Matches(IReadOnlyList<int> board)
     {

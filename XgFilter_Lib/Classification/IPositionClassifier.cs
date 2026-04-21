@@ -7,7 +7,7 @@
 /// board[25]   = player on roll's bar (never negative)
 /// Positive values = player on roll's checkers; negative = opponent's.
 /// </summary>
-public interface IPositionClassifier
+internal interface IPositionClassifier
 {
     bool Matches(IReadOnlyList<int> board);
 }

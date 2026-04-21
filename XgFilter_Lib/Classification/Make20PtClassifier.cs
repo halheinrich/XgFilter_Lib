@@ -14,7 +14,7 @@ namespace XgFilter_Lib.Classification;
 /// where the 20-point-making choice differentiates best and player —
 /// high-signal training material.
 /// </summary>
-public sealed class Make20PtClassifier : IPlayTypeClassifier
+internal sealed class Make20PtClassifier : IPlayTypeClassifier
 {
     public bool Matches(
         IReadOnlyList<int> priorBoard,

@@ -17,7 +17,7 @@ namespace XgFilter_Lib.Classification;
 /// priorBoard is point (25 - X) in the after-boards, and the decision-
 /// maker's checkers there are stored as negative values.
 /// </summary>
-public interface IPlayTypeClassifier
+internal interface IPlayTypeClassifier
 {
     bool Matches(
         IReadOnlyList<int> priorBoard,

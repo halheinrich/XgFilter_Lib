@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="XgFilter_Lib.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Enums\" />
     <Folder Include="Projection\" />
   </ItemGroup>

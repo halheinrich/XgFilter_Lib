@@ -4,7 +4,7 @@
 /// Returns true when the position is NOT a pure race — at least one player
 /// still has checkers on or behind opposing checkers.
 /// </summary>
-public sealed class ContactClassifier : IPositionClassifier
+internal sealed class ContactClassifier : IPositionClassifier
 {
     private static readonly RaceClassifier _race = new();
 

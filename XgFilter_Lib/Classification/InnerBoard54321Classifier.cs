@@ -9,7 +9,7 @@ namespace XgFilter_Lib.Classification;
 /// Board index convention: board[1]–board[24] = points 1–24 from player on
 /// roll's perspective. Positive values = player on roll's checkers.
 /// </summary>
-public sealed class InnerBoard54321Classifier : IPositionClassifier
+internal sealed class InnerBoard54321Classifier : IPositionClassifier
 {
     private static readonly RaceClassifier _race = new();
 
