@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using XgFilter_Lib.Enums;
+using XgFilter_Lib.Filtering;
 
 namespace XgFilter_Lib.Tests.Enums;
 
@@ -39,6 +40,24 @@ public class EnumLabelTests
         PositionType.InnerBoard54321.ToLabel().Should().Be("Inner-board 5-4-3-2-1");
     }
 
+    [Fact]
+    public void DecisionTypeOption_CheckerPlaysOnly_HasExpectedLabel()
+    {
+        DecisionTypeOption.CheckerPlaysOnly.ToLabel().Should().Be("Checker plays only");
+    }
+
+    [Fact]
+    public void DecisionTypeOption_CubeOnly_HasExpectedLabel()
+    {
+        DecisionTypeOption.CubeOnly.ToLabel().Should().Be("Cube decisions only");
+    }
+
+    [Fact]
+    public void DecisionTypeOption_Both_HasExpectedLabel()
+    {
+        DecisionTypeOption.Both.ToLabel().Should().Be("Both checker and cube");
+    }
+
     // -----------------------------------------------------------------------
     //  Exhaustive round-trip — any new enum value missing [Description] fails
     //  via the throw-on-missing contract; the non-empty check just guards
@@ -59,6 +78,13 @@ public class EnumLabelTests
             value.ToLabel().Should().NotBeNullOrWhiteSpace();
     }
 
+    [Fact]
+    public void EveryDecisionTypeOption_HasNonEmptyLabel()
+    {
+        foreach (var value in Enum.GetValues<DecisionTypeOption>())
+            value.ToLabel().Should().NotBeNullOrWhiteSpace();
+    }
+
     // -----------------------------------------------------------------------
     //  Unknown / unannotated — contract: throw
     // -----------------------------------------------------------------------
@@ -74,6 +100,13 @@ public class EnumLabelTests
     public void UnknownPositionTypeValue_Throws()
     {
         var act = () => ((PositionType)999).ToLabel();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void UnknownDecisionTypeOptionValue_Throws()
+    {
+        var act = () => ((DecisionTypeOption)999).ToLabel();
         act.Should().Throw<ArgumentException>();
     }
 
