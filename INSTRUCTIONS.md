@@ -34,6 +34,8 @@ XgFilter_Lib/
   XgFilter_Lib.csproj
   FilteredDecisionIterator.cs
   Enums/
+    Column.cs
+    DecisionTypeOption.cs
     EnumLabel.cs
     PlayType.cs
     PositionType.cs
@@ -61,8 +63,12 @@ XgFilter_Lib.Tests/
   XgFilter_Lib.Tests.csproj
   GlobalUsings.cs
   Helpers/
-    DecisionRowBuilder.cs
     BgDecisionDataBuilder.cs
+    DecisionFilterAsserts.cs
+    DecisionFilterAssertsTests.cs
+    DecisionRowBuilder.cs
+    RowShape.cs
+    RowShapeTests.cs
   Enums/
     EnumLabelTests.cs
   Classification/
@@ -79,7 +85,6 @@ XgFilter_Lib.Tests/
     PositionTypeFilterTests.cs
     PlayTypeFilterTests.cs
     DecisionFilterSetTests.cs
-    BgDecisionDataFilterTests.cs
   Projection/
     ColumnSelectorTests.cs
   Integration/
@@ -108,12 +113,18 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   reflects that only `Make20Pt` has a classifier today. The enum
   grows as each new play-shape classifier lands alongside its
   matching value.
-* Every member of both enums carries a UI-facing `[Description]`
-  label. Consumers read it via `EnumLabel.ToLabel<TEnum>(value)`.
-  Display text is owned by this library, not the UI layer. The
-  helper throws `ArgumentException` on undeclared values and on
-  declared members without a `[Description]` — missed annotations
-  surface loudly rather than degrading to the raw identifier.
+* `DecisionTypeOption` — which decision types `DecisionTypeFilter`
+  admits. Members: CheckerPlaysOnly, CubeOnly, Both.
+* `Column` — CSV columns `ColumnSelector` can project. One member
+  per column; declaration order is the default output order. Each
+  label is the column's CSV-header text.
+* Every member of every enum in this namespace carries a UI-facing
+  `[Description]` label. Consumers read it via
+  `EnumLabel.ToLabel<TEnum>(value)`. Display text is owned by this
+  library, not the UI layer. The helper throws `ArgumentException`
+  on undeclared values and on declared members without a
+  `[Description]` — missed annotations surface loudly rather than
+  degrading to the raw identifier.
 
 ### Filtering
 
@@ -164,6 +175,14 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 
 ### Classification
 
+Everything in `Classification/` is `internal`. Consumers never touch a
+classifier directly — they pass `PlayType` / `PositionType` enum values
+to the filters, which dispatch internally. These types are documented
+here because they're substantive internal machinery, not because they're
+on the public surface; they do not appear in the Public API block.
+`InternalsVisibleTo("XgFilter_Lib.Tests")` makes them reachable from
+the test project.
+
 * `IPositionClassifier` — `bool Matches(IReadOnlyList<int> board)`. Board
   is the 26-element on-roll-relative layout from `ConvertXgToJson_Lib`.
 * `RaceClassifier` — true when no contact exists between the two checker
@@ -192,9 +211,12 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 
 ### Projection
 
-* `ColumnSelector` — explicit column registry, no reflection. Typed to
-  `DecisionRow` because the projection target is CSV; `Board` is
-  deliberately not exposed as a column.
+* `ColumnSelector` — enum-driven column selection. Constructor takes
+  `IEnumerable<Column>`; header text comes from each member's
+  `[Description]` label. Typed to `DecisionRow` because the projection
+  target is CSV; `Board` is deliberately not exposed as a column. The
+  internal `GetValue` switch is exhaustive, throwing
+  `ArgumentOutOfRangeException` on undefined `Column` values.
 
 ### FilteredDecisionIterator
 
@@ -221,8 +243,14 @@ Early-exit pipeline, applied in this order:
 ```csharp
 namespace XgFilter_Lib.Enums;
 
-public enum PlayType     { Make20Pt }
-public enum PositionType { Contact, Race, InnerBoard631, InnerBoard54321 }
+public enum PlayType           { Make20Pt }
+public enum PositionType       { Contact, Race, InnerBoard631, InnerBoard54321 }
+public enum DecisionTypeOption { CheckerPlaysOnly, CubeOnly, Both }
+public enum Column
+{
+    Xgid, Error, MatchScore, MatchLength, Player, SourceFile,
+    Game, MoveNum, Roll, AnalysisDepth, Equity,
+}
 
 public static class EnumLabel
 {
@@ -265,30 +293,6 @@ public sealed class PlayTypeFilter     : IDecisionFilter              { /* ... *
 ```
 
 ```csharp
-namespace XgFilter_Lib.Classification;
-
-public interface IPositionClassifier
-{
-    bool Matches(IReadOnlyList<int> board);
-}
-
-public sealed class RaceClassifier            : IPositionClassifier { /* ... */ }
-public sealed class ContactClassifier         : IPositionClassifier { /* ... */ }
-public sealed class InnerBoard631Classifier   : IPositionClassifier { /* ... */ }
-public sealed class InnerBoard54321Classifier : IPositionClassifier { /* ... */ }
-
-public interface IPlayTypeClassifier
-{
-    bool Matches(
-        IReadOnlyList<int> priorBoard,
-        IReadOnlyList<int> afterBestBoard,
-        IReadOnlyList<int> afterPlayerBoard);
-}
-
-public sealed class Make20PtClassifier : IPlayTypeClassifier { /* ... */ }
-```
-
-```csharp
 namespace XgFilter_Lib;
 
 public static class FilteredDecisionIterator
@@ -306,12 +310,12 @@ namespace XgFilter_Lib.Projection;
 
 public sealed class ColumnSelector
 {
-    public static readonly IReadOnlyList<string> AllColumns;
+    public static readonly IReadOnlyList<Column> AllColumns;
 
     public ColumnSelector();
-    public ColumnSelector(IEnumerable<string> columns);
+    public ColumnSelector(IEnumerable<Column> columns);
 
-    public IReadOnlyList<string> SelectedColumns { get; }
+    public IReadOnlyList<Column> SelectedColumns { get; }
     public string Header { get; }
     public string Serialize(DecisionRow row);
     public string BuildCsv (IEnumerable<DecisionRow> rows);
