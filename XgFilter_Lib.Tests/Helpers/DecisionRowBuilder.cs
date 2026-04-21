@@ -18,7 +18,9 @@ internal static class DecisionRowBuilder
         int roll = 31,
         string depth = "3-ply",
         double equity = 0.0,
-        int[]? board = null)
+        int[]? board = null,
+        int[]? afterBestBoard = null,
+        int[]? afterPlayerBoard = null)
     {
         return new DecisionRow
         {
@@ -36,6 +38,8 @@ internal static class DecisionRowBuilder
             AnalysisDepth = depth,
             Equity = equity,
             Board = board ?? [],
+            AfterBestBoard = afterBestBoard ?? [],
+            AfterPlayerBoard = afterPlayerBoard ?? [],
         };
     }
 

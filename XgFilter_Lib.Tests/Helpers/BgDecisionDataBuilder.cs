@@ -14,7 +14,9 @@ internal static class BgDecisionDataBuilder
         double? userPlayError = 0.0,
         double? userDoubleError = null,
         double? userTakeError = null,
-        int[]? board = null)
+        int[]? board = null,
+        int[]? afterBestBoard = null,
+        int[]? afterPlayerBoard = null)
     {
         return new BgDecisionData
         {
@@ -36,6 +38,11 @@ internal static class BgDecisionDataBuilder
                 OpponentNeeds = opponentNeeds,
                 IsCrawford = isCrawford,
                 Mop = board ?? new int[26],
+            },
+            Outcome = new PlayOutcomeData
+            {
+                AfterBestBoard = afterBestBoard ?? [],
+                AfterPlayerBoard = afterPlayerBoard ?? [],
             },
         };
     }
