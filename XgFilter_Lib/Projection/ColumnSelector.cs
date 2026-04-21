@@ -1,81 +1,44 @@
 using System.Text;
 using BgDataTypes_Lib;
+using XgFilter_Lib.Enums;
 
 namespace XgFilter_Lib.Projection;
 
 /// <summary>
-/// Explicit registry of all available CSV columns.
-/// Maintains an ordered list of selected columns that drives both the CSV header
-/// and row serialization.
+/// Selects and serializes a subset of <see cref="DecisionRow"/> columns
+/// for CSV output. Callers specify the columns via <see cref="Column"/>
+/// enum values; the header text comes from each member's
+/// <c>[Description]</c> label. Default construction selects every
+/// column in declaration order.
 /// </summary>
 public sealed class ColumnSelector
 {
-    // -------------------------------------------------------------------
-    //  Column registry
-    // -------------------------------------------------------------------
+    /// <summary>Every defined column, in declaration order.</summary>
+    public static readonly IReadOnlyList<Column> AllColumns =
+        Enum.GetValues<Column>();
 
-    public static readonly IReadOnlyList<string> AllColumns =
-    [
-        "Xgid",
-        "Error",
-        "MatchScore",
-        "MatchLength",
-        "Player",
-        "SourceFile",
-        "Game",
-        "MoveNum",
-        "Roll",
-        "AnalysisDepth",
-        "Equity",
-    ];
+    private readonly List<Column> _selected;
 
-    // -------------------------------------------------------------------
-    //  State
-    // -------------------------------------------------------------------
-
-    private readonly List<string> _selected;
-
-    // -------------------------------------------------------------------
-    //  Construction
-    // -------------------------------------------------------------------
-
-    /// <summary>Creates a selector with all columns active (matches legacy behaviour).</summary>
-    public ColumnSelector()
-    {
-        _selected = new List<string>(AllColumns);
-    }
+    /// <summary>Creates a selector with every column active, in declaration order.</summary>
+    public ColumnSelector() : this(AllColumns) { }
 
     /// <summary>Creates a selector with an explicit ordered column list.</summary>
-    public ColumnSelector(IEnumerable<string> columns)
+    public ColumnSelector(IEnumerable<Column> columns)
     {
-        var invalid = columns.Where(c => !AllColumns.Contains(c)).ToList();
-        if (invalid.Count > 0)
-            throw new ArgumentException(
-                $"Unknown column(s): {string.Join(", ", invalid)}", nameof(columns));
-
-        _selected = new List<string>(columns);
+        _selected = new List<Column>(columns);
     }
-
-    // -------------------------------------------------------------------
-    //  Public API
-    // -------------------------------------------------------------------
 
     /// <summary>The ordered list of active columns.</summary>
-    public IReadOnlyList<string> SelectedColumns => _selected;
+    public IReadOnlyList<Column> SelectedColumns => _selected;
 
-    /// <summary>CSV header row for the active columns.</summary>
-    public string Header => string.Join(",", _selected);
+    /// <summary>CSV header row, joined from each selected column's label.</summary>
+    public string Header => string.Join(",", _selected.Select(c => c.ToLabel()));
 
     /// <summary>Serializes a single row using the active columns.</summary>
-    public string Serialize(DecisionRow row)
-    {
-        var values = _selected.Select(col => GetValue(row, col));
-        return string.Join(",", values);
-    }
+    public string Serialize(DecisionRow row) =>
+        string.Join(",", _selected.Select(c => GetValue(row, c)));
 
-    /// <summary>
-    /// Builds a complete CSV string (header + rows) for the given sequence.
-    /// </summary>
+    /// <summary>Builds a complete CSV string (header + rows) for the given sequence.</summary>
     public string BuildCsv(IEnumerable<DecisionRow> rows)
     {
         var sb = new StringBuilder();
@@ -85,24 +48,21 @@ public sealed class ColumnSelector
         return sb.ToString();
     }
 
-    // -------------------------------------------------------------------
-    //  Value extraction
-    // -------------------------------------------------------------------
-
-    private static string GetValue(DecisionRow row, string column) => column switch
+    private static string GetValue(DecisionRow row, Column column) => column switch
     {
-        "Xgid"          => CsvEscape(row.Xgid),
-        "Error"         => row.Error.ToString("G6"),
-        "MatchScore"    => CsvEscape(row.MatchScore),
-        "MatchLength"   => row.MatchLength.ToString(),
-        "Player"        => CsvEscape(row.Player),
-        "SourceFile"    => CsvEscape(row.SourceFile ?? string.Empty),
-        "Game"          => row.Game.ToString(),
-        "MoveNum"       => row.MoveNum.ToString(),
-        "Roll"          => row.Roll.ToString(),
-        "AnalysisDepth" => CsvEscape(row.AnalysisDepth),
-        "Equity"        => row.Equity.ToString("G6"),
-        _               => throw new InvalidOperationException($"Unhandled column: {column}"),
+        Column.Xgid          => CsvEscape(row.Xgid),
+        Column.Error         => row.Error.ToString("G6"),
+        Column.MatchScore    => CsvEscape(row.MatchScore),
+        Column.MatchLength   => row.MatchLength.ToString(),
+        Column.Player        => CsvEscape(row.Player),
+        Column.SourceFile    => CsvEscape(row.SourceFile ?? string.Empty),
+        Column.Game          => row.Game.ToString(),
+        Column.MoveNum       => row.MoveNum.ToString(),
+        Column.Roll          => row.Roll.ToString(),
+        Column.AnalysisDepth => CsvEscape(row.AnalysisDepth),
+        Column.Equity        => row.Equity.ToString("G6"),
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(column), column, "Unknown Column"),
     };
 
     private static string CsvEscape(string value)

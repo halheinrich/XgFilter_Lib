@@ -1,3 +1,4 @@
+using XgFilter_Lib.Enums;
 using XgFilter_Lib.Projection;
 using XgFilter_Lib.Tests.Helpers;
 
@@ -6,26 +7,25 @@ namespace XgFilter_Lib.Tests.Projection;
 public class ColumnSelectorTests
 {
     // -----------------------------------------------------------------------
-    //  Default constructor — all columns
+    //  Default constructor — all columns in declaration order
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void DefaultConstructor_HeaderContainsAllColumns()
+    public void DefaultConstructor_SelectedColumns_MatchesAllColumns()
+    {
+        var selector = new ColumnSelector();
+
+        selector.SelectedColumns.Should().Equal(ColumnSelector.AllColumns);
+    }
+
+    [Fact]
+    public void DefaultConstructor_HeaderContainsEveryColumnLabel()
     {
         var selector = new ColumnSelector();
         var header = selector.Header;
 
-        header.Should().Contain("Xgid");
-        header.Should().Contain("Error");
-        header.Should().Contain("MatchScore");
-        header.Should().Contain("MatchLength");
-        header.Should().Contain("Player");
-        header.Should().Contain("SourceFile");
-        header.Should().Contain("Game");
-        header.Should().Contain("MoveNum");
-        header.Should().Contain("Roll");
-        header.Should().Contain("AnalysisDepth");
-        header.Should().Contain("Equity");
+        foreach (var column in ColumnSelector.AllColumns)
+            header.Should().Contain(column.ToLabel());
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class ColumnSelectorTests
     [Fact]
     public void ExplicitColumns_HeaderMatchesSelection()
     {
-        var selector = new ColumnSelector(["Player", "Error"]);
+        var selector = new ColumnSelector([Column.Player, Column.Error]);
 
         selector.Header.Should().Be("Player,Error");
     }
@@ -56,7 +56,7 @@ public class ColumnSelectorTests
     [Fact]
     public void ExplicitColumns_SerializeOnlyIncludesSelectedColumns()
     {
-        var selector = new ColumnSelector(["Player", "Error"]);
+        var selector = new ColumnSelector([Column.Player, Column.Error]);
         var row = DecisionRowBuilder.Build(player: "Alice", error: 0.05, roll: 31);
 
         var line = selector.Serialize(row);
@@ -69,28 +69,43 @@ public class ColumnSelectorTests
     [Fact]
     public void ExplicitColumns_OrderIsPreserved()
     {
-        var selector = new ColumnSelector(["Error", "Player"]);
+        var selector = new ColumnSelector([Column.Error, Column.Player]);
 
         selector.Header.Should().Be("Error,Player");
     }
 
     [Fact]
-    public void ExplicitColumns_UnknownColumnThrows()
+    public void ExplicitColumns_SingleColumn_HeaderAndSerializeWork()
     {
-        var act = () => new ColumnSelector(["Player", "NonExistentColumn"]);
-
-        act.Should().Throw<ArgumentException>()
-           .WithMessage("*NonExistentColumn*");
-    }
-
-    [Fact]
-    public void SingleColumn_HeaderAndSerializeWork()
-    {
-        var selector = new ColumnSelector(["Player"]);
+        var selector = new ColumnSelector([Column.Player]);
         var row = DecisionRowBuilder.Build(player: "Bob");
 
         selector.Header.Should().Be("Player");
         selector.Serialize(row).Should().Be("Bob");
+    }
+
+    [Fact]
+    public void ExplicitColumns_Empty_HeaderAndSerializeAreEmpty()
+    {
+        var selector = new ColumnSelector([]);
+        var row = DecisionRowBuilder.Build(player: "Alice");
+
+        selector.Header.Should().BeEmpty();
+        selector.Serialize(row).Should().BeEmpty();
+    }
+
+    // -----------------------------------------------------------------------
+    //  Undefined enum value — defensive throw at serialization time
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Serialize_UndefinedColumnValue_Throws()
+    {
+        var selector = new ColumnSelector([(Column)999]);
+        var row = DecisionRowBuilder.Build();
+
+        var act = () => selector.Serialize(row);
+        act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     // -----------------------------------------------------------------------
@@ -100,7 +115,7 @@ public class ColumnSelectorTests
     [Fact]
     public void BuildCsv_EmptyRows_ReturnsHeaderOnly()
     {
-        var selector = new ColumnSelector(["Player", "Error"]);
+        var selector = new ColumnSelector([Column.Player, Column.Error]);
 
         var csv = selector.BuildCsv([]);
 
@@ -111,7 +126,7 @@ public class ColumnSelectorTests
     [Fact]
     public void BuildCsv_MultipleRows_IncludesHeaderAndAllRows()
     {
-        var selector = new ColumnSelector(["Player", "Error"]);
+        var selector = new ColumnSelector([Column.Player, Column.Error]);
         var rows = new[]
         {
             DecisionRowBuilder.Build(player: "Alice", error: 0.05),

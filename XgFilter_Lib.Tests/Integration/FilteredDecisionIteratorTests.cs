@@ -44,7 +44,9 @@ public class FilteredDecisionIteratorTests
 
         var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
 
-        var selector = new ColumnSelector(["Player", "SourceFile", "Game", "MoveNum", "Roll", "Error", "Equity"]);
+        var selector = new ColumnSelector([
+            Column.Player, Column.SourceFile, Column.Game,
+            Column.MoveNum, Column.Roll, Column.Error, Column.Equity]);
         selector.Header.Should().Be("Player,SourceFile,Game,MoveNum,Roll,Error,Equity");
 
         rows.Should().NotBeEmpty();
