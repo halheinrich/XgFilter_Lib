@@ -34,6 +34,7 @@ XgFilter_Lib/
   XgFilter_Lib.csproj
   FilteredDecisionIterator.cs
   Enums/
+    EnumLabel.cs
     PlayType.cs
     PositionType.cs
   Filtering/
@@ -62,6 +63,8 @@ XgFilter_Lib.Tests/
   Helpers/
     DecisionRowBuilder.cs
     BgDecisionDataBuilder.cs
+  Enums/
+    EnumLabelTests.cs
   Classification/
     RaceClassifierTests.cs
     ContactClassifierTests.cs
@@ -105,6 +108,12 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   reflects that only `Make20Pt` has a classifier today. The enum
   grows as each new play-shape classifier lands alongside its
   matching value.
+* Every member of both enums carries a UI-facing `[Description]`
+  label. Consumers read it via `EnumLabel.ToLabel<TEnum>(value)`.
+  Display text is owned by this library, not the UI layer. The
+  helper throws `ArgumentException` on undeclared values and on
+  declared members without a `[Description]` — missed annotations
+  surface loudly rather than degrading to the raw identifier.
 
 ### Filtering
 
@@ -142,13 +151,16 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `PositionTypeFilter` — include list of `PositionType`. Reads
   `data.Board` and delegates to `IPositionClassifier` instances. Never
   parses the XGID.
-* `PlayTypeFilter` — constructed from an `IEnumerable<IPlayTypeClassifier>`.
-  `Matches` reads `data.Board`, `data.AfterBestBoard`, and
-  `data.AfterPlayerBoard` and returns true when any classifier matches
-  (OR semantics, parallel to `PositionTypeFilter`). Cube rows always
-  fail — no play was made, so no play-type applies, and the after-boards
-  are empty on cube rows by contract. Empty classifier collection →
-  always false (empty OR).
+* `PlayTypeFilter` — include list of `PlayType`. Reads `data.Board`,
+  `data.AfterBestBoard`, and `data.AfterPlayerBoard` and dispatches
+  each selected type to its matching `IPlayTypeClassifier` via an
+  internal exhaustive switch that throws on unknown values. OR
+  semantics: a row passes when any selected type matches. Cube rows
+  always fail — no play was made, so no play-type applies, and the
+  after-boards are empty on cube rows by contract. Empty type set →
+  always false (empty OR). Shape mirrors `PositionTypeFilter`; the
+  enum→classifier correspondence is owned by the filter, not the
+  caller.
 
 ### Classification
 
@@ -205,6 +217,18 @@ Early-exit pipeline, applied in this order:
    `state.AdvanceNextMatch` are set accordingly before the yield.
 
 ## Public API
+
+```csharp
+namespace XgFilter_Lib.Enums;
+
+public enum PlayType     { Make20Pt }
+public enum PositionType { Contact, Race, InnerBoard631, InnerBoard54321 }
+
+public static class EnumLabel
+{
+    public static string ToLabel<TEnum>(this TEnum value) where TEnum : struct, Enum;
+}
+```
 
 ```csharp
 namespace XgFilter_Lib.Filtering;
