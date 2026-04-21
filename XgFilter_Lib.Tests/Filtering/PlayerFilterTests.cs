@@ -1,58 +1,54 @@
 using ConvertXgToJson_Lib;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
+using static XgFilter_Lib.Tests.Helpers.DecisionFilterAsserts;
 
 namespace XgFilter_Lib.Tests.Filtering;
 
 public class PlayerFilterTests
 {
+    // -----------------------------------------------------------------------
+    //  Matches — exercises both substrates via RowShape
+    // -----------------------------------------------------------------------
+
     [Fact]
     public void Matches_WhenPlayerInList_ReturnsTrue()
     {
         var filter = new PlayerFilter(["Alice", "Bob"]);
-        var row = DecisionRowBuilder.Build(player: "Alice");
-
-        filter.Matches(row).Should().BeTrue();
+        AssertMatchesBoth(filter, new RowShape(Player: "Alice"), expected: true);
     }
 
     [Fact]
     public void Matches_WhenPlayerNotInList_ReturnsFalse()
     {
         var filter = new PlayerFilter(["Alice", "Bob"]);
-        var row = DecisionRowBuilder.Build(player: "Charlie");
-
-        filter.Matches(row).Should().BeFalse();
+        AssertMatchesBoth(filter, new RowShape(Player: "Charlie"), expected: false);
     }
 
     [Fact]
     public void Matches_IsCaseInsensitive()
     {
         var filter = new PlayerFilter(["alice"]);
-        var row = DecisionRowBuilder.Build(player: "ALICE");
-
-        filter.Matches(row).Should().BeTrue();
+        AssertMatchesBoth(filter, new RowShape(Player: "ALICE"), expected: true);
     }
 
     [Fact]
     public void Matches_WhenListIsEmpty_ReturnsFalse()
     {
         var filter = new PlayerFilter([]);
-        var row = DecisionRowBuilder.Build(player: "Alice");
-
-        filter.Matches(row).Should().BeFalse();
+        AssertMatchesBoth(filter, new RowShape(Player: "Alice"), expected: false);
     }
 
     [Fact]
     public void Matches_WhenListHasSingleEntry_MatchesOnlyThatPlayer()
     {
         var filter = new PlayerFilter(["Alice"]);
-
-        filter.Matches(DecisionRowBuilder.Build(player: "Alice")).Should().BeTrue();
-        filter.Matches(DecisionRowBuilder.Build(player: "Bob")).Should().BeFalse();
+        AssertMatchesBoth(filter, new RowShape(Player: "Alice"), expected: true);
+        AssertMatchesBoth(filter, new RowShape(Player: "Bob"), expected: false);
     }
 
     // -----------------------------------------------------------------------
-    //  IMatchFilter: ShouldSkipMatch
+    //  IMatchFilter: ShouldSkipMatch — XgMatchInfo input, no substrate axis
     // -----------------------------------------------------------------------
 
     [Fact]
