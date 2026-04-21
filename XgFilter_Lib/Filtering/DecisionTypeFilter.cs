@@ -1,24 +1,7 @@
-using System.ComponentModel;
 using BgDataTypes_Lib;
+using XgFilter_Lib.Enums;
 
 namespace XgFilter_Lib.Filtering;
-
-/// <summary>
-/// Specifies which decision types to include. Each member carries a
-/// UI-facing label via <see cref="DescriptionAttribute"/>; read it with
-/// <see cref="Enums.EnumLabel.ToLabel{TEnum}(TEnum)"/>.
-/// </summary>
-public enum DecisionTypeOption
-{
-    [Description("Checker plays only")]
-    CheckerPlaysOnly,
-
-    [Description("Cube decisions only")]
-    CubeOnly,
-
-    [Description("Both checker and cube")]
-    Both,
-}
 
 /// <summary>
 /// Passes rows based on whether they are cube decisions or checker plays,

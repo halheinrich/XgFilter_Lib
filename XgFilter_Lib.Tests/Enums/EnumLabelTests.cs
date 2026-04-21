@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using XgFilter_Lib.Enums;
-using XgFilter_Lib.Filtering;
 
 namespace XgFilter_Lib.Tests.Enums;
 
