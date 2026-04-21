@@ -1,5 +1,5 @@
 using BgDataTypes_Lib;
-using XgFilter_Lib.Classification;
+using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
 
@@ -29,31 +29,39 @@ public class PlayTypeFilterTests
         return b;
     }
 
-    /// <summary>A classifier that always returns the fixed result.</summary>
-    private sealed class FixedClassifier(bool result) : IPlayTypeClassifier
+    /// <summary>
+    /// Exercises both <see cref="IDecisionFilterData"/> substrates — the
+    /// <see cref="DecisionRow"/> (CSV-shaped) and <see cref="BgDecisionData"/>
+    /// (diagram-shaped) paths — with a single assertion call. Every filter
+    /// case that doesn't care about substrate-specific fields should go
+    /// through this helper.
+    /// </summary>
+    private static void AssertMatches(
+        PlayTypeFilter filter,
+        int[] prior, int[] afterBest, int[] afterPlayer,
+        bool isCube, bool expected)
     {
-        public bool Matches(
-            IReadOnlyList<int> priorBoard,
-            IReadOnlyList<int> afterBestBoard,
-            IReadOnlyList<int> afterPlayerBoard) => result;
+        var row = isCube
+            ? DecisionRowBuilder.BuildCube()
+            : DecisionRowBuilder.Build(
+                board: prior, afterBestBoard: afterBest, afterPlayerBoard: afterPlayer);
+        var data = BgDecisionDataBuilder.Build(
+            isCube: isCube,
+            board: prior, afterBestBoard: afterBest, afterPlayerBoard: afterPlayer);
+
+        filter.Matches(row ).Should().Be(expected, "DecisionRow substrate");
+        filter.Matches(data).Should().Be(expected, "BgDecisionData substrate");
     }
 
-    private static DecisionRow CheckerRow(int[] prior, int[] afterBest, int[] afterPlayer) =>
-        DecisionRowBuilder.Build(
-            board: prior,
-            afterBestBoard: afterBest,
-            afterPlayerBoard: afterPlayer);
-
     // -----------------------------------------------------------------------
-    //  Empty classifier collection
+    //  Empty type set
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void EmptyClassifiers_CheckerRow_ReturnsFalse()
+    public void EmptyTypes_CheckerRow_ReturnsFalse()
     {
         var filter = new PlayTypeFilter([]);
-        var row = CheckerRow(Prior(0), After(2), After(0));
-        filter.Matches(row).Should().BeFalse();
+        AssertMatches(filter, Prior(0), After(2), After(0), isCube: false, expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -61,103 +69,56 @@ public class PlayTypeFilterTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void CubeRow_AlwaysMatchingClassifier_ReturnsFalse()
+    public void CubeRow_SelectedType_ReturnsFalse()
     {
-        var filter = new PlayTypeFilter([new FixedClassifier(true)]);
-        var row = DecisionRowBuilder.BuildCube();
-        filter.Matches(row).Should().BeFalse();
+        var filter = new PlayTypeFilter([PlayType.Make20Pt]);
+        AssertMatches(filter, Prior(0), After(2), After(0), isCube: true, expected: false);
     }
 
     // -----------------------------------------------------------------------
-    //  Single classifier
-    // -----------------------------------------------------------------------
-
-    [Fact]
-    public void SingleClassifier_Matches_ReturnsTrue()
-    {
-        var filter = new PlayTypeFilter([new FixedClassifier(true)]);
-        var row = CheckerRow(Prior(0), After(2), After(0));
-        filter.Matches(row).Should().BeTrue();
-    }
-
-    [Fact]
-    public void SingleClassifier_DoesNotMatch_ReturnsFalse()
-    {
-        var filter = new PlayTypeFilter([new FixedClassifier(false)]);
-        var row = CheckerRow(Prior(0), After(2), After(0));
-        filter.Matches(row).Should().BeFalse();
-    }
-
-    // -----------------------------------------------------------------------
-    //  Multiple classifiers — OR semantics
-    // -----------------------------------------------------------------------
-
-    [Fact]
-    public void MultipleClassifiers_OneMatches_ReturnsTrue()
-    {
-        var filter = new PlayTypeFilter(
-            [new FixedClassifier(false), new FixedClassifier(true)]);
-        var row = CheckerRow(Prior(0), After(2), After(0));
-        filter.Matches(row).Should().BeTrue();
-    }
-
-    [Fact]
-    public void MultipleClassifiers_NoneMatch_ReturnsFalse()
-    {
-        var filter = new PlayTypeFilter(
-            [new FixedClassifier(false), new FixedClassifier(false)]);
-        var row = CheckerRow(Prior(0), After(2), After(0));
-        filter.Matches(row).Should().BeFalse();
-    }
-
-    // -----------------------------------------------------------------------
-    //  Integration with real Make20PtClassifier via DecisionRow
+    //  Make20Pt behavioural coverage
     // -----------------------------------------------------------------------
 
     [Fact]
     public void Make20Pt_BestMakes_PlayerDoesNot_ReturnsTrue()
     {
-        var filter = new PlayTypeFilter([new Make20PtClassifier()]);
-        var row = CheckerRow(Prior(0), After(2), After(0));
-        filter.Matches(row).Should().BeTrue();
+        var filter = new PlayTypeFilter([PlayType.Make20Pt]);
+        AssertMatches(filter, Prior(0), After(2), After(0), isCube: false, expected: true);
+    }
+
+    [Fact]
+    public void Make20Pt_PlayerMakes_BestDoesNot_ReturnsTrue()
+    {
+        var filter = new PlayTypeFilter([PlayType.Make20Pt]);
+        AssertMatches(filter, Prior(0), After(0), After(2), isCube: false, expected: true);
     }
 
     [Fact]
     public void Make20Pt_BothMake_ReturnsFalse()
     {
-        var filter = new PlayTypeFilter([new Make20PtClassifier()]);
-        var row = CheckerRow(Prior(0), After(2), After(2));
-        filter.Matches(row).Should().BeFalse();
+        var filter = new PlayTypeFilter([PlayType.Make20Pt]);
+        AssertMatches(filter, Prior(0), After(2), After(2), isCube: false, expected: false);
     }
 
     [Fact]
     public void Make20Pt_AlreadyMade_ReturnsFalse()
     {
-        var filter = new PlayTypeFilter([new Make20PtClassifier()]);
-        var row = CheckerRow(Prior(3), After(3), After(2));
-        filter.Matches(row).Should().BeFalse();
+        var filter = new PlayTypeFilter([PlayType.Make20Pt]);
+        AssertMatches(filter, Prior(3), After(3), After(2), isCube: false, expected: false);
     }
 
     // -----------------------------------------------------------------------
-    //  Integration with real Make20PtClassifier via BgDecisionData
+    //  Unknown enum value — contract: throw
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Make20Pt_BgDecisionData_BestMakes_PlayerDoesNot_ReturnsTrue()
+    public void UnknownPlayType_CheckerRow_Throws()
     {
-        var filter = new PlayTypeFilter([new Make20PtClassifier()]);
-        var data = BgDecisionDataBuilder.Build(
-            board: Prior(0),
-            afterBestBoard: After(2),
-            afterPlayerBoard: After(0));
-        filter.Matches(data).Should().BeTrue();
-    }
+        var filter = new PlayTypeFilter([(PlayType)999]);
+        var row = DecisionRowBuilder.Build(
+            board: Prior(0), afterBestBoard: After(2), afterPlayerBoard: After(0));
 
-    [Fact]
-    public void Make20Pt_BgDecisionData_Cube_ReturnsFalse()
-    {
-        var filter = new PlayTypeFilter([new Make20PtClassifier()]);
-        var data = BgDecisionDataBuilder.Build(isCube: true);
-        filter.Matches(data).Should().BeFalse();
+        var act = () => filter.Matches(row);
+        act.Should().Throw<ArgumentOutOfRangeException>();
     }
 }
