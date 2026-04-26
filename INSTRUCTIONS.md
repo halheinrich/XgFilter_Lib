@@ -47,6 +47,7 @@ XgFilter_Lib/
     DecisionTypeFilter.cs
     MatchScoreFilter.cs
     ErrorRangeFilter.cs
+    MoveNumberFilter.cs
     PositionTypeFilter.cs
     PlayTypeFilter.cs
   Classification/
@@ -82,6 +83,7 @@ XgFilter_Lib.Tests/
     DecisionTypeFilterTests.cs
     ErrorRangeFilterTests.cs
     MatchScoreFilterTests.cs
+    MoveNumberFilterTests.cs
     PositionTypeFilterTests.cs
     PlayTypeFilterTests.cs
     DecisionFilterSetTests.cs
@@ -159,6 +161,16 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `ErrorRangeFilter` — `double?` min / max on `FilterError`. Returns `false`
   when `FilterError` is `null`, i.e. unanalysed rows are excluded, not
   passed through.
+* `MoveNumberFilter` — implements both interfaces. `int?` min / max on
+  `MoveNumber`, gated by `IsStandardStart`. Non-standard-start games
+  (custom problem positions, Bg960, etc.) have no canonical move
+  numbering, so `ShouldSkipGame` drops them wholesale via
+  `XgGameInfo.IsStandardStart` before any rows are yielded; `Matches`
+  rejects any decision whose `IsStandardStart` is false as a safety
+  net. First filter in the codebase to override
+  `ShouldAdvanceGame` — once a decision past `max` is seen, no later
+  decision in the same game can match, since move numbers increase
+  monotonically per game.
 * `PositionTypeFilter` — include list of `PositionType`. Reads
   `data.Board` and delegates to `IPositionClassifier` instances. Never
   parses the XGID.
@@ -284,12 +296,13 @@ public sealed class DecisionFilterSet
     public bool ShouldAdvanceMatch(IDecisionFilterData data);
 }
 
-public sealed class PlayerFilter      : IDecisionFilter, IMatchFilter { /* ... */ }
-public sealed class DecisionTypeFilter : IDecisionFilter              { /* ... */ }
+public sealed class PlayerFilter       : IDecisionFilter, IMatchFilter { /* ... */ }
+public sealed class DecisionTypeFilter : IDecisionFilter               { /* ... */ }
 public sealed class MatchScoreFilter   : IDecisionFilter, IMatchFilter { /* ... */ }
-public sealed class ErrorRangeFilter   : IDecisionFilter              { /* ... */ }
-public sealed class PositionTypeFilter : IDecisionFilter              { /* ... */ }
-public sealed class PlayTypeFilter     : IDecisionFilter              { /* ... */ }
+public sealed class ErrorRangeFilter   : IDecisionFilter               { /* ... */ }
+public sealed class MoveNumberFilter   : IDecisionFilter, IMatchFilter { /* ... */ }
+public sealed class PositionTypeFilter : IDecisionFilter               { /* ... */ }
+public sealed class PlayTypeFilter     : IDecisionFilter               { /* ... */ }
 ```
 
 ```csharp

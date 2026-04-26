@@ -37,4 +37,17 @@ internal static class DecisionFilterAsserts
         filter.ShouldAdvanceMatch(shape.ToBgDecisionData())
               .Should().Be(expected, "BgDecisionData substrate");
     }
+
+    /// <summary>
+    /// Asserts <see cref="IDecisionFilter.ShouldAdvanceGame"/> returns
+    /// <paramref name="expected"/> on both substrates produced from
+    /// <paramref name="shape"/>.
+    /// </summary>
+    public static void AssertShouldAdvanceGameBoth(IDecisionFilter filter, RowShape shape, bool expected)
+    {
+        filter.ShouldAdvanceGame(shape.ToDecisionRow())
+              .Should().Be(expected, "DecisionRow substrate");
+        filter.ShouldAdvanceGame(shape.ToBgDecisionData())
+              .Should().Be(expected, "BgDecisionData substrate");
+    }
 }

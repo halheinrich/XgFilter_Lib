@@ -31,6 +31,12 @@ public class DecisionFilterAssertsTests
         public bool ShouldAdvanceMatch(IDecisionFilterData data) => result;
     }
 
+    private sealed class ShouldAdvanceGameFilter(bool result) : IDecisionFilter
+    {
+        public bool Matches(IDecisionFilterData data) => true;
+        public bool ShouldAdvanceGame(IDecisionFilterData data) => result;
+    }
+
     // -----------------------------------------------------------------------
     //  AssertMatchesBoth — agreement paths
     // -----------------------------------------------------------------------
@@ -129,6 +135,34 @@ public class DecisionFilterAssertsTests
     {
         var act = () => DecisionFilterAsserts.AssertShouldAdvanceMatchBoth(
             new ShouldAdvanceMatchFilter(true), new RowShape(), expected: false);
+        act.Should().Throw<Exception>();
+    }
+
+    // -----------------------------------------------------------------------
+    //  AssertShouldAdvanceGameBoth
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void AssertShouldAdvanceGameBoth_BothAgreeTrue_DoesNotThrow()
+    {
+        var act = () => DecisionFilterAsserts.AssertShouldAdvanceGameBoth(
+            new ShouldAdvanceGameFilter(true), new RowShape(), expected: true);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void AssertShouldAdvanceGameBoth_BothAgreeFalse_DoesNotThrow()
+    {
+        var act = () => DecisionFilterAsserts.AssertShouldAdvanceGameBoth(
+            new ShouldAdvanceGameFilter(false), new RowShape(), expected: false);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void AssertShouldAdvanceGameBoth_ExpectationWrong_Throws()
+    {
+        var act = () => DecisionFilterAsserts.AssertShouldAdvanceGameBoth(
+            new ShouldAdvanceGameFilter(true), new RowShape(), expected: false);
         act.Should().Throw<Exception>();
     }
 }
