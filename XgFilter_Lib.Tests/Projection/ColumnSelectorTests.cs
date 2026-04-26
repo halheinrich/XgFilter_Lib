@@ -151,6 +151,6 @@ public class ColumnSelectorTests
         var csv = selector.BuildCsv([]);
         var firstLine = csv.Split('\n')[0].TrimEnd('\r');
 
-        firstLine.Should().Be("Xgid,Error,MatchScore,MatchLength,Player,SourceFile,Game,MoveNum,Roll,AnalysisDepth,Equity");
+        firstLine.Should().Be("Xgid,Error,MatchScore,MatchLength,Player,SourceFile,Game,MoveNumber,Roll,AnalysisDepth,Equity");
     }
 }

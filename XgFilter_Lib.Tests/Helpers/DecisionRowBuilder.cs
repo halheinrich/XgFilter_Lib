@@ -14,7 +14,8 @@ internal static class DecisionRowBuilder
         string player = "Player1",
         string sourceFile = "TestMatch.xg",
         int game = 1,
-        int moveNum = 1,
+        int moveNumber = 1,
+        bool isStandardStart = true,
         int roll = 31,
         string depth = "3-ply",
         double equity = 0.0,
@@ -33,7 +34,8 @@ internal static class DecisionRowBuilder
             Player = player,
             SourceFile = sourceFile,
             Game = game,
-            MoveNum = moveNum,
+            MoveNumber = moveNumber,
+            IsStandardStart = isStandardStart,
             Roll = roll,
             AnalysisDepth = depth,
             Equity = equity,
@@ -49,10 +51,13 @@ internal static class DecisionRowBuilder
         int onRollNeeds = 3,
         int opponentNeeds = 5,
         bool isCrawford = false,
-        int matchLength = 7)
+        int matchLength = 7,
+        int moveNumber = 1,
+        bool isStandardStart = true)
     {
         return Build(player: player, error: error, onRollNeeds: onRollNeeds,
                      opponentNeeds: opponentNeeds, isCrawford: isCrawford,
-                     matchLength: matchLength, roll: 0);
+                     matchLength: matchLength, moveNumber: moveNumber,
+                     isStandardStart: isStandardStart, roll: 0);
     }
 }

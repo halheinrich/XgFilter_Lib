@@ -11,6 +11,8 @@ internal static class BgDecisionDataBuilder
         int opponentNeeds = 5,
         bool isCrawford = false,
         int matchLength = 7,
+        int moveNumber = 1,
+        bool isStandardStart = true,
         double? userPlayError = 0.0,
         double? userDoubleError = null,
         double? userTakeError = null,
@@ -24,6 +26,8 @@ internal static class BgDecisionDataBuilder
             {
                 OnRollName = player,
                 MatchLength = matchLength,
+                MoveNumber = moveNumber,
+                IsStandardStart = isStandardStart,
             },
             Decision = new DecisionData
             {

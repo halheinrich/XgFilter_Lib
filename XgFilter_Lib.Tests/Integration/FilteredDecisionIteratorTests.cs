@@ -46,8 +46,8 @@ public class FilteredDecisionIteratorTests
 
         var selector = new ColumnSelector([
             Column.Player, Column.SourceFile, Column.Game,
-            Column.MoveNum, Column.Roll, Column.Error, Column.Equity]);
-        selector.Header.Should().Be("Player,SourceFile,Game,MoveNum,Roll,Error,Equity");
+            Column.MoveNumber, Column.Roll, Column.Error, Column.Equity]);
+        selector.Header.Should().Be("Player,SourceFile,Game,MoveNumber,Roll,Error,Equity");
 
         rows.Should().NotBeEmpty();
         rows.Should().OnlyContain(r => selector.Serialize(r).Split(',').Length == 7);

@@ -57,7 +57,7 @@ public sealed class ColumnSelector
         Column.Player        => CsvEscape(row.Player),
         Column.SourceFile    => CsvEscape(row.SourceFile ?? string.Empty),
         Column.Game          => row.Game.ToString(),
-        Column.MoveNum       => row.MoveNum.ToString(),
+        Column.MoveNumber    => row.MoveNumber.ToString(),
         Column.Roll          => row.Roll.ToString(),
         Column.AnalysisDepth => CsvEscape(row.AnalysisDepth),
         Column.Equity        => row.Equity.ToString("G6"),

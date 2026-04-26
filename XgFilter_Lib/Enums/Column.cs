@@ -32,8 +32,8 @@ public enum Column
     [Description("Game")]
     Game,
 
-    [Description("MoveNum")]
-    MoveNum,
+    [Description("MoveNumber")]
+    MoveNumber,
 
     [Description("Roll")]
     Roll,

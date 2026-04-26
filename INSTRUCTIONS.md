@@ -249,7 +249,7 @@ public enum DecisionTypeOption { CheckerPlaysOnly, CubeOnly, Both }
 public enum Column
 {
     Xgid, Error, MatchScore, MatchLength, Player, SourceFile,
-    Game, MoveNum, Roll, AnalysisDepth, Equity,
+    Game, MoveNumber, Roll, AnalysisDepth, Equity,
 }
 
 public static class EnumLabel
