@@ -12,6 +12,8 @@ public class FilteredDecisionIteratorTests
 {
     private static readonly string XgDir = Path.Combine(
         AppContext.BaseDirectory, "TestData", "xg");
+    private static readonly string FixtureDir = Path.Combine(
+        AppContext.BaseDirectory, "TestData", "FixtureFiles");
 
     [Fact]
     public void TestDataDirectory_Exists_AndContainsXgFiles()
@@ -30,7 +32,7 @@ public class FilteredDecisionIteratorTests
         var filters = new DecisionFilterSet()
             .Add(new PlayerFilter(["halheinrich"]));
 
-        var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
+        var rows = FilteredDecisionIterator.IterateXgDirectory(FixtureDir, filters).ToList();
 
         rows.Should().NotBeEmpty("expected at least one decision by halheinrich in the test files");
         rows.Should().OnlyContain(r => r.Player.Equals("halheinrich", StringComparison.OrdinalIgnoreCase));
@@ -42,7 +44,7 @@ public class FilteredDecisionIteratorTests
         var filters = new DecisionFilterSet()
             .Add(new PlayerFilter(["halheinrich"]));
 
-        var rows = FilteredDecisionIterator.IterateXgDirectory(XgDir, filters).ToList();
+        var rows = FilteredDecisionIterator.IterateXgDirectory(FixtureDir, filters).ToList();
 
         var selector = new ColumnSelector([
             Column.Player, Column.SourceFile, Column.Game,
