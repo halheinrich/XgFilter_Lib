@@ -7,36 +7,69 @@ using XgFilter_Lib.Filtering;
 namespace XgFilter_Lib;
 
 /// <summary>
-/// Iterates over .xg or .json files in a directory and yields only the
-/// <see cref="DecisionRow"/> records that pass the supplied filters.
-/// Applies match- and game-level early-exit optimizations via
-/// <see cref="XgIteratorState"/>.
+/// Iterates over .xg or .json files in a directory and yields the
+/// decision records that pass the supplied filters. Two output shapes
+/// are supported: <see cref="DecisionRow"/> (CSV-flat) and
+/// <see cref="BgDecisionData"/> (diagram-shaped, with after-boards and
+/// per-candidate plays). Both share the same filter-evaluation and
+/// early-exit pipeline via <see cref="XgIteratorState"/>.
 /// </summary>
 public static class FilteredDecisionIterator
 {
     /// <summary>
     /// Iterates all .xg files in <paramref name="xgDir"/> and returns
-    /// the subset of decisions that match <paramref name="filters"/>.
+    /// the subset of decisions that match <paramref name="filters"/>,
+    /// shaped as <see cref="DecisionRow"/>.
     /// </summary>
     public static IEnumerable<DecisionRow> IterateXgDirectory(
         string xgDir,
         DecisionFilterSet filters) =>
-        IterateDirectory(xgDir, "*.xg", XgFileReader.ReadFile, filters);
+        IterateDirectory(xgDir, "*.xg", XgFileReader.ReadFile,
+            XgDecisionIterator.Iterate, filters);
 
     /// <summary>
     /// Iterates all .json files in <paramref name="jsonDir"/> and returns
-    /// the subset of decisions that match <paramref name="filters"/>.
+    /// the subset of decisions that match <paramref name="filters"/>,
+    /// shaped as <see cref="DecisionRow"/>.
     /// </summary>
     public static IEnumerable<DecisionRow> IterateJsonDirectory(
         string jsonDir,
         DecisionFilterSet filters) =>
-        IterateDirectory(jsonDir, "*.json", XgFileReader.ReadJson, filters);
+        IterateDirectory(jsonDir, "*.json", XgFileReader.ReadJson,
+            XgDecisionIterator.Iterate, filters);
 
-    private static IEnumerable<DecisionRow> IterateDirectory(
+    /// <summary>
+    /// Iterates all .xg files in <paramref name="xgDir"/> and returns
+    /// the subset of decisions that match <paramref name="filters"/>,
+    /// shaped as <see cref="BgDecisionData"/> — the diagram form, with
+    /// the full <c>Plays</c> list and after-boards. Filter semantics are
+    /// identical to <see cref="IterateXgDirectory"/>.
+    /// </summary>
+    public static IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(
+        string xgDir,
+        DecisionFilterSet filters) =>
+        IterateDirectory(xgDir, "*.xg", XgFileReader.ReadFile,
+            XgDecisionIterator.IterateDiagramRequests, filters);
+
+    /// <summary>
+    /// Iterates all .json files in <paramref name="jsonDir"/> and returns
+    /// the subset of decisions that match <paramref name="filters"/>,
+    /// shaped as <see cref="BgDecisionData"/>. Filter semantics are
+    /// identical to <see cref="IterateJsonDirectory"/>.
+    /// </summary>
+    public static IEnumerable<BgDecisionData> IterateJsonDirectoryDiagrams(
+        string jsonDir,
+        DecisionFilterSet filters) =>
+        IterateDirectory(jsonDir, "*.json", XgFileReader.ReadJson,
+            XgDecisionIterator.IterateDiagramRequests, filters);
+
+    private static IEnumerable<T> IterateDirectory<T>(
         string dir,
         string searchPattern,
         Func<string, XgFile> reader,
+        Func<XgFile, string?, XgIteratorState?, IEnumerable<T>> source,
         DecisionFilterSet filters)
+        where T : IDecisionFilterData
     {
         var state = new XgIteratorState();
 
@@ -62,10 +95,11 @@ public static class FilteredDecisionIterator
 
             string matchId = Path.GetFileNameWithoutExtension(path);
 
-            foreach (var row in XgDecisionIterator.Iterate(file, matchId, state))
+            foreach (var item in source(file, matchId, state))
             {
-                // GameInfo is freshly populated by Iterate() at each GameHeaderRecord.
-                // Check it before deciding whether to skip the game.
+                // GameInfo is freshly populated by the source iterator at each
+                // GameHeaderRecord. Check it before deciding whether to skip
+                // the game.
                 if (state.GameInfo != null && filters.ShouldSkipGame(state.GameInfo))
                 {
                     state.AdvanceNextGame = true;
@@ -73,12 +107,12 @@ public static class FilteredDecisionIterator
                     continue;
                 }
 
-                if (!filters.Matches(row)) continue;
+                if (!filters.Matches(item)) continue;
 
-                state.AdvanceNextGame = filters.ShouldAdvanceGame(row);
-                state.AdvanceNextMatch = filters.ShouldAdvanceMatch(row);
+                state.AdvanceNextGame = filters.ShouldAdvanceGame(item);
+                state.AdvanceNextMatch = filters.ShouldAdvanceMatch(item);
 
-                yield return row;
+                yield return item;
             }
         }
     }

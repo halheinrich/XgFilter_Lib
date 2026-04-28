@@ -233,10 +233,19 @@ the test project.
 ### FilteredDecisionIterator
 
 The top-level integration point. Owns an `XgIteratorState` and iterates
-`.xg` or `.json` files in a directory, yielding only `DecisionRow` records
-that pass the supplied `DecisionFilterSet`. The two public methods
-(`IterateXgDirectory`, `IterateJsonDirectory`) share a private helper
-that differs only in file glob and reader delegate.
+`.xg` or `.json` files in a directory, yielding only the records that
+pass the supplied `DecisionFilterSet`. Two output shapes are exposed:
+`DecisionRow` (CSV-flat) via `IterateXgDirectory` /
+`IterateJsonDirectory`, and `BgDecisionData` (diagram-shaped — full
+`Plays` list, after-boards) via `IterateXgDirectoryDiagrams` /
+`IterateJsonDirectoryDiagrams`. All four methods share a single
+generic private helper parameterised on yield type, so the
+filter-evaluation and early-exit pipeline are guaranteed identical
+across both shapes — only the terminal yield differs. The shape-side
+choice is made by passing `XgDecisionIterator.Iterate` or
+`XgDecisionIterator.IterateDiagramRequests` as the source delegate;
+the `where T : IDecisionFilterData` constraint binds the filter calls
+identically for either shape.
 
 Early-exit pipeline, applied in this order:
 
@@ -244,10 +253,10 @@ Early-exit pipeline, applied in this order:
    Skip the entire file if true.
 2. **Per game** — `ShouldSkipGame` sets `state.AdvanceNextGame` so the
    underlying iterator jumps straight to the next game.
-3. **Per row** — `ShouldAdvanceGame` / `ShouldAdvanceMatch` flags on the
-   filter set. Any filter that overrides the virtual defaults (today:
-   `MatchScoreFilter.ShouldAdvanceMatch`) can vote to cut mid-stream
-   after the just-yielded row. `state.AdvanceNextGame` /
+3. **Per decision** — `ShouldAdvanceGame` / `ShouldAdvanceMatch` flags
+   on the filter set. Any filter that overrides the virtual defaults
+   (today: `MatchScoreFilter.ShouldAdvanceMatch`) can vote to cut
+   mid-stream after the just-yielded item. `state.AdvanceNextGame` /
    `state.AdvanceNextMatch` are set accordingly before the yield.
 
 ## Public API
@@ -314,6 +323,12 @@ public static class FilteredDecisionIterator
         string xgDir, DecisionFilterSet filters);
 
     public static IEnumerable<DecisionRow> IterateJsonDirectory(
+        string jsonDir, DecisionFilterSet filters);
+
+    public static IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(
+        string xgDir, DecisionFilterSet filters);
+
+    public static IEnumerable<BgDecisionData> IterateJsonDirectoryDiagrams(
         string jsonDir, DecisionFilterSet filters);
 }
 ```

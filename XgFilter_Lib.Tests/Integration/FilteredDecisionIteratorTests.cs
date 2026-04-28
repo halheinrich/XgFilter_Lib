@@ -112,4 +112,82 @@ public class FilteredDecisionIteratorTests
             Directory.Delete(emptyDir);
         }
     }
+
+    // -----------------------------------------------------------------------
+    //  Diagram-shape variants
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void IterateXgDirectoryDiagrams_FilterByPlayer_ReturnsOnlyMatchingDiagrams()
+    {
+        var filters = new DecisionFilterSet()
+            .Add(new PlayerFilter(["halheinrich"]));
+
+        var diagrams = FilteredDecisionIterator
+            .IterateXgDirectoryDiagrams(FixtureDir, filters).ToList();
+
+        diagrams.Should().NotBeEmpty(
+            "expected at least one decision by halheinrich in the test files");
+        diagrams.Should().OnlyContain(d =>
+            d.Descriptive.OnRollName.Equals("halheinrich", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void IterateXgDirectoryDiagrams_AtLeastOneDecisionHasPlays()
+    {
+        // The diagram form's whole purpose is the per-candidate Plays list.
+        // No filter — take everything in the fixture corpus and assert that
+        // some checker-play decision yields a non-empty Plays list. Cube
+        // decisions may have empty Plays by contract; we just need one
+        // non-cube decision to populate.
+        var diagrams = FilteredDecisionIterator
+            .IterateXgDirectoryDiagrams(FixtureDir, new DecisionFilterSet()).ToList();
+
+        diagrams.Should().NotBeEmpty();
+        diagrams.Should().Contain(d => d.Decision.Plays.Count > 0,
+            "diagram form must populate Plays for checker-play decisions");
+    }
+
+    [Fact]
+    public void IterateXgDirectoryDiagrams_RowVariant_AndDiagramVariant_AgreeOnPassingDecisions()
+    {
+        // Same fixture corpus, same filter set, both shapes implement
+        // IDecisionFilterData identically — the pass/fail outcome must be
+        // identical decision-for-decision. Compare on (SourceFile, MoveNumber,
+        // IsCube) which both shapes carry.
+        var filters = new DecisionFilterSet()
+            .Add(new PlayerFilter(["halheinrich"]));
+
+        var rowKeys = FilteredDecisionIterator
+            .IterateXgDirectory(FixtureDir, filters)
+            .Select(r => (r.SourceFile, r.MoveNumber, r.IsCube))
+            .ToList();
+
+        var diagramKeys = FilteredDecisionIterator
+            .IterateXgDirectoryDiagrams(FixtureDir, filters)
+            .Select(d => (d.Descriptive.SourceFile, d.Descriptive.MoveNumber, d.Decision.IsCube))
+            .ToList();
+
+        diagramKeys.Should().Equal(rowKeys,
+            "row and diagram variants must yield the same decisions in the same order for the same filter set");
+    }
+
+    [Fact]
+    public void IterateXgDirectoryDiagrams_WhenNoFilesPresent_ReturnsEmpty()
+    {
+        var emptyDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(emptyDir);
+
+        try
+        {
+            var diagrams = FilteredDecisionIterator
+                .IterateXgDirectoryDiagrams(emptyDir, new DecisionFilterSet()).ToList();
+
+            diagrams.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(emptyDir);
+        }
+    }
 }
