@@ -201,6 +201,70 @@ public class FilteredDecisionIteratorTests
     }
 
     // -----------------------------------------------------------------------
+    //  XG-format directory iteration covers .xg AND .xgp
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void IterateXgDirectory_IncludesXgpPositionFiles()
+    {
+        // Mirror the parser-side contract: an XG-format directory walk
+        // enumerates both *.xg (match files) and *.xgp (position files).
+        // Stage a temp dir containing only .xgp fixtures — if the iterator
+        // returns rows from there, .xgp enumeration is wired.
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var xgpBaseNames = Directory.GetFiles(FixtureDir, "*.xgp")
+                .Select(Path.GetFileNameWithoutExtension)
+                .ToHashSet();
+            foreach (var src in Directory.GetFiles(FixtureDir, "*.xgp"))
+                File.Copy(src, Path.Combine(tempDir, Path.GetFileName(src)));
+
+            var iterator = NewIterator(new DecisionFilterSet());
+            var rows = iterator.IterateXgDirectory(tempDir).ToList();
+
+            rows.Should().NotBeEmpty(
+                "an XG-format directory walk must include .xgp position files");
+            rows.Should().OnlyContain(r => xgpBaseNames.Contains(r.SourceFile!),
+                "every row must trace back to one of the .xgp fixtures placed in the temp dir");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void IterateXgDirectoryDiagrams_IncludesXgpPositionFiles()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var xgpBaseNames = Directory.GetFiles(FixtureDir, "*.xgp")
+                .Select(Path.GetFileNameWithoutExtension)
+                .ToHashSet();
+            foreach (var src in Directory.GetFiles(FixtureDir, "*.xgp"))
+                File.Copy(src, Path.Combine(tempDir, Path.GetFileName(src)));
+
+            var iterator = NewIterator(new DecisionFilterSet());
+            var diagrams = iterator.IterateXgDirectoryDiagrams(tempDir).ToList();
+
+            diagrams.Should().NotBeEmpty(
+                "the diagram-shape iterator must mirror the row-shape iterator's .xgp parity");
+            diagrams.Should().OnlyContain(
+                d => xgpBaseNames.Contains(d.Descriptive.SourceFile!));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     //  Construction guards
     // -----------------------------------------------------------------------
 

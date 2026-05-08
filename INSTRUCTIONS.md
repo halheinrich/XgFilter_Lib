@@ -237,20 +237,37 @@ the test project.
 
 ### FilteredDecisionIterator
 
-The top-level integration point. Owns an `XgIteratorState` and iterates
-`.xg` or `.json` files in a directory, yielding only the records that
-pass the supplied `DecisionFilterSet`. Two output shapes are exposed:
-`DecisionRow` (CSV-flat) via `IterateXgDirectory` /
-`IterateJsonDirectory`, and `BgDecisionData` (diagram-shaped — full
-`Plays` list, after-boards) via `IterateXgDirectoryDiagrams` /
-`IterateJsonDirectoryDiagrams`. All four methods share a single
-generic private helper parameterised on yield type, so the
-filter-evaluation and early-exit pipeline are guaranteed identical
-across both shapes — only the terminal yield differs. The shape-side
-choice is made by passing `XgDecisionIterator.Iterate` or
-`XgDecisionIterator.IterateDiagramRequests` as the source delegate;
-the `where T : IDecisionFilterData` constraint binds the filter calls
-identically for either shape.
+The top-level integration point. A sealed instance class constructed
+with `(DecisionFilterSet, ILogger<FilteredDecisionIterator>)` — both
+required, null-guarded. Filters are configuration; the directory is
+the per-call argument. Owns an `XgIteratorState` and walks XG-format
+files (`*.xg` match files plus `*.xgp` position files) or `*.json`
+files, yielding only the records that pass the configured filter set.
+
+Two output shapes are exposed: `DecisionRow` (CSV-flat) via
+`IterateXgDirectory` / `IterateJsonDirectory`, and `BgDecisionData`
+(diagram-shaped — full `Plays` list, after-boards) via
+`IterateXgDirectoryDiagrams` / `IterateJsonDirectoryDiagrams`. All
+four methods share a single generic private helper `IterateFiles<T>`
+parameterised on yield type, so the filter-evaluation and early-exit
+pipeline are guaranteed identical across both shapes — only the
+terminal yield differs. The shape-side choice is made by passing
+`XgDecisionIterator.Iterate` or `XgDecisionIterator.IterateDiagramRequests`
+as the source delegate; the `where T : IDecisionFilterData` constraint
+binds the filter calls identically for either shape.
+
+Files that fail to read are skipped and logged via
+`ILogger.LogWarning(ex, "Skipping {File}", path)` — the original
+exception (type, stack, inner) is captured on the log entry, not
+stringified. Iteration continues with the next file rather than
+aborting the run.
+
+A private static `EnumerateXgFormatFiles` helper concatenates
+`*.xg` and `*.xgp` enumerations, mirroring the equivalent private
+helper inside `ConvertXgToJson_Lib.XgDecisionIterator`. The
+duplication is provisional — the long-term fix is to expose the
+parser-side helper as a shared API once cross-subproject work is
+in scope.
 
 Early-exit pipeline, applied in this order:
 
@@ -322,19 +339,16 @@ public sealed class PlayTypeFilter     : IDecisionFilter               { /* ... 
 ```csharp
 namespace XgFilter_Lib;
 
-public static class FilteredDecisionIterator
+public sealed class FilteredDecisionIterator
 {
-    public static IEnumerable<DecisionRow> IterateXgDirectory(
-        string xgDir, DecisionFilterSet filters);
+    public FilteredDecisionIterator(
+        DecisionFilterSet filters,
+        ILogger<FilteredDecisionIterator> logger);
 
-    public static IEnumerable<DecisionRow> IterateJsonDirectory(
-        string jsonDir, DecisionFilterSet filters);
-
-    public static IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(
-        string xgDir, DecisionFilterSet filters);
-
-    public static IEnumerable<BgDecisionData> IterateJsonDirectoryDiagrams(
-        string jsonDir, DecisionFilterSet filters);
+    public IEnumerable<DecisionRow>      IterateXgDirectory          (string xgDir);
+    public IEnumerable<DecisionRow>      IterateJsonDirectory        (string jsonDir);
+    public IEnumerable<BgDecisionData>   IterateXgDirectoryDiagrams  (string xgDir);
+    public IEnumerable<BgDecisionData>   IterateJsonDirectoryDiagrams(string jsonDir);
 }
 ```
 

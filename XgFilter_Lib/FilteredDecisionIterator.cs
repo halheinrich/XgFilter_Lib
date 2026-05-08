@@ -45,12 +45,13 @@ public sealed class FilteredDecisionIterator
     }
 
     /// <summary>
-    /// Iterates all .xg files in <paramref name="xgDir"/> and returns
-    /// the subset of decisions that match the configured filters,
+    /// Iterates every XG-format file in <paramref name="xgDir"/> — both
+    /// <c>*.xg</c> (match files) and <c>*.xgp</c> (position files) — and
+    /// returns the subset of decisions that match the configured filters,
     /// shaped as <see cref="DecisionRow"/>.
     /// </summary>
     public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir) =>
-        IterateDirectory(xgDir, "*.xg", XgFileReader.ReadFile,
+        IterateFiles(EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
             XgDecisionIterator.Iterate);
 
     /// <summary>
@@ -59,18 +60,19 @@ public sealed class FilteredDecisionIterator
     /// shaped as <see cref="DecisionRow"/>.
     /// </summary>
     public IEnumerable<DecisionRow> IterateJsonDirectory(string jsonDir) =>
-        IterateDirectory(jsonDir, "*.json", XgFileReader.ReadJson,
-            XgDecisionIterator.Iterate);
+        IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"),
+            XgFileReader.ReadJson, XgDecisionIterator.Iterate);
 
     /// <summary>
-    /// Iterates all .xg files in <paramref name="xgDir"/> and returns
-    /// the subset of decisions that match the configured filters,
+    /// Iterates every XG-format file in <paramref name="xgDir"/> — both
+    /// <c>*.xg</c> (match files) and <c>*.xgp</c> (position files) — and
+    /// returns the subset of decisions that match the configured filters,
     /// shaped as <see cref="BgDecisionData"/> — the diagram form, with
     /// the full <c>Plays</c> list and after-boards. Filter semantics are
     /// identical to <see cref="IterateXgDirectory"/>.
     /// </summary>
     public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir) =>
-        IterateDirectory(xgDir, "*.xg", XgFileReader.ReadFile,
+        IterateFiles(EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
             XgDecisionIterator.IterateDiagramRequests);
 
     /// <summary>
@@ -80,19 +82,30 @@ public sealed class FilteredDecisionIterator
     /// identical to <see cref="IterateJsonDirectory"/>.
     /// </summary>
     public IEnumerable<BgDecisionData> IterateJsonDirectoryDiagrams(string jsonDir) =>
-        IterateDirectory(jsonDir, "*.json", XgFileReader.ReadJson,
-            XgDecisionIterator.IterateDiagramRequests);
+        IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"),
+            XgFileReader.ReadJson, XgDecisionIterator.IterateDiagramRequests);
 
-    private IEnumerable<T> IterateDirectory<T>(
-        string dir,
-        string searchPattern,
+    /// <summary>
+    /// Enumerates every XG-format file in a directory: both <c>*.xg</c>
+    /// (match files) and <c>*.xgp</c> (position files). Mirrors the
+    /// equivalent private helper in
+    /// <c>ConvertXgToJson_Lib.XgDecisionIterator.EnumerateXgFormatFiles</c>;
+    /// the duplication is provisional — the long-term fix is to expose
+    /// the parser-side helper as a shared API and consume it here.
+    /// </summary>
+    private static IEnumerable<string> EnumerateXgFormatFiles(string dir) =>
+        Directory.EnumerateFiles(dir, "*.xg")
+            .Concat(Directory.EnumerateFiles(dir, "*.xgp"));
+
+    private IEnumerable<T> IterateFiles<T>(
+        IEnumerable<string> paths,
         Func<string, XgFile> reader,
         Func<XgFile, string?, XgIteratorState?, IEnumerable<T>> source)
         where T : IDecisionFilterData
     {
         var state = new XgIteratorState();
 
-        foreach (var path in Directory.EnumerateFiles(dir, searchPattern))
+        foreach (var path in paths)
         {
             XgFile file;
             try
