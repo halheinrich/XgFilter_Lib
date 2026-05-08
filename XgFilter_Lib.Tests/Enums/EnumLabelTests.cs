@@ -40,6 +40,12 @@ public class EnumLabelTests
     }
 
     [Fact]
+    public void PositionType_VsTwoPlusUp_HasExpectedLabel()
+    {
+        PositionType.VsTwoPlusUp.ToLabel().Should().Be("Vs 2+ on bar");
+    }
+
+    [Fact]
     public void DecisionTypeOption_CheckerPlaysOnly_HasExpectedLabel()
     {
         DecisionTypeOption.CheckerPlaysOnly.ToLabel().Should().Be("Checker plays only");

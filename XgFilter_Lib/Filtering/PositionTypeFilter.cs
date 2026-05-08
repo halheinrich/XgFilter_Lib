@@ -16,6 +16,7 @@ public sealed class PositionTypeFilter : IDecisionFilter
     private static readonly ContactClassifier _contact = new();
     private static readonly InnerBoard631Classifier _innerBoard631 = new();
     private static readonly InnerBoard54321Classifier _innerBoard54321 = new();
+    private static readonly VsTwoPlusUpClassifier _vsTwoPlusUp = new();
 
     public PositionTypeFilter(IEnumerable<PositionType> types)
     {
@@ -35,6 +36,7 @@ public sealed class PositionTypeFilter : IDecisionFilter
         PositionType.Contact => _contact.Matches(board),
         PositionType.InnerBoard631 => _innerBoard631.Matches(board),
         PositionType.InnerBoard54321 => _innerBoard54321.Matches(board),
+        PositionType.VsTwoPlusUp => _vsTwoPlusUp.Matches(board),
         _ => throw new ArgumentOutOfRangeException(
             nameof(type), type, "Unknown PositionType"),
     };

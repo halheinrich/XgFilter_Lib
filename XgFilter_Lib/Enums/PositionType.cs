@@ -23,4 +23,7 @@ public enum PositionType
 
     [Description("Inner-board 5-4-3-2-1")]
     InnerBoard54321,
+
+    [Description("Vs 2+ on bar")]
+    VsTwoPlusUp,
 }

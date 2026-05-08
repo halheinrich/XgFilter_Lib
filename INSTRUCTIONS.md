@@ -57,6 +57,7 @@ XgFilter_Lib/
     ContactClassifier.cs
     InnerBoard631Classifier.cs
     InnerBoard54321Classifier.cs
+    VsTwoPlusUpClassifier.cs
     Make20PtClassifier.cs
   Projection/
     ColumnSelector.cs
@@ -77,6 +78,7 @@ XgFilter_Lib.Tests/
     ContactClassifierTests.cs
     InnerBoard631ClassifierTests.cs
     InnerBoard54321ClassifierTests.cs
+    VsTwoPlusUpClassifierTests.cs
     Make20PtClassifierTests.cs
   Filtering/
     PlayerFilterTests.cs
@@ -105,11 +107,11 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 ### Enums
 
 * `PositionType` — board-derived classifications a position can carry.
-  Members: Contact, Race, InnerBoard631, InnerBoard54321. Categories
-  are **not** mutually exclusive: a single position may satisfy
-  several (e.g. Contact + InnerBoard631). The unifying property is
-  that each is determinable from the on-roll-relative board array
-  alone — no XGID parsing.
+  Members: Contact, Race, InnerBoard631, InnerBoard54321, VsTwoPlusUp.
+  Categories are **not** mutually exclusive: a single position may
+  satisfy several (e.g. Contact + InnerBoard631, or Contact +
+  VsTwoPlusUp). The unifying property is that each is determinable
+  from the on-roll-relative board array alone — no XGID parsing.
 * `PlayType` — Make20Pt. Each value pairs with an
   `IPlayTypeClassifier` implementation; the single-value shape
   reflects that only `Make20Pt` has a classifier today. The enum
@@ -204,6 +206,9 @@ the test project.
   framework contract — see the multi-membership pitfall below.
 * `InnerBoard631Classifier`, `InnerBoard54321Classifier` — inner-board
   shape classifiers.
+* `VsTwoPlusUpClassifier` — true when the opponent has ≥ 2 checkers on
+  the bar (`board[0] <= -2`). No race guard needed; any checker on the
+  bar implies contact.
 * `IPlayTypeClassifier` —
   `bool Matches(IReadOnlyList<int> priorBoard,
   IReadOnlyList<int> afterBestBoard,
@@ -265,7 +270,7 @@ Early-exit pipeline, applied in this order:
 namespace XgFilter_Lib.Enums;
 
 public enum PlayType           { Make20Pt }
-public enum PositionType       { Contact, Race, InnerBoard631, InnerBoard54321 }
+public enum PositionType       { Contact, Race, InnerBoard631, InnerBoard54321, VsTwoPlusUp }
 public enum DecisionTypeOption { CheckerPlaysOnly, CubeOnly, Both }
 public enum Column
 {

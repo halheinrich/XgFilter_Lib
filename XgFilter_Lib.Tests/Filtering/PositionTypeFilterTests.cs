@@ -28,6 +28,12 @@ public class PositionTypeFilterTests
     private static readonly int[] _racePosition = Board(
         (3, 2), (2, 3), (22, -2), (23, -3));
 
+    // Contact fixture with two opponent checkers on the bar
+    private static readonly int[] _vsTwoPlusUpPosition = Board(
+        (0, -2),
+        (24, 2), (13, 5), (8, 3), (6, 5),
+        (12, -5), (17, -3), (19, -3));
+
     // -----------------------------------------------------------------------
     //  Race filter
     // -----------------------------------------------------------------------
@@ -65,6 +71,24 @@ public class PositionTypeFilterTests
     }
 
     // -----------------------------------------------------------------------
+    //  VsTwoPlusUp filter
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void VsTwoPlusUpFilter_OpponentTwoOnBar_Passes()
+    {
+        var filter = new PositionTypeFilter([PositionType.VsTwoPlusUp]);
+        AssertMatchesBoth(filter, new RowShape(Board: _vsTwoPlusUpPosition), expected: true);
+    }
+
+    [Fact]
+    public void VsTwoPlusUpFilter_StartingPosition_DoesNotPass()
+    {
+        var filter = new PositionTypeFilter([PositionType.VsTwoPlusUp]);
+        AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: false);
+    }
+
+    // -----------------------------------------------------------------------
     //  Multiple types in filter
     // -----------------------------------------------------------------------
 
@@ -75,6 +99,18 @@ public class PositionTypeFilterTests
 
         AssertMatchesBoth(filter, new RowShape(Board: _racePosition), expected: true);
         AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: true);
+    }
+
+    [Fact]
+    public void MultiTypeFilter_VsTwoPlusUpComposesWithContact_BothMatch()
+    {
+        // A VsTwoPlusUp position is also Contact — the union semantics let
+        // a row pass under either label, and overlap is by design.
+        var filter = new PositionTypeFilter([PositionType.Contact]);
+        AssertMatchesBoth(filter, new RowShape(Board: _vsTwoPlusUpPosition), expected: true);
+
+        filter = new PositionTypeFilter([PositionType.VsTwoPlusUp]);
+        AssertMatchesBoth(filter, new RowShape(Board: _vsTwoPlusUpPosition), expected: true);
     }
 
     [Fact]
