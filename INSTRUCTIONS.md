@@ -151,7 +151,9 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   `data.IsCube`.
 * `MatchScoreFilter` — implements both interfaces. Targets are stored as
   `(OnRollNeeds, OpponentNeeds, IsCrawford)` tuples; money is `(0, 0, false)`.
-  Parses strings like `"3a5a"`, `"1a5aC"`, `"money"`. `ShouldSkipMatch`
+  Parses strings like `"3a5a"`, `"1a5aC"`, `"money"`; malformed tokens
+  throw `ArgumentException` at construction (the offending token appears
+  in the message). `ShouldSkipMatch`
   detects money-vs-match mismatches and impossible away scores;
   `ShouldSkipGame` drops games whose post-header score cannot reach any
   target. `ShouldAdvanceMatch` overrides the default to cut the rest of

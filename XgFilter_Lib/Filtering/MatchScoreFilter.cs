@@ -20,8 +20,6 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
         _tuples = list
             .Where(s => !s.Equals("money", StringComparison.OrdinalIgnoreCase))
             .Select(ParseScore)
-            .Where(t => t.HasValue)
-            .Select(t => t!.Value)
             .ToList();
     }
 
@@ -139,7 +137,14 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
         return (fits1 || fits2) && strictSum;
     }
 
-    private static (int Away1, int Away2, bool IsCrawford)? ParseScore(string s)
+    /// <summary>
+    /// Parses a score token like "3a5a" or "1a5aC" into its tuple form.
+    /// Throws <see cref="ArgumentException"/> on any malformed input —
+    /// silent drop would let UI typos slip through as "filter does
+    /// nothing," which is the kind of failure that bites at runtime
+    /// without a clear cause.
+    /// </summary>
+    private static (int Away1, int Away2, bool IsCrawford) ParseScore(string s)
     {
         bool isCrawford = s.EndsWith("C", StringComparison.OrdinalIgnoreCase);
         var clean = isCrawford ? s[..^1] : s;
@@ -148,6 +153,8 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
             && int.TryParse(parts[0], out int a1)
             && int.TryParse(parts[1], out int a2))
             return (a1, a2, isCrawford);
-        return null;
+        throw new ArgumentException(
+            $"Invalid match score: '{s}'. Expected format like '3a5a', '1a5aC', or 'money'.",
+            nameof(s));
     }
 }

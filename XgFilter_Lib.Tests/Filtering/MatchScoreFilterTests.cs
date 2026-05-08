@@ -334,4 +334,32 @@ public class MatchScoreFilterTests
             new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
             expected: true);
     }
+
+    // -----------------------------------------------------------------------
+    //  Constructor — invalid score tokens fail fast
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("3a5x")]      // non-numeric tail
+    [InlineData("garbage")]   // no 'a' separator
+    [InlineData("5a")]        // missing second number
+    [InlineData("a5a")]       // missing first number
+    [InlineData("")]          // empty
+    public void Constructor_InvalidScoreString_Throws(string bad)
+    {
+        var act = () => new MatchScoreFilter([bad]);
+        act.Should().Throw<ArgumentException>()
+            .WithMessage($"*{bad}*",
+                "the offending input must appear in the message so the consumer can locate the typo");
+    }
+
+    [Fact]
+    public void Constructor_MixedValidAndInvalid_Throws()
+    {
+        // One bad entry contaminates the whole list — silent drop of the
+        // invalid one would leave the consumer with a filter that quietly
+        // ignores their typo instead of telling them about it.
+        var act = () => new MatchScoreFilter(["3a5a", "garbage", "money"]);
+        act.Should().Throw<ArgumentException>().WithMessage("*garbage*");
+    }
 }
