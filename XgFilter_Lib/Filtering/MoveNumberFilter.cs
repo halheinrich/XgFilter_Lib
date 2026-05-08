@@ -22,12 +22,18 @@ public sealed class MoveNumberFilter : IDecisionFilter, IMatchFilter
     private readonly int? _min;
     private readonly int? _max;
 
+    /// <summary>
+    /// Creates a filter passing rows whose <see cref="IDecisionFilterData.MoveNumber"/>
+    /// is in <c>[min, max]</c> inclusive AND whose game started from the canonical
+    /// opening position. Either bound may be null to leave that end open.
+    /// </summary>
     public MoveNumberFilter(int? min = null, int? max = null)
     {
         _min = min;
         _max = max;
     }
 
+    /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data)
     {
         if (!data.IsStandardStart) return false;
@@ -46,7 +52,9 @@ public sealed class MoveNumberFilter : IDecisionFilter, IMatchFilter
     public bool ShouldAdvanceGame(IDecisionFilterData data) =>
         _max is int max && data.MoveNumber > max;
 
+    /// <inheritdoc/>
     public bool ShouldSkipMatch(XgMatchInfo match) => false;
 
+    /// <inheritdoc/>
     public bool ShouldSkipGame(XgGameInfo game) => !game.IsStandardStart;
 }

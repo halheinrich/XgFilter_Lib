@@ -11,11 +11,13 @@ public sealed class DecisionTypeFilter : IDecisionFilter
 {
     private readonly DecisionTypeOption _option;
 
+    /// <summary>Creates a filter that admits decisions of the given <paramref name="option"/>.</summary>
     public DecisionTypeFilter(DecisionTypeOption option)
     {
         _option = option;
     }
 
+    /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data) => _option switch
     {
         DecisionTypeOption.CheckerPlaysOnly => !data.IsCube,

@@ -11,11 +11,16 @@ public sealed class PlayerFilter : IDecisionFilter, IMatchFilter
 {
     private readonly HashSet<string> _players;
 
+    /// <summary>
+    /// Creates a filter passing rows whose on-roll player name appears in
+    /// <paramref name="players"/>. Comparison is case-insensitive.
+    /// </summary>
     public PlayerFilter(IEnumerable<string> players)
     {
         _players = new HashSet<string>(players, StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data) => _players.Contains(data.Player);
 
     /// <summary>

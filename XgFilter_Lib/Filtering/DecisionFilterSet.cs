@@ -11,7 +11,15 @@ public sealed class DecisionFilterSet
 {
     private readonly List<IDecisionFilter> _filters = [];
 
-    /// <summary>Adds a filter to the set.</summary>
+    /// <summary>
+    /// Adds <paramref name="filter"/> to the set and returns this set for
+    /// fluent chaining. Duplicates of the same concrete filter type are
+    /// allowed and compose with AND: a row passes only if every entry's
+    /// <see cref="IDecisionFilter.Matches"/> returns true. Two
+    /// <see cref="ErrorRangeFilter"/> instances, for example, intersect
+    /// their ranges; two disjoint <see cref="PlayerFilter"/> instances
+    /// will reject every row (the include lists are AND-intersected).
+    /// </summary>
     public DecisionFilterSet Add(IDecisionFilter filter)
     {
         _filters.Add(filter);

@@ -10,12 +10,15 @@ namespace XgFilter_Lib.Enums;
 /// </summary>
 public enum DecisionTypeOption
 {
+    /// <summary>Admit only checker-play decisions; reject cube decisions.</summary>
     [Description("Checker plays only")]
     CheckerPlaysOnly,
 
+    /// <summary>Admit only cube decisions; reject checker plays.</summary>
     [Description("Cube decisions only")]
     CubeOnly,
 
+    /// <summary>Admit every decision regardless of type.</summary>
     [Description("Both checker and cube")]
     Both,
 }

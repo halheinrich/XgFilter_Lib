@@ -13,6 +13,12 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
     private readonly List<(int Away1, int Away2, bool IsCrawford)> _tuples;
     private readonly bool _includesMoney;
 
+    /// <summary>
+    /// Creates a filter passing rows whose match score appears in
+    /// <paramref name="scores"/>. Tokens are like <c>"3a5a"</c>,
+    /// <c>"1a5aC"</c>, or <c>"money"</c>; comparison is case-insensitive.
+    /// Throws <see cref="ArgumentException"/> on any malformed token.
+    /// </summary>
     public MatchScoreFilter(IEnumerable<string> scores)
     {
         var list = scores.ToList();
@@ -23,6 +29,7 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
             .ToList();
     }
 
+    /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data)
     {
         if (data.MatchLength == 0)

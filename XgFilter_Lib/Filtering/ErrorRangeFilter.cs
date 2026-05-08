@@ -12,12 +12,17 @@ public sealed class ErrorRangeFilter : IDecisionFilter
     private readonly double? _min;
     private readonly double? _max;
 
+    /// <summary>
+    /// Creates a filter passing rows whose <see cref="IDecisionFilterData.FilterError"/>
+    /// is in <c>[min, max]</c> inclusive. Either bound may be null to leave that end open.
+    /// </summary>
     public ErrorRangeFilter(double? min = null, double? max = null)
     {
         _min = min;
         _max = max;
     }
 
+    /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data)
     {
         if (data.FilterError is not double error) return false;

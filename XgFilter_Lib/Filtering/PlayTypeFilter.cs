@@ -29,6 +29,11 @@ public sealed class PlayTypeFilter : IDecisionFilter
 
     private readonly HashSet<PlayType> _types;
 
+    /// <summary>
+    /// Creates a filter passing rows that match any of the selected
+    /// <paramref name="types"/>. Throws <see cref="ArgumentOutOfRangeException"/>
+    /// if <paramref name="types"/> contains an undefined enum value.
+    /// </summary>
     public PlayTypeFilter(IEnumerable<PlayType> types)
     {
         _types = new HashSet<PlayType>(types);
@@ -38,6 +43,7 @@ public sealed class PlayTypeFilter : IDecisionFilter
                     nameof(types), type, "Unknown PlayType");
     }
 
+    /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data)
     {
         if (data.IsCube) return false;

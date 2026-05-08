@@ -12,18 +12,23 @@ namespace XgFilter_Lib.Enums;
 /// </summary>
 public enum PositionType
 {
+    /// <summary>At least one player still has checkers on or behind opposing checkers.</summary>
     [Description("Contact")]
     Contact,
 
+    /// <summary>The two checker blocks have separated — no further hits are possible.</summary>
     [Description("Race")]
     Race,
 
+    /// <summary>Inner-board 6-3-1 structure: points 6, 3, and 1 made; points 5, 4, and 2 broken.</summary>
     [Description("Inner-board 6-3-1")]
     InnerBoard631,
 
+    /// <summary>Full 5-4-3-2-1 inner board: points 5 through 1 made, point 6 broken.</summary>
     [Description("Inner-board 5-4-3-2-1")]
     InnerBoard54321,
 
+    /// <summary>Opponent has two or more checkers on the bar.</summary>
     [Description("Vs 2+ on bar")]
     VsTwoPlusUp,
 }

@@ -31,6 +31,11 @@ public sealed class PositionTypeFilter : IDecisionFilter
 
     private readonly HashSet<PositionType> _types;
 
+    /// <summary>
+    /// Creates a filter passing rows that match any of the selected
+    /// <paramref name="types"/>. Throws <see cref="ArgumentOutOfRangeException"/>
+    /// if <paramref name="types"/> contains an undefined enum value.
+    /// </summary>
     public PositionTypeFilter(IEnumerable<PositionType> types)
     {
         _types = new HashSet<PositionType>(types);
@@ -40,6 +45,7 @@ public sealed class PositionTypeFilter : IDecisionFilter
                     nameof(types), type, "Unknown PositionType");
     }
 
+    /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data)
     {
         foreach (var type in _types)
