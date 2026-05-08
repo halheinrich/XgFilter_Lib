@@ -43,6 +43,7 @@ XgFilter_Lib/
     IDecisionFilter.cs
     IMatchFilter.cs
     DecisionFilterSet.cs
+    FilterConfig.cs
     PlayerFilter.cs
     DecisionTypeFilter.cs
     MatchScoreFilter.cs
@@ -89,6 +90,7 @@ XgFilter_Lib.Tests/
     PositionTypeFilterTests.cs
     PlayTypeFilterTests.cs
     DecisionFilterSetTests.cs
+    FilterConfigTests.cs
   Projection/
     ColumnSelectorTests.cs
   Integration/
@@ -143,7 +145,22 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `DecisionFilterSet` — ordered list of `IDecisionFilter` combined with AND
   semantics. Fluent `Add()`. `Matches()` passes when every filter passes (or
   the set is empty). `ShouldSkipMatch` / `ShouldSkipGame` delegate to any
-  filter in the set that also implements `IMatchFilter`.
+  filter in the set that also implements `IMatchFilter`. Duplicates of the
+  same concrete filter type are allowed and compose with AND (e.g. two
+  `ErrorRangeFilter`s intersect their ranges).
+* `FilterConfig` — serializable, default-constructible, mutable DTO that
+  bundles every filter's input. Owned by this lib; consumers fill it
+  directly (no string-list parsing on the consumer side) and call
+  `Build()` to materialize a `DecisionFilterSet`. Empty-list semantics:
+  an empty `Players` / `MatchScores` / `PositionTypes` / `PlayTypes`
+  means "no filter of this kind is active," not "reject everything";
+  `Build()` skips the corresponding `Add()` in that case. Likewise
+  `DecisionType = Both` is a no-op and is skipped. Range filters
+  (`ErrorRange`, `MoveNumber`) are added if either bound is set.
+  JSON-round-trippable with `JsonStringEnumConverter` for enum
+  properties; the wire format is `["InnerBoard631", ...]`-style
+  string-array per enum list, identical to what consumer-side glue
+  used to send before this type existed.
 * `PlayerFilter` — implements both interfaces. `Matches` admits rows where
   the on-roll player is in the include list; `ShouldSkipMatch` drops the
   whole file when neither player is in the list.
@@ -331,6 +348,21 @@ public sealed class DecisionFilterSet
     public bool ShouldSkipGame   (XgGameInfo  game);
     public bool ShouldAdvanceGame (IDecisionFilterData data);
     public bool ShouldAdvanceMatch(IDecisionFilterData data);
+}
+
+public sealed class FilterConfig
+{
+    public IList<string>         Players       { get; set; }
+    public DecisionTypeOption    DecisionType  { get; set; }
+    public IList<string>         MatchScores   { get; set; }
+    public double?               ErrorMin      { get; set; }
+    public double?               ErrorMax      { get; set; }
+    public int?                  MoveNumberMin { get; set; }
+    public int?                  MoveNumberMax { get; set; }
+    public IList<PositionType>   PositionTypes { get; set; }
+    public IList<PlayType>       PlayTypes     { get; set; }
+
+    public DecisionFilterSet Build();
 }
 
 public sealed class PlayerFilter       : IDecisionFilter, IMatchFilter { /* ... */ }
