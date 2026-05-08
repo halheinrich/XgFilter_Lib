@@ -7,37 +7,43 @@ namespace XgFilter_Lib.Filtering;
 /// <summary>
 /// Passes rows where the board matches any of the selected position types.
 /// A position may match multiple types (e.g. Contact AND InnerBoard631).
+/// Unknown <see cref="PositionType"/> values are rejected at construction
+/// rather than on first dispatch.
 /// </summary>
 public sealed class PositionTypeFilter : IDecisionFilter
 {
-    private readonly HashSet<PositionType> _types;
+    /// <summary>
+    /// Single source of truth for the <see cref="PositionType"/> →
+    /// <see cref="IPositionClassifier"/> correspondence. Adding a new
+    /// position type means adding one entry here and a matching enum
+    /// value in <see cref="PositionType"/>; nothing else inside the
+    /// filter needs to change.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<PositionType, IPositionClassifier> _classifiers =
+        new Dictionary<PositionType, IPositionClassifier>
+        {
+            [PositionType.Race]            = new RaceClassifier(),
+            [PositionType.Contact]         = new ContactClassifier(),
+            [PositionType.InnerBoard631]   = new InnerBoard631Classifier(),
+            [PositionType.InnerBoard54321] = new InnerBoard54321Classifier(),
+            [PositionType.VsTwoPlusUp]     = new VsTwoPlusUpClassifier(),
+        };
 
-    private static readonly RaceClassifier _race = new();
-    private static readonly ContactClassifier _contact = new();
-    private static readonly InnerBoard631Classifier _innerBoard631 = new();
-    private static readonly InnerBoard54321Classifier _innerBoard54321 = new();
-    private static readonly VsTwoPlusUpClassifier _vsTwoPlusUp = new();
+    private readonly HashSet<PositionType> _types;
 
     public PositionTypeFilter(IEnumerable<PositionType> types)
     {
         _types = new HashSet<PositionType>(types);
+        foreach (var type in _types)
+            if (!Enum.IsDefined(type))
+                throw new ArgumentOutOfRangeException(
+                    nameof(types), type, "Unknown PositionType");
     }
 
     public bool Matches(IDecisionFilterData data)
     {
         foreach (var type in _types)
-            if (Classify(data.Board, type)) return true;
+            if (_classifiers[type].Matches(data.Board)) return true;
         return false;
     }
-
-    private static bool Classify(IReadOnlyList<int> board, PositionType type) => type switch
-    {
-        PositionType.Race => _race.Matches(board),
-        PositionType.Contact => _contact.Matches(board),
-        PositionType.InnerBoard631 => _innerBoard631.Matches(board),
-        PositionType.InnerBoard54321 => _innerBoard54321.Matches(board),
-        PositionType.VsTwoPlusUp => _vsTwoPlusUp.Matches(board),
-        _ => throw new ArgumentOutOfRangeException(
-            nameof(type), type, "Unknown PositionType"),
-    };
 }

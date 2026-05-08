@@ -89,16 +89,20 @@ public class PlayTypeFilterTests
     }
 
     // -----------------------------------------------------------------------
-    //  Unknown enum value — contract: throw
+    //  Unknown enum value — fails fast at construction
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void UnknownPlayType_CheckerRow_Throws()
+    public void UnknownPlayType_Constructor_Throws()
     {
-        var filter = new PlayTypeFilter([(PlayType)999]);
-        var row = Shape(Prior(0), After(2), After(0)).ToDecisionRow();
+        var act = () => new PlayTypeFilter([(PlayType)999]);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
 
-        var act = () => filter.Matches(row);
+    [Fact]
+    public void UnknownPlayType_MixedWithValid_Constructor_Throws()
+    {
+        var act = () => new PlayTypeFilter([PlayType.Make20Pt, (PlayType)999]);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 }

@@ -174,18 +174,22 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   decision in the same game can match, since move numbers increase
   monotonically per game.
 * `PositionTypeFilter` — include list of `PositionType`. Reads
-  `data.Board` and delegates to `IPositionClassifier` instances. Never
-  parses the XGID.
+  `data.Board` and delegates to `IPositionClassifier` instances via a
+  private static `PositionType` → `IPositionClassifier` dictionary
+  registry — single source of truth for the enum→classifier
+  correspondence. Never parses the XGID. Unknown enum values are
+  rejected at construction, not at first dispatch (`Enum.IsDefined`
+  guard, `ArgumentOutOfRangeException`).
 * `PlayTypeFilter` — include list of `PlayType`. Reads `data.Board`,
   `data.AfterBestBoard`, and `data.AfterPlayerBoard` and dispatches
-  each selected type to its matching `IPlayTypeClassifier` via an
-  internal exhaustive switch that throws on unknown values. OR
+  each selected type to its matching `IPlayTypeClassifier` via the
+  same private-registry pattern as `PositionTypeFilter`. OR
   semantics: a row passes when any selected type matches. Cube rows
   always fail — no play was made, so no play-type applies, and the
   after-boards are empty on cube rows by contract. Empty type set →
-  always false (empty OR). Shape mirrors `PositionTypeFilter`; the
-  enum→classifier correspondence is owned by the filter, not the
-  caller.
+  always false (empty OR). The enum→classifier correspondence is
+  owned by the filter, not the caller. Unknown enum values are
+  rejected at construction.
 
 ### Classification
 

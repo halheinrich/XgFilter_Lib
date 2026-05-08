@@ -119,4 +119,22 @@ public class PositionTypeFilterTests
         var filter = new PositionTypeFilter([]);
         AssertMatchesBoth(filter, new RowShape(Board: _racePosition), expected: false);
     }
+
+    // -----------------------------------------------------------------------
+    //  Unknown enum value — fails fast at construction
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void UnknownPositionType_Constructor_Throws()
+    {
+        var act = () => new PositionTypeFilter([(PositionType)999]);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void UnknownPositionType_MixedWithValid_Constructor_Throws()
+    {
+        var act = () => new PositionTypeFilter([PositionType.Race, (PositionType)999]);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
 }
