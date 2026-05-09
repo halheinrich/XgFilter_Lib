@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+using ConvertXgToJson_Lib;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Enums;
@@ -324,6 +326,95 @@ public class FilteredDecisionIteratorTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    //  Early-exit pipeline — iterator honors filter-set votes
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ShouldSkipMatch_VotedByFilter_IteratorSkipsEveryFile()
+    {
+        // Spy filter votes skip-every-match. The iterator must consult
+        // ShouldSkipMatch before walking any file's rows; if it doesn't,
+        // we'll see rows in the output. Zero rows is the contract.
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet().Add(new SkipAllMatchesFilter()), NullLogger);
+
+        iterator.IterateXgDirectory(FixtureDir).Should().BeEmpty(
+            "ShouldSkipMatch=true must short-circuit the file before any row is yielded");
+    }
+
+    [Fact]
+    public void ShouldSkipGame_VotedByFilter_IteratorSkipsEveryGame()
+    {
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet().Add(new SkipAllGamesFilter()), NullLogger);
+
+        iterator.IterateXgDirectory(FixtureDir).Should().BeEmpty(
+            "ShouldSkipGame=true on every game must keep any row from being yielded");
+    }
+
+    [Fact]
+    public void ShouldAdvanceMatch_VotedByFilter_AtMostOneRowPerSourceFile()
+    {
+        // Spy filter votes advance-match on the first matching row of any
+        // file. If the iterator honors AdvanceNextMatch, exactly one row
+        // per file should reach the consumer. Pin via SourceFile-uniqueness
+        // — content-agnostic, robust against fixture corpus changes.
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet().Add(new AdvanceMatchOnAnyRowFilter()), NullLogger);
+
+        var rows = iterator.IterateXgDirectory(FixtureDir).ToList();
+
+        rows.Should().NotBeEmpty("the iterator must yield each file's first decision");
+        rows.Should().HaveCountGreaterThan(1,
+            "the fixture corpus has multiple .xg files; iteration must reach more than one");
+        rows.Select(r => r.SourceFile).Should().OnlyHaveUniqueItems(
+            "AdvanceNextMatch=true after a yield must cut the rest of the file");
+    }
+
+    [Fact]
+    public void ShouldAdvanceGame_VotedByFilter_AtMostOneRowPerGame()
+    {
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet().Add(new AdvanceGameOnAnyRowFilter()), NullLogger);
+
+        var rows = iterator.IterateXgDirectory(FixtureDir).ToList();
+
+        rows.Should().NotBeEmpty();
+        rows.Select(r => (r.SourceFile, r.Game)).Should().OnlyHaveUniqueItems(
+            "AdvanceNextGame=true after a yield must cut the rest of the game");
+    }
+
+    // -----------------------------------------------------------------------
+    //  Spy filters used by the early-exit pipeline tests
+    // -----------------------------------------------------------------------
+
+    private sealed class SkipAllMatchesFilter : IDecisionFilter, IMatchFilter
+    {
+        public bool Matches(IDecisionFilterData data) => true;
+        public bool ShouldSkipMatch(XgMatchInfo match) => true;
+        public bool ShouldSkipGame(XgGameInfo game) => false;
+    }
+
+    private sealed class SkipAllGamesFilter : IDecisionFilter, IMatchFilter
+    {
+        public bool Matches(IDecisionFilterData data) => true;
+        public bool ShouldSkipMatch(XgMatchInfo match) => false;
+        public bool ShouldSkipGame(XgGameInfo game) => true;
+    }
+
+    private sealed class AdvanceMatchOnAnyRowFilter : IDecisionFilter
+    {
+        public bool Matches(IDecisionFilterData data) => true;
+        public bool ShouldAdvanceMatch(IDecisionFilterData data) => true;
+    }
+
+    private sealed class AdvanceGameOnAnyRowFilter : IDecisionFilter
+    {
+        public bool Matches(IDecisionFilterData data) => true;
+        public bool ShouldAdvanceGame(IDecisionFilterData data) => true;
     }
 
     // -----------------------------------------------------------------------
