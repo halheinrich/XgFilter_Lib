@@ -8,9 +8,16 @@ namespace XgFilter_Lib.Filtering;
 /// Passes checker-play rows whose (priorBoard, afterBestBoard, afterPlayerBoard)
 /// triple matches any of the selected play types. Cube decisions always fail —
 /// no play was made, so no play-type applies, and the after-boards are empty on
-/// cube rows. OR semantics across selected types; an empty type set yields false
-/// (empty OR). Unknown <see cref="PlayType"/> values are rejected at
-/// construction rather than on first dispatch.
+/// cube rows. Checker rows whose after-boards are empty also fail: the producer
+/// emits empty <see cref="IDecisionFilterData.AfterBestBoard"/> /
+/// <see cref="IDecisionFilterData.AfterPlayerBoard"/> as a sentinel for "no
+/// analysed after-state available" (e.g. when the played move is not in XG's
+/// candidate set, or no move encoding was emitted for that index), and rows
+/// carrying that sentinel are invisible to board-based play-type classification
+/// rather than feeding empty arrays into a classifier. OR semantics across
+/// selected types; an empty type set yields false (empty OR). Unknown
+/// <see cref="PlayType"/> values are rejected at construction rather than on
+/// first dispatch.
 /// </summary>
 public sealed class PlayTypeFilter : IDecisionFilter
 {
@@ -43,10 +50,19 @@ public sealed class PlayTypeFilter : IDecisionFilter
                     nameof(types), type, "Unknown PlayType");
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Returns <c>true</c> iff the row is a checker decision with non-empty
+    /// after-boards and at least one selected <see cref="PlayType"/>'s
+    /// classifier matches the (priorBoard, afterBestBoard, afterPlayerBoard)
+    /// triple. Returns <c>false</c> for cube rows (no play was made) and for
+    /// checker rows whose after-boards are empty (the producer's sentinel for
+    /// "no analysed after-state available" — see the type-level remarks).
+    /// </summary>
     public bool Matches(IDecisionFilterData data)
     {
         if (data.IsCube) return false;
+        if (data.AfterBestBoard.Count == 0 || data.AfterPlayerBoard.Count == 0)
+            return false;
 
         foreach (var type in _types)
             if (_classifiers[type].Matches(data.Board, data.AfterBestBoard, data.AfterPlayerBoard))

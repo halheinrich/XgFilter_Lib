@@ -56,6 +56,20 @@ public class PlayTypeFilterTests
     }
 
     // -----------------------------------------------------------------------
+    //  Empty after-boards (producer sentinel: "no analysed after-state")
+    //  Checker rows carrying this sentinel must be invisible to board-based
+    //  play-type classification — without the guard, classifiers would index
+    //  into a length-0 array and throw.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void CheckerRow_EmptyAfterBoards_ReturnsFalse()
+    {
+        var filter = new PlayTypeFilter([PlayType.Make20Pt]);
+        AssertMatchesBoth(filter, Shape(Prior(0), [], []), expected: false);
+    }
+
+    // -----------------------------------------------------------------------
     //  Make20Pt behavioural coverage
     // -----------------------------------------------------------------------
 
