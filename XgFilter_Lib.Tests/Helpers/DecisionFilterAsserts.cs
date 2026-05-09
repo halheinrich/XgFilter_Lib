@@ -50,4 +50,49 @@ internal static class DecisionFilterAsserts
         filter.ShouldAdvanceGame(shape.ToBgDecisionData())
               .Should().Be(expected, "BgDecisionData substrate");
     }
+
+    // -----------------------------------------------------------------------
+    //  Set-level mirrors of the row-level asserts above.
+    //  Catch DecisionFilterSet aggregation regressions that would otherwise
+    //  hide behind single-substrate test coverage.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Asserts <see cref="DecisionFilterSet.Matches"/> returns
+    /// <paramref name="expected"/> on both substrates produced from
+    /// <paramref name="shape"/>.
+    /// </summary>
+    public static void AssertSetMatchesBoth(DecisionFilterSet set, RowShape shape, bool expected)
+    {
+        set.Matches(shape.ToDecisionRow())
+           .Should().Be(expected, "DecisionRow substrate");
+        set.Matches(shape.ToBgDecisionData())
+           .Should().Be(expected, "BgDecisionData substrate");
+    }
+
+    /// <summary>
+    /// Asserts <see cref="DecisionFilterSet.ShouldAdvanceMatch"/> returns
+    /// <paramref name="expected"/> on both substrates produced from
+    /// <paramref name="shape"/>.
+    /// </summary>
+    public static void AssertSetShouldAdvanceMatchBoth(DecisionFilterSet set, RowShape shape, bool expected)
+    {
+        set.ShouldAdvanceMatch(shape.ToDecisionRow())
+           .Should().Be(expected, "DecisionRow substrate");
+        set.ShouldAdvanceMatch(shape.ToBgDecisionData())
+           .Should().Be(expected, "BgDecisionData substrate");
+    }
+
+    /// <summary>
+    /// Asserts <see cref="DecisionFilterSet.ShouldAdvanceGame"/> returns
+    /// <paramref name="expected"/> on both substrates produced from
+    /// <paramref name="shape"/>.
+    /// </summary>
+    public static void AssertSetShouldAdvanceGameBoth(DecisionFilterSet set, RowShape shape, bool expected)
+    {
+        set.ShouldAdvanceGame(shape.ToDecisionRow())
+           .Should().Be(expected, "DecisionRow substrate");
+        set.ShouldAdvanceGame(shape.ToBgDecisionData())
+           .Should().Be(expected, "BgDecisionData substrate");
+    }
 }
