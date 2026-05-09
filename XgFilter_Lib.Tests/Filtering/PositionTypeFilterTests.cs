@@ -7,29 +7,17 @@ namespace XgFilter_Lib.Tests.Filtering;
 
 public class PositionTypeFilterTests
 {
-    // -----------------------------------------------------------------------
-    //  Helper — build a 26-element board from sparse (index, count) pairs
-    // -----------------------------------------------------------------------
-
-    private static int[] Board(params (int index, int count)[] points)
-    {
-        var board = new int[26];
-        foreach (var (index, count) in points)
-            board[index] = count;
-        return board;
-    }
-
     // Starting-position fixture — clear contact position
-    private static readonly int[] _startingPosition = Board(
+    private static readonly int[] _startingPosition = BoardBuilder.Build(
         (24, 2), (13, 5), (8, 3), (6, 5),
         (1, -2), (12, -5), (17, -3), (19, -5));
 
     // Race fixture — all player checkers past all opponent checkers
-    private static readonly int[] _racePosition = Board(
+    private static readonly int[] _racePosition = BoardBuilder.Build(
         (3, 2), (2, 3), (22, -2), (23, -3));
 
     // Contact fixture with two opponent checkers on the bar
-    private static readonly int[] _vsTwoPlusUpPosition = Board(
+    private static readonly int[] _vsTwoPlusUpPosition = BoardBuilder.Build(
         (0, -2),
         (24, 2), (13, 5), (8, 3), (6, 5),
         (12, -5), (17, -3), (19, -3));

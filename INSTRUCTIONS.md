@@ -67,6 +67,7 @@ XgFilter_Lib.Tests/
   GlobalUsings.cs
   Helpers/
     BgDecisionDataBuilder.cs
+    BoardBuilder.cs
     DecisionFilterAsserts.cs
     DecisionFilterAssertsTests.cs
     DecisionRowBuilder.cs
