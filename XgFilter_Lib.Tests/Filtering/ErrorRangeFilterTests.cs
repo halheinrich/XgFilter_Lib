@@ -1,6 +1,5 @@
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
-using static XgFilter_Lib.Tests.Helpers.DecisionFilterAsserts;
 
 namespace XgFilter_Lib.Tests.Filtering;
 

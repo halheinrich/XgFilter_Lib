@@ -63,6 +63,18 @@ public class EnumLabelTests
         DecisionTypeOption.Both.ToLabel().Should().Be("Both checker and cube");
     }
 
+    [Fact]
+    public void Column_Xgid_HasExpectedLabel()
+    {
+        Column.Xgid.ToLabel().Should().Be("Xgid");
+    }
+
+    [Fact]
+    public void Column_MoveNumber_HasExpectedLabel()
+    {
+        Column.MoveNumber.ToLabel().Should().Be("MoveNumber");
+    }
+
     // -----------------------------------------------------------------------
     //  Exhaustive round-trip — any new enum value missing [Description] fails
     //  via the throw-on-missing contract; the non-empty check just guards
@@ -90,6 +102,13 @@ public class EnumLabelTests
             value.ToLabel().Should().NotBeNullOrWhiteSpace();
     }
 
+    [Fact]
+    public void EveryColumn_HasNonEmptyLabel()
+    {
+        foreach (var value in Enum.GetValues<Column>())
+            value.ToLabel().Should().NotBeNullOrWhiteSpace();
+    }
+
     // -----------------------------------------------------------------------
     //  Unknown / unannotated — contract: throw
     // -----------------------------------------------------------------------
@@ -112,6 +131,13 @@ public class EnumLabelTests
     public void UnknownDecisionTypeOptionValue_Throws()
     {
         var act = () => ((DecisionTypeOption)999).ToLabel();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void UnknownColumnValue_Throws()
+    {
+        var act = () => ((Column)999).ToLabel();
         act.Should().Throw<ArgumentException>();
     }
 

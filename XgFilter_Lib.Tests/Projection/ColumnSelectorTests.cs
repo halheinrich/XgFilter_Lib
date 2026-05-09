@@ -134,9 +134,7 @@ public class ColumnSelectorTests
         };
 
         var csv = selector.BuildCsv(rows);
-        var lines = csv.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                       .Select(l => l.TrimEnd('\r'))
-                       .ToArray();
+        var lines = csv.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
 
         lines.Should().HaveCount(3); // header + 2 rows
         lines[0].Should().Be("Player,Error");
@@ -149,7 +147,7 @@ public class ColumnSelectorTests
     {
         var selector = new ColumnSelector();
         var csv = selector.BuildCsv([]);
-        var firstLine = csv.Split('\n')[0].TrimEnd('\r');
+        var firstLine = csv.Split(Environment.NewLine)[0];
 
         firstLine.Should().Be("Xgid,Error,MatchScore,MatchLength,Player,SourceFile,Game,MoveNumber,Roll,AnalysisDepth,Equity");
     }
