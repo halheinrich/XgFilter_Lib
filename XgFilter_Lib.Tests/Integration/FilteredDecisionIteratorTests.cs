@@ -359,7 +359,7 @@ public class FilteredDecisionIteratorTests
     public void ShouldAdvanceMatch_VotedByFilter_AtMostOneRowPerSourceFile()
     {
         // Spy filter votes advance-match on the first matching row of any
-        // file. If the iterator honors AdvanceNextMatch, exactly one row
+        // file. If the iterator honors StopMatchAfter, exactly one row
         // per file should reach the consumer. Pin via SourceFile-uniqueness
         // — content-agnostic, robust against fixture corpus changes.
         var iterator = new FilteredDecisionIterator(
@@ -371,7 +371,7 @@ public class FilteredDecisionIteratorTests
         rows.Should().HaveCountGreaterThan(1,
             "the fixture corpus has multiple .xg files; iteration must reach more than one");
         rows.Select(r => r.SourceFile).Should().OnlyHaveUniqueItems(
-            "AdvanceNextMatch=true after a yield must cut the rest of the file");
+            "StopMatchAfter=true after a yield must cut the rest of the file");
     }
 
     [Fact]
@@ -384,7 +384,7 @@ public class FilteredDecisionIteratorTests
 
         rows.Should().NotBeEmpty();
         rows.Select(r => (r.SourceFile, r.Game)).Should().OnlyHaveUniqueItems(
-            "AdvanceNextGame=true after a yield must cut the rest of the game");
+            "StopGameAfter=true after a yield must cut the rest of the game");
     }
 
     // -----------------------------------------------------------------------

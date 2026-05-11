@@ -22,9 +22,10 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
 * **BgDataTypes_Lib** — `IDecisionFilterData` (the substrate filters operate
   on), `DecisionRow`, `BgDecisionData`, `PositionData`, `DecisionData`,
   `DescriptiveData`.
-* **ConvertXgToJson_Lib** — `XgDecisionIterator`, `XgIteratorState`,
-  `XgMatchInfo`, `XgGameInfo`, `XgFileReader`, `XgFile`. Used by
-  `FilteredDecisionIterator` to walk `.xg` files and drive early-exit.
+* **ConvertXgToJson_Lib** — `XgDecisionIterator`, `XgIteratorCallbacks`,
+  `XgMatchInfo`, `XgGameInfo`, `XgFileReader`, `Models.XgFile`. Used by
+  `FilteredDecisionIterator` to walk `.xg` files and drive early-exit
+  via callback registration on the producer.
 
 ## Directory tree
 
@@ -168,10 +169,14 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `DecisionTypeFilter` — checker play, cube, or both. Dispatches on
   `data.IsCube`.
 * `MatchScoreFilter` — implements both interfaces. Targets are stored as
-  `(OnRollNeeds, OpponentNeeds, IsCrawford)` tuples; money is `(0, 0, false)`.
-  Parses strings like `"3a5a"`, `"1a5aC"`, `"money"`; malformed tokens
-  throw `ArgumentException` at construction (the offending token appears
-  in the message). `ShouldSkipMatch`
+  `(Away1, Away2, IsCrawford)` tuples; the `"money"` token is tracked
+  separately as a `_includesMoney` bool, not as a `(0, 0, false)` tuple.
+  Accepts strings like `"3a5a"`, `"1a5aC"`, `"money"`: the `"money"`
+  token is recognised as a special token (sets `_includesMoney`) and
+  bypasses score parsing; only `NaNa[C]`-form tokens go through
+  `ParseScore` and are validated. Malformed `NaNa[C]` tokens throw
+  `ArgumentException` at construction (the offending token appears in
+  the message). `ShouldSkipMatch`
   detects money-vs-match mismatches and impossible away scores;
   `ShouldSkipGame` drops games whose post-header score cannot reach any
   target. `ShouldAdvanceMatch` overrides the default to cut the rest of
@@ -206,10 +211,13 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   same private-registry pattern as `PositionTypeFilter`. OR
   semantics: a row passes when any selected type matches. Cube rows
   always fail — no play was made, so no play-type applies, and the
-  after-boards are empty on cube rows by contract. Empty type set →
-  always false (empty OR). The enum→classifier correspondence is
-  owned by the filter, not the caller. Unknown enum values are
-  rejected at construction.
+  after-boards are empty on cube rows by contract. Checker rows whose
+  after-boards are empty also fail — the producer emits empty
+  `AfterBestBoard` / `AfterPlayerBoard` as a sentinel for "no analysed
+  after-state available" (e.g. the player's move was not in XG's
+  analysed candidate set). Empty type set → always false (empty OR).
+  The enum→classifier correspondence is owned by the filter, not the
+  caller. Unknown enum values are rejected at construction.
 
 ### Classification
 
@@ -264,9 +272,9 @@ the test project.
 The top-level integration point. A sealed instance class constructed
 with `(DecisionFilterSet, ILogger<FilteredDecisionIterator>)` — both
 required, null-guarded. Filters are configuration; the directory is
-the per-call argument. Owns an `XgIteratorState` and walks XG-format
-files (`*.xg` match files plus `*.xgp` position files) or `*.json`
-files, yielding only the records that pass the configured filter set.
+the per-call argument. Walks XG-format files (`*.xg` match files plus
+`*.xgp` position files) or `*.json` files, yielding only the records
+that pass the configured filter set.
 
 Two output shapes are exposed: `DecisionRow` (CSV-flat) via
 `IterateXgDirectory` / `IterateJsonDirectory`, and `BgDecisionData`
@@ -293,17 +301,31 @@ duplication is provisional — the long-term fix is to expose the
 parser-side helper as a shared API once cross-subproject work is
 in scope.
 
-Early-exit pipeline, applied in this order:
+Early-exit pipeline. At the start of each directory walk the iterator
+constructs a single `XgIteratorCallbacks` record threading the filter
+set's four skip / advance predicates to the producer:
 
-1. **Per file** — `XgDecisionIterator.ExtractMatchInfo` → `ShouldSkipMatch`.
-   Skip the entire file if true.
-2. **Per game** — `ShouldSkipGame` sets `state.AdvanceNextGame` so the
-   underlying iterator jumps straight to the next game.
-3. **Per decision** — `ShouldAdvanceGame` / `ShouldAdvanceMatch` flags
-   on the filter set. Any filter that overrides the virtual defaults
-   (today: `MatchScoreFilter.ShouldAdvanceMatch`) can vote to cut
-   mid-stream after the just-yielded item. `state.AdvanceNextGame` /
-   `state.AdvanceNextMatch` are set accordingly before the yield.
+* `SkipMatchAt`    ← `DecisionFilterSet.ShouldSkipMatch (XgMatchInfo)`
+* `SkipGameAt`     ← `DecisionFilterSet.ShouldSkipGame  (XgGameInfo)`
+* `StopGameAfter`  ← `DecisionFilterSet.ShouldAdvanceGame  (IDecisionFilterData)`
+* `StopMatchAfter` ← `DecisionFilterSet.ShouldAdvanceMatch (IDecisionFilterData)`
+
+The producer evaluates each predicate at its declared boundary (match
+header, game header, post-yield) and short-circuits its own iteration
+when the predicate returns `true`. The consumer's loop is reduced to
+a filter-and-yield: every item produced by `source(...)` is gated by
+`DecisionFilterSet.Matches` and yielded if it passes. No iterator
+state is observed; `XgIteratorState` is passed as `null` and
+`XgDecisionIterator.ExtractMatchInfo` is no longer called directly —
+the match-skip decision flows through `SkipMatchAt`, which the
+producer wires up internally.
+
+The architectural ruling is that the consumer has no direct
+`SkipMatch` / `SkipGame` mutator on the producer's surface: all skip
+semantics are declarative, supplied once as the four pre-registered
+callbacks. The producer owns iteration control; the consumer owns
+the predicates; `XgIteratorState` remains a read-only observer for
+callers that want per-row context (this consumer does not).
 
 ## Public API
 

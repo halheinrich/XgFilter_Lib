@@ -12,7 +12,10 @@ namespace XgFilter_Lib;
 /// Two output shapes are supported: <see cref="DecisionRow"/> (CSV-flat) and
 /// <see cref="BgDecisionData"/> (diagram-shaped, with after-boards and
 /// per-candidate plays). Both share the same filter-evaluation and
-/// early-exit pipeline via <see cref="XgIteratorState"/>.
+/// early-exit pipeline: the filter set's four skip / advance predicates
+/// are wired into a single <see cref="XgIteratorCallbacks"/> instance and
+/// handed to the producer, which short-circuits its own iteration at the
+/// match, game, and per-row boundaries.
 ///
 /// <para>
 /// Filters and a logger are configured at construction; per-call parameters
@@ -100,10 +103,14 @@ public sealed class FilteredDecisionIterator
     private IEnumerable<T> IterateFiles<T>(
         IEnumerable<string> paths,
         Func<string, XgFile> reader,
-        Func<XgFile, string?, XgIteratorState?, IEnumerable<T>> source)
+        Func<XgFile, string?, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source)
         where T : IDecisionFilterData
     {
-        var state = new XgIteratorState();
+        var callbacks = new XgIteratorCallbacks(
+            SkipMatchAt:    _filters.ShouldSkipMatch,
+            SkipGameAt:     _filters.ShouldSkipGame,
+            StopGameAfter:  _filters.ShouldAdvanceGame,
+            StopMatchAfter: _filters.ShouldAdvanceMatch);
 
         foreach (var path in paths)
         {
@@ -118,33 +125,10 @@ public sealed class FilteredDecisionIterator
                 continue;
             }
 
-            state.AdvanceNextMatch = false;
-            state.AdvanceNextGame = false;
-            state.MatchInfo = XgDecisionIterator.ExtractMatchInfo(file);
-            state.GameInfo = null;
-
-            if (_filters.ShouldSkipMatch(state.MatchInfo))
-                continue;
-
-            string matchId = Path.GetFileNameWithoutExtension(path);
-
-            foreach (var item in source(file, matchId, state))
+            string sourceFile = Path.GetFileNameWithoutExtension(path);
+            foreach (var item in source(file, sourceFile, null, callbacks))
             {
-                // GameInfo is freshly populated by the source iterator at each
-                // GameHeaderRecord. Check it before deciding whether to skip
-                // the game.
-                if (state.GameInfo != null && _filters.ShouldSkipGame(state.GameInfo))
-                {
-                    state.AdvanceNextGame = true;
-                    state.GameInfo = null;
-                    continue;
-                }
-
                 if (!_filters.Matches(item)) continue;
-
-                state.AdvanceNextGame = _filters.ShouldAdvanceGame(item);
-                state.AdvanceNextMatch = _filters.ShouldAdvanceMatch(item);
-
                 yield return item;
             }
         }
