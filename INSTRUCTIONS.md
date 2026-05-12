@@ -116,11 +116,9 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   satisfy several (e.g. Contact + InnerBoard631, or Contact +
   VsTwoPlusUp). The unifying property is that each is determinable
   from the on-roll-relative board array alone — no XGID parsing.
-* `PlayType` — Make20Pt. Each value pairs with an
-  `IPlayTypeClassifier` implementation; the single-value shape
-  reflects that only `Make20Pt` has a classifier today. The enum
-  grows as each new play-shape classifier lands alongside its
-  matching value.
+* `PlayType` — Make20Pt. The enum has one member per
+  `IPlayTypeClassifier` implementation, and grows as new
+  play-shape classifiers land alongside their matching values.
 * `DecisionTypeOption` — which decision types `DecisionTypeFilter`
   admits. Members: CheckerPlaysOnly, CubeOnly, Both.
 * `Column` — CSV columns `ColumnSelector` can project. One member
@@ -161,8 +159,7 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   (`ErrorRange`, `MoveNumber`) are added if either bound is set.
   JSON-round-trippable with `JsonStringEnumConverter` for enum
   properties; the wire format is `["InnerBoard631", ...]`-style
-  string-array per enum list, identical to what consumer-side glue
-  used to send before this type existed.
+  string-array per enum list.
 * `PlayerFilter` — implements both interfaces. `Matches` admits rows where
   the on-roll player is in the include list; `ShouldSkipMatch` drops the
   whole file when neither player is in the list.
@@ -172,8 +169,8 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   `(Away1, Away2, IsCrawford)` tuples; the `"money"` token is tracked
   separately as a `_includesMoney` bool, not as a `(0, 0, false)` tuple.
   Accepts strings like `"3a5a"`, `"1a5aC"`, `"money"`: the `"money"`
-  token is recognised as a special token (sets `_includesMoney`) and
-  bypasses score parsing; only `NaNa[C]`-form tokens go through
+  token is recognized as a special token (sets `_includesMoney`) and
+  bypasses score parsing. Only `NaNa[C]`-form tokens go through
   `ParseScore` and are validated. Malformed `NaNa[C]` tokens throw
   `ArgumentException` at construction (the offending token appears in
   the message). `ShouldSkipMatch`
@@ -186,17 +183,16 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   flag is matched strictly on reachability: a Crawford tuple is
   unreachable from any state where Crawford has already occurred.
 * `ErrorRangeFilter` — `double?` min / max on `FilterError`. Returns `false`
-  when `FilterError` is `null`, i.e. unanalysed rows are excluded, not
+  when `FilterError` is `null`, i.e. unanalyzed rows are excluded, not
   passed through.
 * `MoveNumberFilter` — implements both interfaces. `int?` min / max on
   `MoveNumber`, gated by `IsStandardStart`. Non-standard-start games
   (custom problem positions, Bg960, etc.) have no canonical move
   numbering, so `ShouldSkipGame` drops them wholesale via
   `XgGameInfo.IsStandardStart` before any rows are yielded; `Matches`
-  rejects any decision whose `IsStandardStart` is false as a safety
-  net. First filter in the codebase to override
-  `ShouldAdvanceGame` — once a decision past `max` is seen, no later
-  decision in the same game can match, since move numbers increase
+  rejects any row whose `IsStandardStart` is false as a safety net.
+  Overrides `ShouldAdvanceGame`: once a row past `max` is seen, no
+  later row in the same game can match, since move numbers increase
   monotonically per game.
 * `PositionTypeFilter` — include list of `PositionType`. Reads
   `data.Board` and delegates to `IPositionClassifier` instances via a
@@ -213,9 +209,9 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   always fail — no play was made, so no play-type applies, and the
   after-boards are empty on cube rows by contract. Checker rows whose
   after-boards are empty also fail — the producer emits empty
-  `AfterBestBoard` / `AfterPlayerBoard` as a sentinel for "no analysed
+  `AfterBestBoard` / `AfterPlayerBoard` as a sentinel for "no analyzed
   after-state available" (e.g. the player's move was not in XG's
-  analysed candidate set). Empty type set → always false (empty OR).
+  analyzed candidate set). Empty type set → always false (empty OR).
   The enum→classifier correspondence is owned by the filter, not the
   caller. Unknown enum values are rejected at construction.
 
@@ -233,9 +229,9 @@ the test project.
   is the 26-element on-roll-relative layout from `ConvertXgToJson_Lib`.
 * `RaceClassifier` — true when no contact exists between the two checker
   blocks.
-* `ContactClassifier` — `!RaceClassifier`. These two partition positions
-  today, but that's a local property of the Race/Contact pair, not a
-  framework contract — see the multi-membership pitfall below.
+* `ContactClassifier` — `!RaceClassifier`. These two partition positions,
+  but that's a local property of the Race/Contact pair, not a framework
+  contract — see the multi-membership pitfall below.
 * `InnerBoard631Classifier`, `InnerBoard54321Classifier` — inner-board
   shape classifiers.
 * `VsTwoPlusUpClassifier` — true when the opponent has ≥ 2 checkers on
@@ -247,12 +243,12 @@ the test project.
   IReadOnlyList<int> afterPlayerBoard)`. Three 26-element boards, each
   from the on-roll player's perspective at that moment: priorBoard has
   the decision-maker on roll; the two after-boards have the opponent on
-  roll (the turn has flipped). Consequence: what was the decision-
-  maker's point X in priorBoard is point `(25 - X)` in the after-boards,
-  with their checkers stored negatively. Implementations classify one
-  `PlayType` each.
-* `Make20PtClassifier` — first `IPlayTypeClassifier` implementation.
-  True when the decision-maker's 20-point is not already made
+  roll (the turn has flipped). Consequence: what was the
+  decision-maker's point X in priorBoard is point `(25 - X)` in the
+  after-boards, with their checkers stored negatively. Implementations
+  classify one `PlayType` each.
+* `Make20PtClassifier` — `IPlayTypeClassifier` implementation. True
+  when the decision-maker's 20-point is not already made
   (`priorBoard[20] < 2`) and exactly one of the two plays makes it —
   under the flipped after-POV the decision-maker's 20-point is index 5
   and their checkers are negative, so "makes" is `afterBoard[5] <= -2`:
@@ -267,13 +263,13 @@ the test project.
   internal `GetValue` switch is exhaustive, throwing
   `ArgumentOutOfRangeException` on undefined `Column` values.
 
-### FilteredDecisionIterator
+### Iteration
 
 The top-level integration point. A sealed instance class constructed
 with `(DecisionFilterSet, ILogger<FilteredDecisionIterator>)` — both
 required, null-guarded. Filters are configuration; the directory is
 the per-call argument. Walks XG-format files (`*.xg` match files plus
-`*.xgp` position files) or `*.json` files, yielding only the records
+`*.xgp` position files) or `*.json` files, yielding only the rows
 that pass the configured filter set.
 
 Two output shapes are exposed: `DecisionRow` (CSV-flat) via
@@ -281,9 +277,9 @@ Two output shapes are exposed: `DecisionRow` (CSV-flat) via
 (diagram-shaped — full `Plays` list, after-boards) via
 `IterateXgDirectoryDiagrams` / `IterateJsonDirectoryDiagrams`. All
 four methods share a single generic private helper `IterateFiles<T>`
-parameterised on yield type, so the filter-evaluation and early-exit
-pipeline are guaranteed identical across both shapes — only the
-terminal yield differs. The shape-side choice is made by passing
+parameterized on yield type, so the filter-evaluation and early-exit
+pipeline is guaranteed identical across both shapes — only the
+terminal yield differs. The output shape is selected by passing
 `XgDecisionIterator.Iterate` or `XgDecisionIterator.IterateDiagramRequests`
 as the source delegate; the `where T : IDecisionFilterData` constraint
 binds the filter calls identically for either shape.
@@ -296,29 +292,27 @@ aborting the run.
 
 A private static `EnumerateXgFormatFiles` helper concatenates
 `*.xg` and `*.xgp` enumerations, mirroring the equivalent private
-helper inside `ConvertXgToJson_Lib.XgDecisionIterator`. The
-duplication is provisional — the long-term fix is to expose the
-parser-side helper as a shared API once cross-subproject work is
-in scope.
+helper inside `ConvertXgToJson_Lib.XgDecisionIterator`.
 
 Early-exit pipeline. At the start of each directory walk the iterator
 constructs a single `XgIteratorCallbacks` record threading the filter
 set's four skip / advance predicates to the producer:
 
-* `SkipMatchAt`    ← `DecisionFilterSet.ShouldSkipMatch (XgMatchInfo)`
-* `SkipGameAt`     ← `DecisionFilterSet.ShouldSkipGame  (XgGameInfo)`
-* `StopGameAfter`  ← `DecisionFilterSet.ShouldAdvanceGame  (IDecisionFilterData)`
-* `StopMatchAfter` ← `DecisionFilterSet.ShouldAdvanceMatch (IDecisionFilterData)`
+```
+SkipMatchAt    ← DecisionFilterSet.ShouldSkipMatch     (XgMatchInfo)
+SkipGameAt     ← DecisionFilterSet.ShouldSkipGame      (XgGameInfo)
+StopGameAfter  ← DecisionFilterSet.ShouldAdvanceGame   (IDecisionFilterData)
+StopMatchAfter ← DecisionFilterSet.ShouldAdvanceMatch  (IDecisionFilterData)
+```
 
 The producer evaluates each predicate at its declared boundary (match
 header, game header, post-yield) and short-circuits its own iteration
 when the predicate returns `true`. The consumer's loop is reduced to
 a filter-and-yield: every item produced by `source(...)` is gated by
 `DecisionFilterSet.Matches` and yielded if it passes. No iterator
-state is observed; `XgIteratorState` is passed as `null` and
-`XgDecisionIterator.ExtractMatchInfo` is no longer called directly —
-the match-skip decision flows through `SkipMatchAt`, which the
-producer wires up internally.
+state is observed; `XgIteratorState` is passed as `null`. The
+match-skip decision flows through `SkipMatchAt`, which the producer
+wires up internally.
 
 The architectural ruling is that the consumer has no direct
 `SkipMatch` / `SkipGame` mutator on the producer's surface: all skip
@@ -436,8 +430,8 @@ public sealed class ColumnSelector
   array is already in on-roll-relative form; parsing the XGID would
   re-derive it and risk perspective bugs. Classifiers must keep taking
   `IReadOnlyList<int>`.
-* **`ErrorRangeFilter` drops unanalysed rows.** When `FilterError` is
-  `null` the filter returns `false` — unanalysed `.xgp` positions are
+* **`ErrorRangeFilter` drops unanalyzed rows.** When `FilterError` is
+  `null` the filter returns `false` — unanalyzed `.xgp` positions are
   excluded, not admitted as "zero error". Changing that silently regresses
   CSV exports.
 * **`MatchScoreFilter` has coupled constraints.** Money matches only if
@@ -452,7 +446,7 @@ public sealed class ColumnSelector
   several categories at once (e.g. Contact + InnerBoard631).
   `PositionTypeFilter` takes the union: a row passes when *any* selected
   type matches. Race and Contact happen to be mutually exclusive and
-  exhaustive today, but that's a property of those two classifiers, not a
+  exhaustive, but that's a property of those two classifiers, not a
   contract at the filter level — future categories introduced alongside
   Contact will overlap with it and do not need a carve-out.
 * **Shared `TestData` at `backgammon\TestData`.** Referenced via
@@ -461,6 +455,4 @@ public sealed class ColumnSelector
 
 ## Subproject-internal next steps
 
-None. Cross-cutting items (new classifiers, downstream UI wiring,
-filter early-exit extensions) live in the umbrella `INSTRUCTIONS.md`
-"Next up" / "Deferred" sections.
+None.
