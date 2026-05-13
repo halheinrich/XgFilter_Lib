@@ -125,7 +125,11 @@ public sealed class FilteredDecisionIterator
                 continue;
             }
 
-            string sourceFile = Path.GetFileNameWithoutExtension(path);
+            // sourceFile must carry the extension — the producer's DecisionId
+            // stamping derives the .xg/.xgp/.json discrimination from
+            // Path.GetExtension(sourceFile). Stripping the extension here would
+            // make the producer throw at stamp time.
+            string sourceFile = Path.GetFileName(path);
             foreach (var item in source(file, sourceFile, null, callbacks))
             {
                 if (!_filters.Matches(item)) continue;

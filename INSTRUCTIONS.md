@@ -455,4 +455,12 @@ public sealed class ColumnSelector
 
 ## Subproject-internal next steps
 
-None.
+* Test builders (`BgDecisionDataBuilder`, `DecisionRowBuilder`) currently stamp
+  every constructed instance with the same fixed placeholder
+  `XgpDecisionId("test.xgp")`. Acceptable today because no filter test asserts
+  on `Id`, but encapsulation-suboptimal: identical-Id instances become a
+  silent collision risk the moment Id assertions enter the test surface.
+  Promote to deriving `Id` from existing builder state (the row builder's
+  `sourceFile` parameter; add a matching parameter to the diagram builder)
+  when an Id-asserting test lands. Documented inline on both builders'
+  XML doc.

@@ -1,9 +1,25 @@
-﻿using BgDataTypes_Lib;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Tests.Helpers;
 
+/// <summary>
+/// Test-only builder for <see cref="BgDecisionData"/>. Every constructed
+/// instance carries a fixed placeholder <see cref="BgDecisionData.Id"/> of
+/// <c>new XgpDecisionId("test.xgp")</c> — the required-Id contract has to be
+/// satisfied, but the existing filter-test suites do not assert on Id, so a
+/// shared placeholder is sufficient. Callers that need to assert on Id (or
+/// on Id-derived behaviour) should construct <see cref="BgDecisionData"/>
+/// explicitly rather than use this builder, since multiple builder-constructed
+/// instances are otherwise indistinguishable by Id.
+/// </summary>
 internal static class BgDecisionDataBuilder
 {
+    /// <summary>
+    /// Builds a <see cref="BgDecisionData"/> populated from the supplied
+    /// arguments. The <see cref="BgDecisionData.Id"/> field is set to the
+    /// shared placeholder described on <see cref="BgDecisionDataBuilder"/>;
+    /// it is not parameterised.
+    /// </summary>
     public static BgDecisionData Build(
         string player = "Player1",
         bool isCube = false,
@@ -22,6 +38,7 @@ internal static class BgDecisionDataBuilder
     {
         return new BgDecisionData
         {
+            Id = new XgpDecisionId("test.xgp"),
             Descriptive = new DescriptiveData
             {
                 OnRollName = player,

@@ -218,8 +218,11 @@ public class FilteredDecisionIteratorTests
 
         try
         {
+            // SourceFile carries the extension (e.g. "foo.xgp"), matching the
+            // producer's post-Arc-2 contract — see XgDecisionIterator's
+            // sourceFile-with-extension requirement for DecisionId stamping.
             var xgpBaseNames = Directory.GetFiles(FixtureDir, "*.xgp")
-                .Select(Path.GetFileNameWithoutExtension)
+                .Select(Path.GetFileName)
                 .ToHashSet();
             foreach (var src in Directory.GetFiles(FixtureDir, "*.xgp"))
                 File.Copy(src, Path.Combine(tempDir, Path.GetFileName(src)));
@@ -246,8 +249,11 @@ public class FilteredDecisionIteratorTests
 
         try
         {
+            // SourceFile carries the extension (e.g. "foo.xgp"), matching the
+            // producer's post-Arc-2 contract — see XgDecisionIterator's
+            // sourceFile-with-extension requirement for DecisionId stamping.
             var xgpBaseNames = Directory.GetFiles(FixtureDir, "*.xgp")
-                .Select(Path.GetFileNameWithoutExtension)
+                .Select(Path.GetFileName)
                 .ToHashSet();
             foreach (var src in Directory.GetFiles(FixtureDir, "*.xgp"))
                 File.Copy(src, Path.Combine(tempDir, Path.GetFileName(src)));

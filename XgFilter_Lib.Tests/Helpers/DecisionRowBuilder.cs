@@ -2,8 +2,24 @@ using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Tests.Helpers;
 
+/// <summary>
+/// Test-only builder for <see cref="DecisionRow"/>. Every constructed
+/// instance carries a fixed placeholder <see cref="DecisionRow.Id"/> of
+/// <c>new XgpDecisionId("test.xgp")</c> — the required-Id contract has to be
+/// satisfied, but the existing filter-test suites do not assert on Id, so a
+/// shared placeholder is sufficient. Callers that need to assert on Id (or
+/// on Id-derived behaviour) should construct <see cref="DecisionRow"/>
+/// explicitly rather than use this builder, since multiple builder-constructed
+/// instances are otherwise indistinguishable by Id.
+/// </summary>
 internal static class DecisionRowBuilder
 {
+    /// <summary>
+    /// Builds a <see cref="DecisionRow"/> populated from the supplied
+    /// arguments. The <see cref="DecisionRow.Id"/> field is set to the
+    /// shared placeholder described on <see cref="DecisionRowBuilder"/>;
+    /// it is not parameterised.
+    /// </summary>
     public static DecisionRow Build(
         string xgid = "XGID=-b----E-C---eE---c-e----B-:0:0:1:00:0:0:0:0:10",
         double error = 0.0,
@@ -25,6 +41,7 @@ internal static class DecisionRowBuilder
     {
         return new DecisionRow
         {
+            Id = new XgpDecisionId("test.xgp"),
             Xgid = xgid,
             Error = error,
             OnRollNeeds = onRollNeeds,
@@ -45,6 +62,12 @@ internal static class DecisionRowBuilder
         };
     }
 
+    /// <summary>
+    /// Builds a cube-decision <see cref="DecisionRow"/> by delegating to
+    /// <see cref="Build"/> with <c>roll = 0</c>. Inherits the shared
+    /// placeholder <see cref="DecisionRow.Id"/> — see
+    /// <see cref="DecisionRowBuilder"/>.
+    /// </summary>
     public static DecisionRow BuildCube(
         string player = "Player1",
         double error = 0.0,
