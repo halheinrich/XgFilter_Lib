@@ -273,6 +273,167 @@ public class FilteredDecisionIteratorTests
     }
 
     // -----------------------------------------------------------------------
+    //  Stream / file-list iteration — parity with the directory walk
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Loads every XG-format fixture from <paramref name="dir"/> as an
+    /// in-memory <see cref="XgFileStream"/>, buffering the bytes so the streams
+    /// outlive the lazy enumeration. Fixture-agnostic: whatever .xg/.xgp files
+    /// exist are picked up.
+    /// </summary>
+    private static List<XgFileStream> LoadStreams(string dir) =>
+        Directory.GetFiles(dir, "*.xg")
+            .Concat(Directory.GetFiles(dir, "*.xgp"))
+            .Select(p => new XgFileStream(
+                Path.GetFileName(p), new MemoryStream(File.ReadAllBytes(p))))
+            .ToList();
+
+    [Fact]
+    public void IterateXgStreams_MatchesDirectoryWalk_RowForRow()
+    {
+        // The new stream entry must yield exactly what the directory walk does
+        // for the same corpus and filter set. Read each fixture both ways and
+        // compare on identity fields both shapes carry. Fixture-agnostic.
+        var iterator = NewIterator(new DecisionFilterSet());
+
+        var fromDir = iterator.IterateXgDirectory(FixtureDir)
+            .Select(r => (r.SourceFile, r.MoveNumber, r.IsCube, r.Player))
+            .ToList();
+
+        var fromStreams = iterator.IterateXgStreams(LoadStreams(FixtureDir))
+            .Select(r => (r.SourceFile, r.MoveNumber, r.IsCube, r.Player))
+            .ToList();
+
+        fromStreams.Should().NotBeEmpty(
+            "the fixture corpus must yield at least one decision");
+        fromStreams.Should().Equal(fromDir,
+            "stream iteration must reproduce the directory walk decision-for-decision");
+    }
+
+    [Fact]
+    public void IterateXgStreamDiagrams_MatchesDirectoryWalk_RowForRow()
+    {
+        var iterator = NewIterator(new DecisionFilterSet());
+
+        var fromDir = iterator.IterateXgDirectoryDiagrams(FixtureDir)
+            .Select(d => (d.Descriptive.SourceFile, d.Descriptive.MoveNumber,
+                          d.Decision.IsCube, d.Descriptive.OnRollName))
+            .ToList();
+
+        var fromStreams = iterator.IterateXgStreamDiagrams(LoadStreams(FixtureDir))
+            .Select(d => (d.Descriptive.SourceFile, d.Descriptive.MoveNumber,
+                          d.Decision.IsCube, d.Descriptive.OnRollName))
+            .ToList();
+
+        fromStreams.Should().NotBeEmpty();
+        fromStreams.Should().Equal(fromDir,
+            "stream diagram iteration must reproduce the directory walk decision-for-decision");
+    }
+
+    [Fact]
+    public void IterateXgStreams_SourceFileCarriesExtension()
+    {
+        // The whole point of the stream API is that the caller-supplied name
+        // (with extension) flows through untouched — DecisionId stamping
+        // depends on Path.GetExtension(SourceFile) downstream.
+        var iterator = NewIterator(new DecisionFilterSet());
+
+        var rows = iterator.IterateXgStreams(LoadStreams(FixtureDir)).ToList();
+
+        rows.Should().NotBeEmpty();
+        rows.Should().OnlyContain(
+            r => Path.HasExtension(r.SourceFile),
+            "every yielded SourceFile must retain the extension the caller supplied");
+    }
+
+    [Fact]
+    public void IterateXgStreams_FilterByPlayer_IsHonoured()
+    {
+        // The filter pipeline must engage identically on the stream path.
+        var iterator = NewIterator(
+            new DecisionFilterSet().Add(new PlayerFilter(["halheinrich"])));
+
+        var rows = iterator.IterateXgStreams(LoadStreams(FixtureDir)).ToList();
+
+        rows.Should().NotBeEmpty(
+            "expected at least one decision by halheinrich in the fixture corpus");
+        rows.Should().OnlyContain(
+            r => r.Player.Equals("halheinrich", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void IterateXgStreams_EmptyList_ReturnsEmpty()
+    {
+        var iterator = NewIterator(new DecisionFilterSet());
+
+        iterator.IterateXgStreams([]).Should().BeEmpty();
+        iterator.IterateXgStreamDiagrams([]).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void IterateXgStreams_NullList_Throws()
+    {
+        var iterator = NewIterator(new DecisionFilterSet());
+
+        // Eager guard — must throw at the call site, before enumeration.
+        var act = () => iterator.IterateXgStreams(null!);
+        act.Should().Throw<ArgumentNullException>();
+
+        var actDiagrams = () => iterator.IterateXgStreamDiagrams(null!);
+        actDiagrams.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void IterateXgStreams_MissingExtension_FailsFast()
+    {
+        var iterator = NewIterator(new DecisionFilterSet());
+
+        // A name without an extension is a usage error: it would break the
+        // downstream .xg/.xgp/.json discrimination. Must throw on enumeration,
+        // not silently skip+log like a malformed file.
+        var bad = new[] { new XgFileStream("noextension", new MemoryStream([1, 2, 3])) };
+
+        var act = () => iterator.IterateXgStreams(bad).ToList();
+        act.Should().Throw<ArgumentException>()
+            .WithMessage("*extension*");
+    }
+
+    [Fact]
+    public void IterateXgStreams_BlankName_FailsFast()
+    {
+        var iterator = NewIterator(new DecisionFilterSet());
+
+        var bad = new[] { new XgFileStream("   ", new MemoryStream([1, 2, 3])) };
+
+        var act = () => iterator.IterateXgStreams(bad).ToList();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void IterateXgStreams_MalformedStream_IsSkippedAndLogged_NotThrown()
+    {
+        // Parity with the directory walk: a stream that fails to PARSE (vs. a
+        // malformed NAME) is skipped+logged, never thrown. Mix one garbage
+        // .xg stream with the real corpus and assert survival + a warning.
+        var spyLogger = new ListLogger<FilteredDecisionIterator>();
+        var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), spyLogger);
+
+        var streams = LoadStreams(FixtureDir);
+        streams.Add(new XgFileStream("malformed.xg", new MemoryStream([])));
+
+        var rows = iterator.IterateXgStreams(streams).ToList();
+
+        rows.Should().NotBeEmpty("the valid fixtures must still yield rows");
+        spyLogger.Entries.Should().ContainSingle(
+            "the one malformed stream should produce one warning")
+            .Which.Level.Should().Be(LogLevel.Warning);
+        spyLogger.Entries[0].Message.Should().Contain("malformed.xg");
+        spyLogger.Entries[0].Exception.Should().NotBeNull(
+            "the warning must carry the original exception, not a stringified message");
+    }
+
+    // -----------------------------------------------------------------------
     //  Construction guards
     // -----------------------------------------------------------------------
 

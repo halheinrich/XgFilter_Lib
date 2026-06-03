@@ -275,14 +275,49 @@ that pass the configured filter set.
 Two output shapes are exposed: `DecisionRow` (CSV-flat) via
 `IterateXgDirectory` / `IterateJsonDirectory`, and `BgDecisionData`
 (diagram-shaped — full `Plays` list, after-boards) via
-`IterateXgDirectoryDiagrams` / `IterateJsonDirectoryDiagrams`. All
-four methods share a single generic private helper `IterateFiles<T>`
-parameterized on yield type, so the filter-evaluation and early-exit
-pipeline is guaranteed identical across both shapes — only the
-terminal yield differs. The output shape is selected by passing
-`XgDecisionIterator.Iterate` or `XgDecisionIterator.IterateDiagramRequests`
-as the source delegate; the `where T : IDecisionFilterData` constraint
-binds the filter calls identically for either shape.
+`IterateXgDirectoryDiagrams` / `IterateJsonDirectoryDiagrams`.
+
+Two **input** sources are exposed, both shapes for each. The directory
+methods above walk a filesystem path. The stream methods —
+`IterateXgStreams` (`DecisionRow`) and `IterateXgStreamDiagrams`
+(`BgDecisionData`) — take a caller-supplied `IEnumerable<XgFileStream>`
+instead, parsing each via `XgFileReader.ReadStream`. This is the
+directory-free entry for callers that hold the bytes rather than a
+server path — e.g. a Blazor WASM client parsing browser-picked files
+that never leave the browser. The directory and stream paths are
+WASM-compatible by dependency (both `XgFilter_Lib` and its deps
+`BgDataTypes_Lib` / `ConvertXgToJson_Lib` are plain `net10.0`); the
+directory methods simply rely on `System.IO.Directory`, which compiles
+under `browser-wasm` but is never called by a remote consumer.
+
+All entry points funnel through a single generic private core,
+`IterateSources<T>`, which iterates `(string sourceFile, Func<XgFile> read)`
+pairs — so the filter-evaluation, malformed-file skip+log, and early-exit
+pipeline is guaranteed identical across every shape *and* every source.
+Only the terminal yield and the per-source mapping differ:
+
+* directory paths map `p → (Path.GetFileName(p), () => ReadFile(p))` via
+  the thin `IterateFiles<T>` adapter (extension preserved by
+  `Path.GetFileName`);
+* streams map `XgFileStream → (FileName, () => ReadStream(Data))` via
+  `ToSources`, after `RequireValid` enforces the name contract.
+
+The output shape is selected by passing `XgDecisionIterator.Iterate` or
+`XgDecisionIterator.IterateDiagramRequests` as the source delegate; the
+`where T : IDecisionFilterData` constraint binds the filter calls
+identically for either shape.
+
+The read is always deferred into the thunk and invoked inside
+`IterateSources`'s try/catch, so a malformed *file/stream content* is
+logged and skipped (iteration continues). A malformed *stream name*
+(null/blank/extension-less name, null `Data`) is a different category —
+a usage error — and `RequireValid` throws `ArgumentException` from the
+`ToSources` projection, *outside* the try/catch, so it is never
+swallowed as a skipped file. `sourceFile` is passed straight through to
+the producer and **must carry its extension** — the producer's
+`DecisionId` stamping derives the `.xg`/`.xgp`/`.json` discrimination
+from `Path.GetExtension(sourceFile)` and throws on an extension-less
+name. The directory mapper preserves it; the stream mapper validates it.
 
 Files that fail to read are skipped and logged via
 `ILogger.LogWarning(ex, "Skipping {File}", path)` — the original
@@ -394,16 +429,27 @@ public sealed class PlayTypeFilter     : IDecisionFilter               { /* ... 
 ```csharp
 namespace XgFilter_Lib;
 
+/// A named XG-format source supplied as a stream rather than a path.
+/// FileName must carry its extension (.xg/.xgp/.json); Data is read once,
+/// forward, and is owned/disposed by the caller. See the stream-ownership
+/// pitfall below.
+public readonly record struct XgFileStream(string FileName, Stream Data);
+
 public sealed class FilteredDecisionIterator
 {
     public FilteredDecisionIterator(
         DecisionFilterSet filters,
         ILogger<FilteredDecisionIterator> logger);
 
+    // Directory sources
     public IEnumerable<DecisionRow>      IterateXgDirectory          (string xgDir);
     public IEnumerable<DecisionRow>      IterateJsonDirectory        (string jsonDir);
     public IEnumerable<BgDecisionData>   IterateXgDirectoryDiagrams  (string xgDir);
     public IEnumerable<BgDecisionData>   IterateJsonDirectoryDiagrams(string jsonDir);
+
+    // Stream / file-list sources (directory-free; WASM-friendly)
+    public IEnumerable<DecisionRow>      IterateXgStreams      (IEnumerable<XgFileStream> files);
+    public IEnumerable<BgDecisionData>   IterateXgStreamDiagrams(IEnumerable<XgFileStream> files);
 }
 ```
 
@@ -452,6 +498,19 @@ public sealed class ColumnSelector
 * **Shared `TestData` at `backgammon\TestData`.** Referenced via
   `..\..\TestData` with `Link` in the Tests csproj. Moving TestData or
   changing csproj output depth breaks every file-touching test.
+* **`XgFileStream` ownership + lazy-read hazard.** The stream entries
+  (`IterateXgStreams` / `IterateXgStreamDiagrams`) are `yield`-based, so
+  each `XgFileStream.Data` is read *during enumeration*, not at the call
+  site. The caller owns the stream and must keep it open, unread, and
+  positioned at the start until enumeration reaches it — a stream disposed
+  before its deferred read throws (and is then swallowed as a skipped
+  file). The boring-safe pattern, used by the tests, is to buffer the
+  bytes up front (`new MemoryStream(File.ReadAllBytes(path))`) so the
+  stream cannot be pulled out from under the read. The iterator does not
+  dispose streams. Separately, `FileName` **must** carry its extension:
+  `RequireValid` throws `ArgumentException` on a null/blank/extension-less
+  name (a usage error, surfaced loudly) — distinct from a malformed
+  *content* stream, which is skip+logged like any unreadable file.
 
 ## Subproject-internal next steps
 
