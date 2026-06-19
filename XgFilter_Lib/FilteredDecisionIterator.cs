@@ -54,7 +54,7 @@ public sealed class FilteredDecisionIterator
     /// shaped as <see cref="DecisionRow"/>.
     /// </summary>
     public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir) =>
-        IterateFiles(EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
+        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
             XgDecisionIterator.Iterate);
 
     /// <summary>
@@ -75,7 +75,7 @@ public sealed class FilteredDecisionIterator
     /// identical to <see cref="IterateXgDirectory"/>.
     /// </summary>
     public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir) =>
-        IterateFiles(EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
+        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
             XgDecisionIterator.IterateDiagramRequests);
 
     /// <summary>
@@ -176,18 +176,6 @@ public sealed class FilteredDecisionIterator
                 "forward-readable stream positioned at the start of the file.",
                 nameof(file));
     }
-
-    /// <summary>
-    /// Enumerates every XG-format file in a directory: both <c>*.xg</c>
-    /// (match files) and <c>*.xgp</c> (position files). Mirrors the
-    /// equivalent private helper in
-    /// <c>ConvertXgToJson_Lib.XgDecisionIterator.EnumerateXgFormatFiles</c>;
-    /// the duplication is provisional — the long-term fix is to expose
-    /// the parser-side helper as a shared API and consume it here.
-    /// </summary>
-    private static IEnumerable<string> EnumerateXgFormatFiles(string dir) =>
-        Directory.EnumerateFiles(dir, "*.xg")
-            .Concat(Directory.EnumerateFiles(dir, "*.xgp"));
 
     /// <summary>
     /// Maps a directory walk onto the shared <see cref="IterateSources{T}"/>

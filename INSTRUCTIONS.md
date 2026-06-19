@@ -325,9 +325,10 @@ exception (type, stack, inner) is captured on the log entry, not
 stringified. Iteration continues with the next file rather than
 aborting the run.
 
-A private static `EnumerateXgFormatFiles` helper concatenates
-`*.xg` and `*.xgp` enumerations, mirroring the equivalent private
-helper inside `ConvertXgToJson_Lib.XgDecisionIterator`.
+XG-format file discovery (`*.xg` then `*.xgp`) is delegated to the
+producer's public `XgFileReader.EnumerateXgFormatFiles`, the single
+source of truth for the rule. The former private duplicate here has
+been deleted.
 
 Early-exit pipeline. At the start of each directory walk the iterator
 constructs a single `XgIteratorCallbacks` record threading the filter
