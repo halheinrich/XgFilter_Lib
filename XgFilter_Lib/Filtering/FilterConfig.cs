@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using XgFilter_Lib.Enums;
 
 namespace XgFilter_Lib.Filtering;
@@ -98,5 +100,62 @@ public sealed class FilterConfig
             set.Add(new PlayTypeFilter(PlayTypes));
 
         return set;
+    }
+
+    // -----------------------------------------------------------------------
+    //  Canonical JSON serialization
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The single source of truth for how a <see cref="FilterConfig"/> maps to
+    /// and from JSON. Registers <see cref="JsonStringEnumConverter"/> so the
+    /// enum-typed members (<see cref="DecisionType"/>, <see cref="PositionTypes"/>,
+    /// <see cref="PlayTypes"/>) serialize as their declaration names rather than
+    /// ordinals — none of those enum types carries a type-level
+    /// <c>[JsonConverter]</c>, so without this they would round-trip as ints and
+    /// silently rebind to the wrong member if the enum were ever reordered.
+    /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
+    /// is expensive to build and thread-safe once first used.
+    /// </summary>
+    private static readonly JsonSerializerOptions CanonicalOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
+
+    /// <summary>
+    /// Serializes this configuration to its canonical JSON representation —
+    /// the inverse of <see cref="FromJson"/>. Enum values are written as their
+    /// declaration names. This is the lib-owned wire format; consumers that
+    /// persist or transmit a <see cref="FilterConfig"/> should round-trip
+    /// through this pair rather than reaching for <see cref="JsonSerializer"/>
+    /// directly, so the enum-as-string contract stays in one place.
+    /// </summary>
+    /// <returns>A JSON object string carrying every field of this instance.</returns>
+    public string ToJson() => JsonSerializer.Serialize(this, CanonicalOptions);
+
+    /// <summary>
+    /// Deserializes a <see cref="FilterConfig"/> from its canonical JSON
+    /// representation — the inverse of <see cref="ToJson"/>. Members absent
+    /// from the JSON retain their type defaults (e.g. omitted lists materialize
+    /// empty, omitted <see cref="DecisionType"/> stays
+    /// <see cref="DecisionTypeOption.Both"/>), so a default-config blob and an
+    /// empty object both round-trip to an equivalent instance.
+    /// </summary>
+    /// <param name="json">A JSON object string, typically produced by <see cref="ToJson"/>.</param>
+    /// <returns>The materialized configuration.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="json"/> is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="json"/> is the literal <c>null</c> token, which yields no
+    /// configuration.
+    /// </exception>
+    /// <exception cref="JsonException"><paramref name="json"/> is malformed.</exception>
+    public static FilterConfig FromJson(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+
+        return JsonSerializer.Deserialize<FilterConfig>(json, CanonicalOptions)
+            ?? throw new ArgumentException(
+                "JSON deserialized to a null configuration; expected a FilterConfig object.",
+                nameof(json));
     }
 }

@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
@@ -174,20 +172,16 @@ public class FilterConfigTests
     }
 
     // -----------------------------------------------------------------------
-    //  JSON round-trip — wire-format guarantee for cross-process consumers
+    //  Canonical JSON round-trip — lib-owned wire format the panel persists
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void JsonRoundTrip_PreservesEnumValuesAsStrings()
+    public void ToJson_PopulatedConfig_RoundTripsValueEqualThroughFromJson()
     {
-        // Pin the wire-format contract Razor relies on: enum values
-        // serialize as their declaration names (PositionType.InnerBoard631
-        // -> "InnerBoard631"), and round-trip back to the same enum.
-        var options = new JsonSerializerOptions
-        {
-            Converters = { new JsonStringEnumConverter() },
-        };
-
+        // Every field, including the enum-typed ones, must survive a
+        // ToJson -> FromJson round-trip unchanged. Structural comparison
+        // (BeEquivalentTo on the whole object) stands in for value equality,
+        // which FilterConfig deliberately does not implement.
         var original = new FilterConfig
         {
             Players = { "Alice", "Bob" },
@@ -201,22 +195,63 @@ public class FilterConfigTests
             PlayTypes = { PlayType.Make20Pt },
         };
 
-        var json = JsonSerializer.Serialize(original, options);
+        var restored = FilterConfig.FromJson(original.ToJson());
+
+        restored.Should().BeEquivalentTo(original);
+    }
+
+    [Fact]
+    public void ToJson_EnumMembers_SerializeAsDeclarationNames()
+    {
+        // Pin the wire-format contract Razor relies on: enum values serialize
+        // as their declaration names (PositionType.InnerBoard631 ->
+        // "InnerBoard631"), not ordinals. These enum types carry no type-level
+        // [JsonConverter], so this is guaranteed only by the canonical options.
+        var json = new FilterConfig
+        {
+            DecisionType = DecisionTypeOption.CheckerPlaysOnly,
+            PositionTypes = { PositionType.InnerBoard631 },
+            PlayTypes = { PlayType.Make20Pt },
+        }.ToJson();
+
         json.Should().Contain("\"InnerBoard631\"",
-            "enum values must serialize as declaration names so the existing wire format is preserved");
+            "enum values must serialize as declaration names so the wire format survives enum reordering");
         json.Should().Contain("\"CheckerPlaysOnly\"");
         json.Should().Contain("\"Make20Pt\"");
+    }
 
-        var restored = JsonSerializer.Deserialize<FilterConfig>(json, options)!;
+    [Fact]
+    public void ToJson_DefaultConfig_RoundTripsToEquivalentDefaults()
+    {
+        // The defaults must survive the round-trip: empty lists stay empty and
+        // DecisionType stays Both, so a persisted default-config blob rebuilds
+        // a set that still matches every row.
+        var original = new FilterConfig();
 
-        restored.Players.Should().BeEquivalentTo(original.Players);
-        restored.DecisionType.Should().Be(original.DecisionType);
-        restored.MatchScores.Should().BeEquivalentTo(original.MatchScores);
-        restored.ErrorMin.Should().Be(original.ErrorMin);
-        restored.ErrorMax.Should().Be(original.ErrorMax);
-        restored.MoveNumberMin.Should().Be(original.MoveNumberMin);
-        restored.MoveNumberMax.Should().Be(original.MoveNumberMax);
-        restored.PositionTypes.Should().BeEquivalentTo(original.PositionTypes);
-        restored.PlayTypes.Should().BeEquivalentTo(original.PlayTypes);
+        var restored = FilterConfig.FromJson(original.ToJson());
+
+        restored.Should().BeEquivalentTo(original);
+        restored.DecisionType.Should().Be(DecisionTypeOption.Both);
+        restored.Players.Should().BeEmpty();
+        restored.MatchScores.Should().BeEmpty();
+        restored.PositionTypes.Should().BeEmpty();
+        restored.PlayTypes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void FromJson_EmptyObject_RebuildsDefaultConfig()
+    {
+        // A consumer that omits every field (or trims an empty blob to "{}")
+        // must still get a usable default config, not nulls.
+        var restored = FilterConfig.FromJson("{}");
+
+        restored.Should().BeEquivalentTo(new FilterConfig());
+    }
+
+    [Fact]
+    public void FromJson_NullToken_Throws()
+    {
+        var act = () => FilterConfig.FromJson("null");
+        act.Should().Throw<ArgumentException>();
     }
 }
