@@ -21,6 +21,11 @@ public class PositionTypeFilterTests
         (24, 2), (13, 5), (8, 3), (6, 5),
         (12, -5), (17, -3), (19, -3));
 
+    // Holding fixture — player holds 13/8/6, opponent anchors on the 20
+    private static readonly int[] _holding1386Vs20Position = BoardBuilder.Build(
+        (24, 2), (13, 5), (8, 3), (6, 4),
+        (20, -2), (19, -3), (17, -5));
+
     // -----------------------------------------------------------------------
     //  Race filter
     // -----------------------------------------------------------------------
@@ -73,6 +78,44 @@ public class PositionTypeFilterTests
     {
         var filter = new PositionTypeFilter([PositionType.VsTwoPlusUp]);
         AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: false);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Holding1386Vs20 filter
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Holding1386Vs20Filter_HoldingPosition_Passes()
+    {
+        var filter = new PositionTypeFilter([PositionType.Holding1386Vs20]);
+        AssertMatchesBoth(filter, new RowShape(Board: _holding1386Vs20Position), expected: true);
+    }
+
+    [Fact]
+    public void Holding1386Vs20Filter_StartingPosition_DoesNotPass()
+    {
+        var filter = new PositionTypeFilter([PositionType.Holding1386Vs20]);
+        AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: false);
+    }
+
+    [Fact]
+    public void Holding1386Vs20ComposesWithContact_BothMatch()
+    {
+        // A holding position is also Contact — the union semantics let a row
+        // pass under either label, and the overlap is by design.
+        var filter = new PositionTypeFilter([PositionType.Contact]);
+        AssertMatchesBoth(filter, new RowShape(Board: _holding1386Vs20Position), expected: true);
+
+        filter = new PositionTypeFilter([PositionType.Holding1386Vs20]);
+        AssertMatchesBoth(filter, new RowShape(Board: _holding1386Vs20Position), expected: true);
+    }
+
+    [Fact]
+    public void Holding1386Vs20Filter_ConstructsForDefinedValue()
+    {
+        // Defined enum value passes the Enum.IsDefined construction guard.
+        var act = () => new PositionTypeFilter([PositionType.Holding1386Vs20]);
+        act.Should().NotThrow();
     }
 
     // -----------------------------------------------------------------------

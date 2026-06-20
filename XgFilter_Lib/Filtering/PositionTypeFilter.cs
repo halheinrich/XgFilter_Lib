@@ -27,6 +27,7 @@ public sealed class PositionTypeFilter : IDecisionFilter
             [PositionType.InnerBoard631]   = new InnerBoard631Classifier(),
             [PositionType.InnerBoard54321] = new InnerBoard54321Classifier(),
             [PositionType.VsTwoPlusUp]     = new VsTwoPlusUpClassifier(),
+            [PositionType.Holding1386Vs20] = new Holding1386Vs20Classifier(),
         };
 
     private readonly HashSet<PositionType> _types;

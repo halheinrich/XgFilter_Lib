@@ -31,4 +31,8 @@ public enum PositionType
     /// <summary>Opponent has two or more checkers on the bar.</summary>
     [Description("Vs 2+ on bar")]
     VsTwoPlusUp,
+
+    /// <summary>Player holds the 13, 8, and 6 points; opponent anchors on the 20.</summary>
+    [Description("Holding 13-8-6 vs 20")]
+    Holding1386Vs20,
 }

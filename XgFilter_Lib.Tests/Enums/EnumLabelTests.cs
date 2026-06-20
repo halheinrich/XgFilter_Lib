@@ -46,6 +46,12 @@ public class EnumLabelTests
     }
 
     [Fact]
+    public void PositionType_Holding1386Vs20_HasExpectedLabel()
+    {
+        PositionType.Holding1386Vs20.ToLabel().Should().Be("Holding 13-8-6 vs 20");
+    }
+
+    [Fact]
     public void DecisionTypeOption_CheckerPlaysOnly_HasExpectedLabel()
     {
         DecisionTypeOption.CheckerPlaysOnly.ToLabel().Should().Be("Checker plays only");
