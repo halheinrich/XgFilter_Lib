@@ -254,4 +254,53 @@ public class FilterConfigTests
         var act = () => FilterConfig.FromJson("null");
         act.Should().Throw<ArgumentException>();
     }
+
+    // -----------------------------------------------------------------------
+    //  TryFromJson — tolerant restore: absent / corrupt input -> default
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void TryFromJson_ValidJson_ReturnsTrueAndRestoresConfig()
+    {
+        var original = new FilterConfig
+        {
+            Players = { "Alice" },
+            DecisionType = DecisionTypeOption.CubeOnly,
+            PositionTypes = { PositionType.Race },
+        };
+
+        var ok = FilterConfig.TryFromJson(original.ToJson(), out var restored);
+
+        ok.Should().BeTrue();
+        restored.Should().BeEquivalentTo(original);
+    }
+
+    [Fact]
+    public void TryFromJson_NullString_ReturnsFalseAndDefaultConfig()
+    {
+        // The absent-key case: a storage slot that was never written hands the
+        // consumer a null reference, not the string "null".
+        var ok = FilterConfig.TryFromJson(null, out var restored);
+
+        ok.Should().BeFalse();
+        restored.Should().BeEquivalentTo(new FilterConfig());
+    }
+
+    [Fact]
+    public void TryFromJson_NullToken_ReturnsFalseAndDefaultConfig()
+    {
+        var ok = FilterConfig.TryFromJson("null", out var restored);
+
+        ok.Should().BeFalse();
+        restored.Should().BeEquivalentTo(new FilterConfig());
+    }
+
+    [Fact]
+    public void TryFromJson_MalformedJson_ReturnsFalseAndDefaultConfig()
+    {
+        var ok = FilterConfig.TryFromJson("not json {", out var restored);
+
+        ok.Should().BeFalse();
+        restored.Should().BeEquivalentTo(new FilterConfig());
+    }
 }

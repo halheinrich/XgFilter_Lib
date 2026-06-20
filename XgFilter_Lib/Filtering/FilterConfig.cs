@@ -158,4 +158,54 @@ public sealed class FilterConfig
                 "JSON deserialized to a null configuration; expected a FilterConfig object.",
                 nameof(json));
     }
+
+    /// <summary>
+    /// Non-throwing counterpart to <see cref="FromJson"/>, following the
+    /// <c>Parse</c>/<c>TryParse</c> convention. Absorbs the three ways a
+    /// restore can fail — a null <paramref name="json"/> (e.g. a storage key
+    /// that was never written), the literal <c>null</c> token, or malformed
+    /// JSON — and yields a fresh default <see cref="FilterConfig"/> in each
+    /// case. This single-sources the "absent or corrupt input restores to
+    /// defaults" policy in the lib so consumers need no knowledge of the JSON
+    /// representation or its exception taxonomy.
+    /// </summary>
+    /// <param name="json">
+    /// The candidate JSON, or null. Typically read straight from a persistence
+    /// store whose contents the caller does not control.
+    /// </param>
+    /// <param name="config">
+    /// On return, always a usable configuration: the restored instance on
+    /// success, or a fresh default on failure. A caller content with
+    /// default-on-failure may ignore the return value and read
+    /// <paramref name="config"/> directly.
+    /// </param>
+    /// <returns>
+    /// <see langword="true"/> if <paramref name="json"/> was successfully
+    /// deserialized; <see langword="false"/> if it was null, the <c>null</c>
+    /// token, or malformed. A false result lets a caller react to a failed
+    /// restore (e.g. clear the corrupt entry or record telemetry) without
+    /// catching exceptions.
+    /// </returns>
+    public static bool TryFromJson(string? json, out FilterConfig config)
+    {
+        if (json is not null)
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<FilterConfig>(json, CanonicalOptions) is { } parsed)
+                {
+                    config = parsed;
+                    return true;
+                }
+            }
+            catch (JsonException)
+            {
+                // Malformed JSON falls through to the default below; any other
+                // (unexpected) exception is intentionally left to propagate.
+            }
+        }
+
+        config = new FilterConfig();
+        return false;
+    }
 }
