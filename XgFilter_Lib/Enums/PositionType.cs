@@ -3,23 +3,17 @@ using System.ComponentModel;
 namespace XgFilter_Lib.Enums;
 
 /// <summary>
-/// Board-derived classifications a position can carry. Categories are not
-/// mutually exclusive — a single position may satisfy several (e.g. Contact
-/// and InnerBoard631). All are determined from the on-roll-relative board
-/// array alone; no XGID parsing is involved. Each member carries a UI-facing
-/// label via <see cref="DescriptionAttribute"/>; read it with
+/// Structural board patterns a position can carry. These are not mutually
+/// exclusive — a single position may satisfy several at once (e.g.
+/// InnerBoard631 and VsTwoPlusUp). Whether a position has contact or has
+/// raced is a separate, orthogonal axis; see <see cref="ContactType"/>. All
+/// are determined from the on-roll-relative board array alone; no XGID
+/// parsing is involved. Each member carries a UI-facing label via
+/// <see cref="DescriptionAttribute"/>; read it with
 /// <see cref="EnumLabel.ToLabel{TEnum}(TEnum)"/>.
 /// </summary>
 public enum PositionType
 {
-    /// <summary>At least one player still has checkers on or behind opposing checkers.</summary>
-    [Description("Contact")]
-    Contact,
-
-    /// <summary>The two checker blocks have separated — no further hits are possible.</summary>
-    [Description("Race")]
-    Race,
-
     /// <summary>Inner-board 6-3-1 structure: points 6, 3, and 1 made; points 5, 4, and 2 broken.</summary>
     [Description("Inner-board 6-3-1")]
     InnerBoard631,

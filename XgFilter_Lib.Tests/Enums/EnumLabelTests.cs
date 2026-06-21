@@ -16,15 +16,15 @@ public class EnumLabelTests
     }
 
     [Fact]
-    public void PositionType_Contact_HasExpectedLabel()
+    public void ContactType_Contact_HasExpectedLabel()
     {
-        PositionType.Contact.ToLabel().Should().Be("Contact");
+        ContactType.Contact.ToLabel().Should().Be("Contact");
     }
 
     [Fact]
-    public void PositionType_Race_HasExpectedLabel()
+    public void ContactType_Race_HasExpectedLabel()
     {
-        PositionType.Race.ToLabel().Should().Be("Race");
+        ContactType.Race.ToLabel().Should().Be("Race");
     }
 
     [Fact]
@@ -102,6 +102,13 @@ public class EnumLabelTests
     }
 
     [Fact]
+    public void EveryContactType_HasNonEmptyLabel()
+    {
+        foreach (var value in Enum.GetValues<ContactType>())
+            value.ToLabel().Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
     public void EveryDecisionTypeOption_HasNonEmptyLabel()
     {
         foreach (var value in Enum.GetValues<DecisionTypeOption>())
@@ -130,6 +137,13 @@ public class EnumLabelTests
     public void UnknownPositionTypeValue_Throws()
     {
         var act = () => ((PositionType)999).ToLabel();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void UnknownContactTypeValue_Throws()
+    {
+        var act = () => ((ContactType)999).ToLabel();
         act.Should().Throw<ArgumentException>();
     }
 

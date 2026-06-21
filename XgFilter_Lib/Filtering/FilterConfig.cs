@@ -14,10 +14,11 @@ namespace XgFilter_Lib.Filtering;
 /// <para>
 /// Empty-list semantics (matches what consumer-side glue used to do
 /// before this type existed): an empty <see cref="Players"/>,
-/// <see cref="MatchScores"/>, <see cref="PositionTypes"/>, or
-/// <see cref="PlayTypes"/> means "no filter of this kind is active" —
-/// not "reject everything." <see cref="Build"/> simply skips adding
-/// the filter to the set in that case. <see cref="DecisionType"/>
+/// <see cref="MatchScores"/>, <see cref="ContactTypes"/>,
+/// <see cref="PositionTypes"/>, or <see cref="PlayTypes"/> means "no
+/// filter of this kind is active" — not "reject everything."
+/// <see cref="Build"/> simply skips adding the filter to the set in that
+/// case. <see cref="DecisionType"/>
 /// defaults to <see cref="DecisionTypeOption.Both"/>, which is a
 /// no-op in <see cref="DecisionTypeFilter"/>.
 /// </para>
@@ -54,6 +55,14 @@ public sealed class FilterConfig
     /// <summary>Inclusive upper bound on move number; null = open upper bound.</summary>
     public int? MoveNumberMax { get; set; }
 
+    /// <summary>
+    /// Contact types to admit (<see cref="ContactType.Contact"/> /
+    /// <see cref="ContactType.Race"/>; OR semantics). Empty = no contact-type
+    /// filter. A separate axis from <see cref="PositionTypes"/>, with which it
+    /// composes via AND.
+    /// </summary>
+    public IList<ContactType> ContactTypes { get; set; } = new List<ContactType>();
+
     /// <summary>Position types to admit (OR semantics). Empty = no position-type filter.</summary>
     public IList<PositionType> PositionTypes { get; set; } = new List<PositionType>();
 
@@ -71,8 +80,8 @@ public sealed class FilterConfig
     /// <see cref="MatchScoreFilter"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <see cref="PositionTypes"/> or <see cref="PlayTypes"/> contains
-    /// an undefined enum value.
+    /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>, or
+    /// <see cref="PlayTypes"/> contains an undefined enum value.
     /// </exception>
     public DecisionFilterSet Build()
     {
@@ -93,6 +102,9 @@ public sealed class FilterConfig
         if (MoveNumberMin.HasValue || MoveNumberMax.HasValue)
             set.Add(new MoveNumberFilter(MoveNumberMin, MoveNumberMax));
 
+        if (ContactTypes.Count > 0)
+            set.Add(new ContactTypeFilter(ContactTypes));
+
         if (PositionTypes.Count > 0)
             set.Add(new PositionTypeFilter(PositionTypes));
 
@@ -109,9 +121,9 @@ public sealed class FilterConfig
     /// <summary>
     /// The single source of truth for how a <see cref="FilterConfig"/> maps to
     /// and from JSON. Registers <see cref="JsonStringEnumConverter"/> so the
-    /// enum-typed members (<see cref="DecisionType"/>, <see cref="PositionTypes"/>,
-    /// <see cref="PlayTypes"/>) serialize as their declaration names rather than
-    /// ordinals — none of those enum types carries a type-level
+    /// enum-typed members (<see cref="DecisionType"/>, <see cref="ContactTypes"/>,
+    /// <see cref="PositionTypes"/>, <see cref="PlayTypes"/>) serialize as their
+    /// declaration names rather than ordinals — none of those enum types carries a type-level
     /// <c>[JsonConverter]</c>, so without this they would round-trip as ints and
     /// silently rebind to the wrong member if the enum were ever reordered.
     /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>

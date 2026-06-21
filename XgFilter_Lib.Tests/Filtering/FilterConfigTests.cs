@@ -107,7 +107,7 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void Build_PositionTypesNonEmpty_AddsPositionTypeFilter()
+    public void Build_ContactTypesNonEmpty_AddsContactTypeFilter()
     {
         var raceBoard = new int[26];
         raceBoard[3] = 2; raceBoard[2] = 3;
@@ -115,10 +115,52 @@ public class FilterConfigTests
 
         var set = new FilterConfig
         {
-            PositionTypes = { PositionType.Race },
+            ContactTypes = { ContactType.Race },
         }.Build();
 
         set.Matches(new RowShape(Board: raceBoard).ToDecisionRow()).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Build_PositionTypesNonEmpty_AddsPositionTypeFilter()
+    {
+        // Holding 13-8-6 vs 20: player holds 13/8/6 with nothing above the 13;
+        // opponent anchors on the player's 5 point (its own 20) and the 12.
+        var holdingBoard = new int[26];
+        holdingBoard[13] = 5; holdingBoard[8] = 3; holdingBoard[6] = 4; holdingBoard[4] = 2; holdingBoard[1] = 1;
+        holdingBoard[5] = -2; holdingBoard[12] = -3; holdingBoard[19] = -4; holdingBoard[21] = -4; holdingBoard[23] = -2;
+
+        var set = new FilterConfig
+        {
+            PositionTypes = { PositionType.Holding1386Vs20 },
+        }.Build();
+
+        set.Matches(new RowShape(Board: holdingBoard).ToDecisionRow()).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Build_ContactTypeAndPositionType_ComposeWithAnd()
+    {
+        // The whole point of the two-axis split: a row must satisfy BOTH the
+        // contact-type facet AND the position-type facet. A holding position
+        // is Contact AND Holding → passes; the plain starting position is
+        // Contact but NOT Holding → rejected by the AND.
+        var holdingBoard = new int[26];
+        holdingBoard[13] = 5; holdingBoard[8] = 3; holdingBoard[6] = 4; holdingBoard[4] = 2; holdingBoard[1] = 1;
+        holdingBoard[5] = -2; holdingBoard[12] = -3; holdingBoard[19] = -4; holdingBoard[21] = -4; holdingBoard[23] = -2;
+
+        var startingBoard = new int[26];
+        startingBoard[24] = 2; startingBoard[13] = 5; startingBoard[8] = 3; startingBoard[6] = 5;
+        startingBoard[1] = -2; startingBoard[12] = -5; startingBoard[17] = -3; startingBoard[19] = -5;
+
+        var set = new FilterConfig
+        {
+            ContactTypes = { ContactType.Contact },
+            PositionTypes = { PositionType.Holding1386Vs20 },
+        }.Build();
+
+        set.Matches(new RowShape(Board: holdingBoard).ToDecisionRow()).Should().BeTrue();
+        set.Matches(new RowShape(Board: startingBoard).ToDecisionRow()).Should().BeFalse();
     }
 
     [Fact]
@@ -153,6 +195,14 @@ public class FilterConfigTests
         var cfg = new FilterConfig { MatchScores = { "garbage" } };
         var act = () => cfg.Build();
         act.Should().Throw<ArgumentException>().WithMessage("*garbage*");
+    }
+
+    [Fact]
+    public void Build_UnknownContactType_Throws()
+    {
+        var cfg = new FilterConfig { ContactTypes = { (ContactType)999 } };
+        var act = () => cfg.Build();
+        act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]
@@ -191,7 +241,8 @@ public class FilterConfigTests
             ErrorMax = 0.50,
             MoveNumberMin = 1,
             MoveNumberMax = 20,
-            PositionTypes = { PositionType.Race, PositionType.InnerBoard631 },
+            ContactTypes = { ContactType.Race },
+            PositionTypes = { PositionType.InnerBoard631 },
             PlayTypes = { PlayType.Make20Pt },
         };
 
@@ -210,12 +261,15 @@ public class FilterConfigTests
         var json = new FilterConfig
         {
             DecisionType = DecisionTypeOption.CheckerPlaysOnly,
+            ContactTypes = { ContactType.Race },
             PositionTypes = { PositionType.InnerBoard631 },
             PlayTypes = { PlayType.Make20Pt },
         }.ToJson();
 
         json.Should().Contain("\"InnerBoard631\"",
             "enum values must serialize as declaration names so the wire format survives enum reordering");
+        json.Should().Contain("\"Race\"",
+            "ContactType values must serialize as declaration names, not ordinals");
         json.Should().Contain("\"CheckerPlaysOnly\"");
         json.Should().Contain("\"Make20Pt\"");
     }
@@ -234,6 +288,7 @@ public class FilterConfigTests
         restored.DecisionType.Should().Be(DecisionTypeOption.Both);
         restored.Players.Should().BeEmpty();
         restored.MatchScores.Should().BeEmpty();
+        restored.ContactTypes.Should().BeEmpty();
         restored.PositionTypes.Should().BeEmpty();
         restored.PlayTypes.Should().BeEmpty();
     }
@@ -266,7 +321,7 @@ public class FilterConfigTests
         {
             Players = { "Alice" },
             DecisionType = DecisionTypeOption.CubeOnly,
-            PositionTypes = { PositionType.Race },
+            ContactTypes = { ContactType.Race },
         };
 
         var ok = FilterConfig.TryFromJson(original.ToJson(), out var restored);

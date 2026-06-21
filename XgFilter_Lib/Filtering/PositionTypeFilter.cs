@@ -6,9 +6,11 @@ namespace XgFilter_Lib.Filtering;
 
 /// <summary>
 /// Passes rows where the board matches any of the selected position types.
-/// A position may match multiple types (e.g. Contact AND InnerBoard631).
-/// Unknown <see cref="PositionType"/> values are rejected at construction
-/// rather than on first dispatch.
+/// A position may match multiple types (e.g. InnerBoard631 AND VsTwoPlusUp).
+/// Contact vs race is a separate axis — see <see cref="ContactTypeFilter"/> —
+/// and composes with this filter via AND across the set. Unknown
+/// <see cref="PositionType"/> values are rejected at construction rather than
+/// on first dispatch.
 /// </summary>
 public sealed class PositionTypeFilter : IDecisionFilter
 {
@@ -22,8 +24,6 @@ public sealed class PositionTypeFilter : IDecisionFilter
     private static readonly IReadOnlyDictionary<PositionType, IPositionClassifier> _classifiers =
         new Dictionary<PositionType, IPositionClassifier>
         {
-            [PositionType.Race]            = new RaceClassifier(),
-            [PositionType.Contact]         = new ContactClassifier(),
             [PositionType.InnerBoard631]   = new InnerBoard631Classifier(),
             [PositionType.InnerBoard54321] = new InnerBoard54321Classifier(),
             [PositionType.VsTwoPlusUp]     = new VsTwoPlusUpClassifier(),

@@ -69,7 +69,7 @@ public class FilteredDecisionIteratorTests
     public void IterateXgDirectory_FilterByRace_ListsDecisions()
     {
         var iterator = NewIterator(
-            new DecisionFilterSet().Add(new PositionTypeFilter([PositionType.Race])));
+            new DecisionFilterSet().Add(new ContactTypeFilter([ContactType.Race])));
 
         var rows = iterator.IterateXgDirectory(XgDir).ToList();
 
@@ -80,7 +80,7 @@ public class FilteredDecisionIteratorTests
     public void IterateXgDirectory_FilterByContact_ListsDecisions()
     {
         var iterator = NewIterator(
-            new DecisionFilterSet().Add(new PositionTypeFilter([PositionType.Contact])));
+            new DecisionFilterSet().Add(new ContactTypeFilter([ContactType.Contact])));
 
         var rows = iterator.IterateXgDirectory(XgDir).ToList();
 
@@ -92,9 +92,9 @@ public class FilteredDecisionIteratorTests
     {
         var allIterator = NewIterator(new DecisionFilterSet());
         var raceIterator = NewIterator(
-            new DecisionFilterSet().Add(new PositionTypeFilter([PositionType.Race])));
+            new DecisionFilterSet().Add(new ContactTypeFilter([ContactType.Race])));
         var contactIterator = NewIterator(
-            new DecisionFilterSet().Add(new PositionTypeFilter([PositionType.Contact])));
+            new DecisionFilterSet().Add(new ContactTypeFilter([ContactType.Contact])));
 
         var all = allIterator.IterateXgDirectory(XgDir).ToList();
         var race = raceIterator.IterateXgDirectory(XgDir).ToList();
