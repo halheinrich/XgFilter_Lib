@@ -74,8 +74,8 @@ public sealed class FilterConfig
 
     /// <summary>
     /// A general per-point checker-range constraint on the on-roll board.
-    /// Null or empty = no pattern filter. Serializes through the canonical
-    /// options as its bracket-list string (see
+    /// Null or empty = no pattern filter. Serializes as its bracket-list string
+    /// via the converter <see cref="BoardPattern"/> declares on itself (see
     /// <see cref="BoardPatternJsonConverter"/>). Composes via AND with every
     /// other active filter, including <see cref="PositionTypes"/>.
     /// </summary>
@@ -141,17 +141,20 @@ public sealed class FilterConfig
     /// declaration names rather than ordinals — none of those enum types carries a type-level
     /// <c>[JsonConverter]</c>, so without this they would round-trip as ints and
     /// silently rebind to the wrong member if the enum were ever reordered.
-    /// Also registers <see cref="BoardPatternJsonConverter"/> so
-    /// <see cref="PositionPattern"/> round-trips as its bracket-list string
-    /// through the validating <see cref="BoardPattern.Parse"/> path rather than
-    /// default member-by-member deserialization, which an immutable
-    /// validated type cannot support.
+    /// <para>
+    /// <see cref="PositionPattern"/> needs no converter registered here:
+    /// <see cref="BoardPattern"/> carries its own
+    /// <see cref="BoardPatternJsonConverter"/> via a type-level
+    /// <see cref="JsonConverterAttribute"/>, so it round-trips as its
+    /// bracket-list string under these options — and under any other
+    /// <see cref="JsonSerializerOptions"/> a consumer might use across a wire.
+    /// </para>
     /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
     /// is expensive to build and thread-safe once first used.
     /// </summary>
     private static readonly JsonSerializerOptions CanonicalOptions = new()
     {
-        Converters = { new JsonStringEnumConverter(), new BoardPatternJsonConverter() },
+        Converters = { new JsonStringEnumConverter() },
     };
 
     /// <summary>

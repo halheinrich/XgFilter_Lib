@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace XgFilter_Lib.Patterns;
 
@@ -35,7 +36,18 @@ namespace XgFilter_Lib.Patterns;
 /// structurally (e.g. FluentAssertions <c>BeEquivalentTo</c>) or via
 /// <see cref="ToBracketList"/>.
 /// </para>
+///
+/// <para>
+/// Serialization: the type carries its own <see cref="BoardPatternJsonConverter"/>
+/// via <see cref="JsonConverterAttribute"/>, so it round-trips as its bracket-list
+/// string under <em>any</em> <see cref="System.Text.Json.JsonSerializerOptions"/> —
+/// the default reflection serializer cannot reconstruct this immutable type (its
+/// constructor parameter has no matching settable property), so the converter is
+/// the single source of truth for the wire form rather than something each
+/// consumer must remember to register.
+/// </para>
 /// </summary>
+[JsonConverter(typeof(BoardPatternJsonConverter))]
 public sealed class BoardPattern
 {
     private readonly PointRange[] _ranges;
