@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using XgFilter_Lib.Enums;
+using XgFilter_Lib.Patterns;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -17,6 +18,8 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="MatchScores"/>, <see cref="ContactTypes"/>,
 /// <see cref="PositionTypes"/>, or <see cref="PlayTypes"/> means "no
 /// filter of this kind is active" — not "reject everything."
+/// A null or empty <see cref="PositionPattern"/> means the same for the
+/// per-point pattern filter.
 /// <see cref="Build"/> simply skips adding the filter to the set in that
 /// case. <see cref="DecisionType"/>
 /// defaults to <see cref="DecisionTypeOption.Both"/>, which is a
@@ -70,6 +73,15 @@ public sealed class FilterConfig
     public IList<PlayType> PlayTypes { get; set; } = new List<PlayType>();
 
     /// <summary>
+    /// A general per-point checker-range constraint on the on-roll board.
+    /// Null or empty = no pattern filter. Serializes through the canonical
+    /// options as its bracket-list string (see
+    /// <see cref="BoardPatternJsonConverter"/>). Composes via AND with every
+    /// other active filter, including <see cref="PositionTypes"/>.
+    /// </summary>
+    public BoardPattern? PositionPattern { get; set; }
+
+    /// <summary>
     /// Materializes this configuration as a <see cref="DecisionFilterSet"/>.
     /// Each filter is added only when its corresponding configuration is
     /// non-empty / non-default; see the type-level remarks for the
@@ -111,6 +123,9 @@ public sealed class FilterConfig
         if (PlayTypes.Count > 0)
             set.Add(new PlayTypeFilter(PlayTypes));
 
+        if (PositionPattern is { IsEmpty: false })
+            set.Add(new PositionPatternFilter(PositionPattern));
+
         return set;
     }
 
@@ -126,12 +141,17 @@ public sealed class FilterConfig
     /// declaration names rather than ordinals — none of those enum types carries a type-level
     /// <c>[JsonConverter]</c>, so without this they would round-trip as ints and
     /// silently rebind to the wrong member if the enum were ever reordered.
+    /// Also registers <see cref="BoardPatternJsonConverter"/> so
+    /// <see cref="PositionPattern"/> round-trips as its bracket-list string
+    /// through the validating <see cref="BoardPattern.Parse"/> path rather than
+    /// default member-by-member deserialization, which an immutable
+    /// validated type cannot support.
     /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
     /// is expensive to build and thread-safe once first used.
     /// </summary>
     private static readonly JsonSerializerOptions CanonicalOptions = new()
     {
-        Converters = { new JsonStringEnumConverter() },
+        Converters = { new JsonStringEnumConverter(), new BoardPatternJsonConverter() },
     };
 
     /// <summary>

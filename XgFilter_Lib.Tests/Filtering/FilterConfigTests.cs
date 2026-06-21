@@ -1,5 +1,7 @@
+using System.Text.Json;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
+using XgFilter_Lib.Patterns;
 using XgFilter_Lib.Tests.Helpers;
 
 namespace XgFilter_Lib.Tests.Filtering;
@@ -185,6 +187,38 @@ public class FilterConfigTests
             .Should().BeTrue();
     }
 
+    [Fact]
+    public void Build_PositionPatternSet_AddsPositionPatternFilter()
+    {
+        // [0,,-2]: opponent two-or-more on the bar.
+        var vsTwoPlusUp = new int[26];
+        vsTwoPlusUp[0] = -2;
+
+        var set = new FilterConfig
+        {
+            PositionPattern = BoardPattern.Parse("[0,,-2]"),
+        }.Build();
+
+        set.Matches(new RowShape(Board: vsTwoPlusUp).ToDecisionRow()).Should().BeTrue();
+        set.Matches(new RowShape(Board: new int[26]).ToDecisionRow()).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Build_PositionPatternNull_SkipsPositionPatternFilter()
+    {
+        var set = new FilterConfig().Build();
+        set.Matches(new RowShape(Board: new int[26]).ToDecisionRow()).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Build_PositionPatternEmpty_SkipsPositionPatternFilter()
+    {
+        // An empty pattern matches every board, so adding the filter would be a
+        // no-op AND step on every row; Build skips it like the empty lists.
+        var set = new FilterConfig { PositionPattern = BoardPattern.Empty }.Build();
+        set.Matches(new RowShape(Board: new int[26]).ToDecisionRow()).Should().BeTrue();
+    }
+
     // -----------------------------------------------------------------------
     //  Throw propagation — invalid input fails fast at Build, not silently
     // -----------------------------------------------------------------------
@@ -244,11 +278,55 @@ public class FilterConfigTests
             ContactTypes = { ContactType.Race },
             PositionTypes = { PositionType.InnerBoard631 },
             PlayTypes = { PlayType.Make20Pt },
+            PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
         };
 
         var restored = FilterConfig.FromJson(original.ToJson());
 
         restored.Should().BeEquivalentTo(original);
+    }
+
+    [Fact]
+    public void ToJson_PositionPattern_SerializesAsBracketListString()
+    {
+        // The pattern rides the wire as its human-readable bracket list, not as
+        // a nested object — the BoardPatternJsonConverter is what pins this.
+        var json = new FilterConfig
+        {
+            PositionPattern = BoardPattern.Parse("[6,,0] [5,2,]"),
+        }.ToJson();
+
+        json.Should().Contain("\"[6,,0] [5,2,]\"");
+    }
+
+    [Fact]
+    public void RoundTrip_PositionPattern_ReparsesToEquivalentRanges()
+    {
+        var original = new FilterConfig
+        {
+            PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
+        };
+
+        var restored = FilterConfig.FromJson(original.ToJson());
+
+        restored.PositionPattern.Should().NotBeNull();
+        restored.PositionPattern!.Ranges.Should().BeEquivalentTo(original.PositionPattern!.Ranges);
+    }
+
+    [Fact]
+    public void FromJson_InvalidPositionPattern_Throws()
+    {
+        // A corrupt bracket list must fail the deserialize, not silently drop to
+        // an empty pattern — the converter routes through BoardPattern.Parse.
+        var act = () => FilterConfig.FromJson("{\"PositionPattern\":\"[99,,0]\"}");
+        act.Should().Throw<JsonException>();
+    }
+
+    [Fact]
+    public void FromJson_NullPositionPattern_RestoresNull()
+    {
+        var restored = FilterConfig.FromJson("{\"PositionPattern\":null}");
+        restored.PositionPattern.Should().BeNull();
     }
 
     [Fact]
