@@ -21,10 +21,12 @@ public class PositionTypeFilterTests
         (24, 2), (13, 5), (8, 3), (6, 5),
         (12, -5), (17, -3), (19, -3));
 
-    // Holding fixture — player holds 13/8/6, opponent anchors on the 20
+    // Holding fixture — 20-point holding game: player holds 13/8/6, opponent
+    // anchors on the 20 (board[5]) and the player's 12; nothing on-roll above
+    // the 13. See Holding1386Vs20Classifier for the full predicate.
     private static readonly int[] _holding1386Vs20Position = BoardBuilder.Build(
-        (24, 2), (13, 5), (8, 3), (6, 4),
-        (20, -2), (19, -3), (17, -5));
+        (13, 5), (8, 3), (6, 4), (4, 2), (1, 1),          // on-roll player (15)
+        (5, -2), (12, -3), (19, -4), (21, -4), (23, -2)); // opponent (-15)
 
     // -----------------------------------------------------------------------
     //  Race filter
