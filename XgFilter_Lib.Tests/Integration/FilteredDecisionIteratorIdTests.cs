@@ -51,7 +51,8 @@ public class FilteredDecisionIteratorIdTests
         var tempDir = StageFixturesByExtension("*.xg");
         try
         {
-            var producerIds = RawIterate(tempDir, XgDecisionIterator.Iterate)
+            var producerIds = RawIterate(tempDir,
+                    (file, sf, state, callbacks) => XgDecisionIterator.Iterate(file, sf, state, callbacks))
                 .Select(r => r.Id).ToList();
 
             var consumerIds = NewIterator(new DecisionFilterSet())
@@ -73,7 +74,8 @@ public class FilteredDecisionIteratorIdTests
         var tempDir = StageFixturesByExtension("*.xg");
         try
         {
-            var producerIds = RawIterate(tempDir, XgDecisionIterator.IterateDiagramRequests)
+            var producerIds = RawIterate(tempDir,
+                    (file, sf, state, callbacks) => XgDecisionIterator.IterateDiagramRequests(file, sf, state, callbacks))
                 .Select(d => d.Id).ToList();
 
             var consumerIds = NewIterator(new DecisionFilterSet())
@@ -93,7 +95,8 @@ public class FilteredDecisionIteratorIdTests
         var tempDir = StageFixturesByExtension("*.xgp");
         try
         {
-            var producerIds = RawIterate(tempDir, XgDecisionIterator.Iterate)
+            var producerIds = RawIterate(tempDir,
+                    (file, sf, state, callbacks) => XgDecisionIterator.Iterate(file, sf, state, callbacks))
                 .Select(r => r.Id).ToList();
 
             var consumerIds = NewIterator(new DecisionFilterSet())
@@ -114,7 +117,8 @@ public class FilteredDecisionIteratorIdTests
         var tempDir = StageFixturesByExtension("*.xgp");
         try
         {
-            var producerIds = RawIterate(tempDir, XgDecisionIterator.IterateDiagramRequests)
+            var producerIds = RawIterate(tempDir,
+                    (file, sf, state, callbacks) => XgDecisionIterator.IterateDiagramRequests(file, sf, state, callbacks))
                 .Select(d => d.Id).ToList();
 
             var consumerIds = NewIterator(new DecisionFilterSet())
@@ -143,7 +147,8 @@ public class FilteredDecisionIteratorIdTests
         // Non-vacuousness is asserted explicitly on the raw corpus so a
         // future fixture rotation that eliminates cube rows surfaces loudly
         // rather than turning this test into a tautology.
-        var producerAll = RawIterate(FixtureDir, XgDecisionIterator.Iterate).ToList();
+        var producerAll = RawIterate(FixtureDir,
+            (file, sf, state, callbacks) => XgDecisionIterator.Iterate(file, sf, state, callbacks)).ToList();
         var producerKept = producerAll.Where(r => !r.IsCube).ToList();
         var producerDropped = producerAll.Where(r => r.IsCube).ToList();
 
@@ -167,7 +172,8 @@ public class FilteredDecisionIteratorIdTests
         // Mirror of the DecisionRow drop test on the diagram-shape delegate
         // slot. Pinning each public slot independently — even though they
         // share an internal helper today, the public contract is per-slot.
-        var producerAll = RawIterate(FixtureDir, XgDecisionIterator.IterateDiagramRequests).ToList();
+        var producerAll = RawIterate(FixtureDir,
+            (file, sf, state, callbacks) => XgDecisionIterator.IterateDiagramRequests(file, sf, state, callbacks)).ToList();
         var producerKept = producerAll.Where(d => !d.Decision.IsCube).ToList();
         var producerDropped = producerAll.Where(d => d.Decision.IsCube).ToList();
 

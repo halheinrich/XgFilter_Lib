@@ -24,6 +24,12 @@ namespace XgFilter_Lib;
 /// warning logged via the injected <see cref="ILogger"/>; iteration
 /// continues with the next file rather than aborting the whole run.
 /// </para>
+///
+/// <para>
+/// The same logger is forwarded into the producer, so per-decision warnings
+/// it raises — notably an illegal-play skip — surface through this pipeline
+/// alongside the file-level skip warnings above.
+/// </para>
 /// </summary>
 public sealed class FilteredDecisionIterator
 {
@@ -55,7 +61,8 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir) =>
         IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
-            XgDecisionIterator.Iterate);
+            (file, sourceFile, state, callbacks) =>
+                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, _logger));
 
     /// <summary>
     /// Iterates all .json files in <paramref name="jsonDir"/> and returns
@@ -64,7 +71,9 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     public IEnumerable<DecisionRow> IterateJsonDirectory(string jsonDir) =>
         IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"),
-            XgFileReader.ReadJson, XgDecisionIterator.Iterate);
+            XgFileReader.ReadJson,
+            (file, sourceFile, state, callbacks) =>
+                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, _logger));
 
     /// <summary>
     /// Iterates every XG-format file in <paramref name="xgDir"/> — both
@@ -76,7 +85,8 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir) =>
         IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
-            XgDecisionIterator.IterateDiagramRequests);
+            (file, sourceFile, state, callbacks) =>
+                XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, _logger));
 
     /// <summary>
     /// Iterates all .json files in <paramref name="jsonDir"/> and returns
@@ -86,7 +96,9 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     public IEnumerable<BgDecisionData> IterateJsonDirectoryDiagrams(string jsonDir) =>
         IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"),
-            XgFileReader.ReadJson, XgDecisionIterator.IterateDiagramRequests);
+            XgFileReader.ReadJson,
+            (file, sourceFile, state, callbacks) =>
+                XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, _logger));
 
     /// <summary>
     /// Iterates a caller-supplied list of XG-format files presented as named
@@ -110,7 +122,9 @@ public sealed class FilteredDecisionIterator
     public IEnumerable<DecisionRow> IterateXgStreams(IEnumerable<XgFileStream> files)
     {
         ArgumentNullException.ThrowIfNull(files);
-        return IterateSources(ToSources(files), XgDecisionIterator.Iterate);
+        return IterateSources(ToSources(files),
+            (file, sourceFile, state, callbacks) =>
+                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, _logger));
     }
 
     /// <summary>
@@ -123,7 +137,9 @@ public sealed class FilteredDecisionIterator
     public IEnumerable<BgDecisionData> IterateXgStreamDiagrams(IEnumerable<XgFileStream> files)
     {
         ArgumentNullException.ThrowIfNull(files);
-        return IterateSources(ToSources(files), XgDecisionIterator.IterateDiagramRequests);
+        return IterateSources(ToSources(files),
+            (file, sourceFile, state, callbacks) =>
+                XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, _logger));
     }
 
     /// <summary>

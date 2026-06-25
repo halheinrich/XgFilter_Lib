@@ -1,5 +1,6 @@
 using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
+using ConvertXgToJson_Lib.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Enums;
@@ -425,12 +426,18 @@ public class FilteredDecisionIteratorTests
         var rows = iterator.IterateXgStreams(streams).ToList();
 
         rows.Should().NotBeEmpty("the valid fixtures must still yield rows");
-        spyLogger.Entries.Should().ContainSingle(
-            "the one malformed stream should produce one warning")
-            .Which.Level.Should().Be(LogLevel.Warning);
-        spyLogger.Entries[0].Message.Should().Contain("malformed.xg");
-        spyLogger.Entries[0].Exception.Should().NotBeNull(
-            "the warning must carry the original exception, not a stringified message");
+
+        // The forwarded producer logger may also emit illegal-play warnings from
+        // the valid fixtures; the malformed-stream skip is the lone warning that
+        // names "malformed.xg" — that stream fails to parse and never reaches the
+        // producer, so only the iterator's own skip can mention it.
+        var skip = spyLogger.Entries.Should().ContainSingle(
+            e => e.Message.Contains("malformed.xg"),
+            "the one malformed stream should produce exactly one skip warning naming it")
+            .Which;
+        skip.Level.Should().Be(LogLevel.Warning);
+        skip.Exception.Should().NotBeNull(
+            "the skip warning must carry the original exception, not a stringified message");
     }
 
     // -----------------------------------------------------------------------
@@ -482,12 +489,59 @@ public class FilteredDecisionIteratorTests
             var rows = iterator.IterateXgDirectory(tempDir).ToList();
 
             rows.Should().NotBeEmpty("the surviving fixtures should still yield rows");
-            spyLogger.Entries.Should().ContainSingle(
-                "the one malformed file should produce one warning")
-                .Which.Level.Should().Be(LogLevel.Warning);
-            spyLogger.Entries[0].Message.Should().Contain("malformed.xg");
-            spyLogger.Entries[0].Exception.Should().NotBeNull(
-                "the warning must carry the original exception, not a stringified message");
+
+            // The forwarded producer logger may also emit illegal-play warnings
+            // from the surviving fixtures; the malformed-file skip is the lone
+            // warning that names "malformed.xg" — that file fails to parse and
+            // never reaches the producer, so only the iterator's own skip can
+            // mention it.
+            var skip = spyLogger.Entries.Should().ContainSingle(
+                e => e.Message.Contains("malformed.xg"),
+                "the one malformed file should produce exactly one skip warning naming it")
+                .Which;
+            skip.Level.Should().Be(LogLevel.Warning);
+            skip.Exception.Should().NotBeNull(
+                "the skip warning must carry the original exception, not a stringified message");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    //  Logger forwarding — producer-level warnings surface through the pipeline
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void IterateJsonDirectory_IllegalPlay_ProducerWarningSurfacesThroughSuppliedLogger()
+    {
+        // The iterator threads its ctor logger into XgDecisionIterator, so a
+        // producer-level event — here XG's illegal-play marker — must reach the
+        // caller's logger. This is distinct from the iterator's own "Skipping"
+        // catch: the "Illegal play" warning originates *inside* the producer and
+        // only lands if _logger was forwarded. The message's file/game/move/roll
+        // content is pinned by the producer's own tests; here we assert only that
+        // the forwarding happens.
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            // Materialise a synthetic illegal-play file via the library's own
+            // JSON round-trip ($type-discriminated SaveRecordConverter) so it
+            // flows through the real file-read path rather than bypassing it.
+            var json = XgFileReader.ToJson(BuildFileWithIllegalPlay());
+            File.WriteAllText(Path.Combine(tempDir, "illegal.json"), json);
+
+            var spyLogger = new ListLogger<FilteredDecisionIterator>();
+            var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), spyLogger);
+
+            _ = iterator.IterateJsonDirectory(tempDir).ToList();
+
+            spyLogger.Entries.Should().Contain(
+                e => e.Level == LogLevel.Warning && e.Message.Contains("Illegal play"),
+                "the producer's illegal-play warning must surface through the iterator's supplied logger");
         }
         finally
         {
@@ -552,6 +606,68 @@ public class FilteredDecisionIteratorTests
         rows.Should().NotBeEmpty();
         rows.Select(r => (r.SourceFile, r.Game)).Should().OnlyHaveUniqueItems(
             "StopGameAfter=true after a yield must cut the rest of the game");
+    }
+
+    // -----------------------------------------------------------------------
+    //  Illegal-play fixture — one game, the illegal marker between two legal
+    //  moves. Mirrors ConvertXgToJson_Lib's producer fixture; the file is
+    //  round-tripped through JSON so it reaches the iterator via a real read.
+    // -----------------------------------------------------------------------
+
+    private static XgFile BuildFileWithIllegalPlay() =>
+        new XgFile
+        {
+            Records =
+            {
+                new MatchHeaderRecord { EntryType = RecordType.HeaderMatch, MatchLength = 7, Player1 = "P1", Player2 = "P2" },
+                new GameHeaderRecord
+                {
+                    EntryType = RecordType.HeaderGame,
+                    InitialPosition = new PositionEngine { Points = StandardOpening() },
+                },
+                MakeMove([23, 22, -1, -1, -1, -1, -1, -1], dice: [3, 1]),
+                MakeMove([-100, 10, 10, 7, 6, 7, 6, 7],    dice: [5, 2]),  // illegal-play marker
+                MakeMove([23, 22, -1, -1, -1, -1, -1, -1], dice: [3, 1]),
+            },
+        };
+
+    private static MoveRecord MakeMove(sbyte[] moves, int[] dice)
+    {
+        var pos = new PositionEngine { Points = OneCheckerOn24() };
+        return new MoveRecord
+        {
+            EntryType = RecordType.Move,
+            InitialPosition = pos,
+            FinalPosition = pos,            // unused on the skip path
+            ActivePlayer = 1,
+            Dice = dice,
+            CubeValue = 0,
+            MoveError = -1000.0,            // unanalysed-error sentinel
+            Analysis = new BestMoveAnalysis
+            {
+                MoveCount = 1,
+                Evals = [new EvalResult { Equity = 0.0f }],
+                Moves = [moves],
+                EvalLevels = [new EvalLevel { Level = 1 }],
+                PositionsPlayed = [pos],
+            },
+            RolloutIndices = new int[32].Select(_ => -1).ToArray(),
+        };
+    }
+
+    private static sbyte[] OneCheckerOn24()
+    {
+        var pts = new sbyte[26];
+        pts[24] = 1;
+        return pts;
+    }
+
+    private static sbyte[] StandardOpening()
+    {
+        var pts = new sbyte[26];
+        pts[6]  = -5; pts[8]  = -3; pts[13] =  5; pts[24] = -2;
+        pts[19] =  5; pts[17] =  3; pts[12] = -5; pts[1]  =  2;
+        return pts;
     }
 
     // -----------------------------------------------------------------------
