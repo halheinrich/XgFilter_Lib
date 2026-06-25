@@ -549,6 +549,30 @@ public class FilteredDecisionIteratorTests
         }
     }
 
+    [Fact]
+    public void IterateXgDirectory_RealFixtureWithIllegalPlay_ProducerWarningSurfacesThroughSuppliedLogger()
+    {
+        // Companion to the synthetic test above, on the primary production
+        // path: the real binary .xg read rather than the JSON detour. The
+        // FixtureFiles corpus includes a tournament file that carries XG's
+        // illegal-play marker, so walking it must surface the producer's
+        // "Illegal play" warning through the iterator's supplied logger.
+        const string knownCarrier =
+            "Avi Cohen (6.86) - Max Stockslager (10.55) 2023-02-09_18122.xg";
+
+        var spyLogger = new ListLogger<FilteredDecisionIterator>();
+        var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), spyLogger);
+
+        _ = iterator.IterateXgDirectory(FixtureDir).ToList();
+
+        spyLogger.Entries.Should().Contain(
+            e => e.Level == LogLevel.Warning
+                 && e.Message.Contains("Illegal play")
+                 && e.Message.Contains(knownCarrier),
+            $"the real fixture '{knownCarrier}' carries an illegal play whose warning must " +
+            "surface through the supplied logger on the binary .xg read path");
+    }
+
     // -----------------------------------------------------------------------
     //  Early-exit pipeline — iterator honors filter-set votes
     // -----------------------------------------------------------------------
