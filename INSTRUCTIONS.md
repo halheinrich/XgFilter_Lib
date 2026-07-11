@@ -30,12 +30,15 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
 ## Directory tree
 
 ```
+Directory.Packages.props
 XgFilter_Lib.slnx
 XgFilter_Lib/
   XgFilter_Lib.csproj
   FilteredDecisionIterator.cs
+  XgFileStream.cs
   Enums/
     Column.cs
+    ContactType.cs
     DecisionTypeOption.cs
     EnumLabel.cs
     PlayType.cs
@@ -50,7 +53,9 @@ XgFilter_Lib/
     MatchScoreFilter.cs
     ErrorRangeFilter.cs
     MoveNumberFilter.cs
+    ContactTypeFilter.cs
     PositionTypeFilter.cs
+    PositionPatternFilter.cs
     PlayTypeFilter.cs
   Classification/
     IPositionClassifier.cs
@@ -60,7 +65,12 @@ XgFilter_Lib/
     InnerBoard631Classifier.cs
     InnerBoard54321Classifier.cs
     VsTwoPlusUpClassifier.cs
+    Holding1386Vs20Classifier.cs
     Make20PtClassifier.cs
+  Patterns/
+    BoardPattern.cs
+    BoardPatternJsonConverter.cs
+    PointRange.cs
   Projection/
     ColumnSelector.cs
 XgFilter_Lib.Tests/
@@ -82,6 +92,7 @@ XgFilter_Lib.Tests/
     InnerBoard631ClassifierTests.cs
     InnerBoard54321ClassifierTests.cs
     VsTwoPlusUpClassifierTests.cs
+    Holding1386Vs20ClassifierTests.cs
     Make20PtClassifierTests.cs
   Filtering/
     PlayerFilterTests.cs
@@ -89,15 +100,28 @@ XgFilter_Lib.Tests/
     ErrorRangeFilterTests.cs
     MatchScoreFilterTests.cs
     MoveNumberFilterTests.cs
+    ContactTypeFilterTests.cs
     PositionTypeFilterTests.cs
+    PositionPatternFilterTests.cs
     PlayTypeFilterTests.cs
     DecisionFilterSetTests.cs
     FilterConfigTests.cs
+  Patterns/
+    BoardPatternTests.cs
+    BoardPatternOracleTests.cs
+    BoardPatternWireSafetyTests.cs
+    PointRangeTests.cs
   Projection/
     ColumnSelectorTests.cs
   Integration/
     FilteredDecisionIteratorTests.cs
+    FilteredDecisionIteratorIdTests.cs
+    BoardPatternCorpusOracleTests.cs
 ```
+
+`Directory.Packages.props` at the repo root opts the solution into Central
+Package Management: package versions are pinned there and the two csprojs carry
+versionless `<PackageReference>`s.
 
 ## Architecture
 
@@ -110,12 +134,20 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 
 ### Enums
 
-* `PositionType` — board-derived classifications a position can carry.
-  Members: Contact, Race, InnerBoard631, InnerBoard54321, VsTwoPlusUp.
-  Categories are **not** mutually exclusive: a single position may
-  satisfy several (e.g. Contact + InnerBoard631, or Contact +
-  VsTwoPlusUp). The unifying property is that each is determinable
-  from the on-roll-relative board array alone — no XGID parsing.
+* `PositionType` — structural board patterns a position can carry.
+  Members: InnerBoard631, InnerBoard54321, VsTwoPlusUp,
+  Holding1386Vs20. **Not** mutually exclusive: a single position may
+  satisfy several at once (e.g. InnerBoard631 + VsTwoPlusUp). Each is
+  determinable from the on-roll-relative board array alone — no XGID
+  parsing.
+* `ContactType` — Contact, Race. Whether a position still carries
+  contact or has raced. These two **partition** every position: it is
+  exactly one, never both and never neither. Contact-vs-race is an axis
+  **orthogonal** to `PositionType`, so the two facets compose via AND
+  (e.g. Contact ∧ InnerBoard631) rather than collapsing into
+  OR-within-a-single-facet. Also board-derived — no XGID parsing.
+  Contact/Race were extracted out of `PositionType` into this dedicated
+  enum precisely to make that orthogonality explicit at the type level.
 * `PlayType` — Make20Pt. The enum has one member per
   `IPlayTypeClassifier` implementation, and grows as new
   play-shape classifiers land alongside their matching values.
@@ -152,14 +184,22 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   bundles every filter's input. Owned by this lib; consumers fill it
   directly (no string-list parsing on the consumer side) and call
   `Build()` to materialize a `DecisionFilterSet`. Empty-list semantics:
-  an empty `Players` / `MatchScores` / `PositionTypes` / `PlayTypes`
-  means "no filter of this kind is active," not "reject everything";
-  `Build()` skips the corresponding `Add()` in that case. Likewise
+  an empty `Players` / `MatchScores` / `ContactTypes` / `PositionTypes` /
+  `PlayTypes`, and a null-or-empty `PositionPattern`, each mean "no
+  filter of this kind is active," not "reject everything"; `Build()`
+  skips the corresponding `Add()` in that case. Likewise
   `DecisionType = Both` is a no-op and is skipped. Range filters
   (`ErrorRange`, `MoveNumber`) are added if either bound is set.
-  JSON-round-trippable with `JsonStringEnumConverter` for enum
-  properties; the wire format is `["InnerBoard631", ...]`-style
-  string-array per enum list.
+  Canonical JSON is single-sourced on the type via `ToJson()` /
+  `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over a
+  cached `JsonSerializerOptions` that registers `JsonStringEnumConverter`
+  — so the enum-list members round-trip as `["InnerBoard631", ...]`
+  name-arrays rather than ordinals (none of those enums carries a
+  type-level `[JsonConverter]`). `PositionPattern` needs no converter
+  registered here: `BoardPattern` carries its own (see **Patterns**
+  below), so it serializes as its bracket-list string under these options
+  and under any others. `TryFromJson` restores a fresh default config on
+  a null argument, the literal `null` token, or malformed JSON.
 * `PlayerFilter` — implements both interfaces. `Matches` admits rows where
   the on-roll player is in the include list; `ShouldSkipMatch` drops the
   whole file when neither player is in the list.
@@ -194,13 +234,30 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   Overrides `ShouldAdvanceGame`: once a row past `max` is seen, no
   later row in the same game can match, since move numbers increase
   monotonically per game.
+* `ContactTypeFilter` — include list of `ContactType`. Same
+  read-`data.Board` + private-registry dispatch pattern as
+  `PositionTypeFilter`, over the `Contact` / `Race` classifiers. OR
+  semantics within the list; because Contact and Race partition every
+  position, selecting both is equivalent to no filter and selecting
+  neither (an empty set) admits nothing. Contact-vs-race is a separate
+  axis from the structural `PositionTypeFilter` and composes with it via
+  AND across the set. Unknown enum values are rejected at construction.
 * `PositionTypeFilter` — include list of `PositionType`. Reads
   `data.Board` and delegates to `IPositionClassifier` instances via a
   private static `PositionType` → `IPositionClassifier` dictionary
   registry — single source of truth for the enum→classifier
   correspondence. Never parses the XGID. Unknown enum values are
   rejected at construction, not at first dispatch (`Enum.IsDefined`
-  guard, `ArgumentOutOfRangeException`).
+  guard, `ArgumentOutOfRangeException`). Orthogonal to `ContactTypeFilter`;
+  the two compose via AND across the set.
+* `PositionPatternFilter` — the general, data-driven counterpart to the
+  named `PositionTypeFilter`. Holds a single immutable `BoardPattern`
+  (see **Patterns**) and passes rows whose `data.Board` satisfies every
+  per-point constraint in it. Where `PositionTypeFilter` dispatches to
+  hand-written classifiers, this evaluates an arbitrary sparse
+  `[index,min,max]` constraint set, so a caller can express a structural
+  shape without a dedicated `PositionType`. An empty pattern matches
+  every board.
 * `PlayTypeFilter` — include list of `PlayType`. Reads `data.Board`,
   `data.AfterBestBoard`, and `data.AfterPlayerBoard` and dispatches
   each selected type to its matching `IPlayTypeClassifier` via the
@@ -218,8 +275,8 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 ### Classification
 
 Everything in `Classification/` is `internal`. Consumers never touch a
-classifier directly — they pass `PlayType` / `PositionType` enum values
-to the filters, which dispatch internally. These types are documented
+classifier directly — they pass `ContactType` / `PositionType` /
+`PlayType` enum values to the filters, which dispatch internally. These types are documented
 here because they're substantive internal machinery, not because they're
 on the public surface; they do not appear in the Public API block.
 `InternalsVisibleTo("XgFilter_Lib.Tests")` makes them reachable from
@@ -228,15 +285,28 @@ the test project.
 * `IPositionClassifier` — `bool Matches(IReadOnlyList<int> board)`. Board
   is the 26-element on-roll-relative layout from `ConvertXgToJson_Lib`.
 * `RaceClassifier` — true when no contact exists between the two checker
-  blocks.
-* `ContactClassifier` — `!RaceClassifier`. These two partition positions,
-  but that's a local property of the Race/Contact pair, not a framework
-  contract — see the multi-membership pitfall below.
+  blocks. Backs `ContactType.Race`.
+* `ContactClassifier` — `!RaceClassifier`; backs `ContactType.Contact`.
+  These two partition positions — the invariant the `ContactType` enum
+  makes explicit — and `ContactTypeFilter` relies on it. Note this is a
+  property of the Race/Contact pair specifically, *not* a framework-wide
+  contract on `IPositionClassifier`; the `PositionType` classifiers below
+  overlap freely (see the multi-membership pitfall).
 * `InnerBoard631Classifier`, `InnerBoard54321Classifier` — inner-board
   shape classifiers.
 * `VsTwoPlusUpClassifier` — true when the opponent has ≥ 2 checkers on
   the bar (`board[0] <= -2`). No race guard needed; any checker on the
   bar implies contact.
+* `Holding1386Vs20Classifier` — true when the on-roll player holds the
+  13-, 8-, and 6-points (each `>= 2`) while the opponent anchors on the
+  20 (the player's 5-point under the on-roll POV, `board[5] <= -2`) and
+  the player's structure is otherwise on or below the midpoint. The full
+  predicate — made points, opponent's 12-anchor, the empty 7/9/10/11
+  points, and the no-checkers-above-13 / no-opponent-in-home ranges — is
+  on the classifier's XML doc; it is ordered by selectivity (rarest
+  signal first) so a non-holding board is rejected in one comparison.
+  No race guard needed; the opponent anchor implies contact. Backs
+  `PositionType.Holding1386Vs20`.
 * `IPlayTypeClassifier` —
   `bool Matches(IReadOnlyList<int> priorBoard,
   IReadOnlyList<int> afterBestBoard,
@@ -253,6 +323,61 @@ the test project.
   under the flipped after-POV the decision-maker's 20-point is index 5
   and their checkers are negative, so "makes" is `afterBoard[5] <= -2`:
   `afterBestBoard[5] <= -2` XOR `afterPlayerBoard[5] <= -2`.
+
+### Patterns
+
+The data-driven position-matching machinery behind `PositionPatternFilter`
+and `FilterConfig.PositionPattern`. Where the named `PositionType`
+classifiers are hand-written predicates, a `BoardPattern` is a
+*declarative* predicate a caller (or the FilterPanel UI) can author at
+runtime, including via a compact text form. This is the public,
+reintroduction-ready alternative to the named `PositionType` machinery.
+
+* `PointRange` — a `readonly record struct`: an inclusive signed-count
+  constraint on one board-array index. `Index` is 0–25 (bars included),
+  `Min` / `Max` are inclusive bounds on the on-roll-relative checker
+  count there (negative = opponent's checkers; `null` = that side
+  unbounded). Validated at construction — `Index` in `[0, MaxIndex]`
+  (25), each bound's magnitude ≤ `MaxCheckers` (15), and `Min <= Max` —
+  so it is never invalid once it exists; `ArgumentOutOfRangeException` on
+  index/bound violations, `ArgumentException` on `Min > Max`. `Contains`
+  tests one signed count; `ToString` renders the `[index,min,max]` token
+  (unbounded side → empty field). It is a struct with value-equality by
+  design — the small immutable element, unlike the pattern that wraps it.
+* `BoardPattern` — an immutable, validated bag of `PointRange`
+  constraints over the on-roll-relative board (`[0]` opponent bar,
+  `[1..24]` points, `[25]` on-roll bar; positive = on-roll player). An
+  index named by no range is unconstrained; the empty pattern (`Empty`,
+  `IsEmpty`) matches every board (vacuous truth). The one cross-element
+  invariant the constructor enforces is **no two ranges on the same
+  index** (`ArgumentException`); each element is already self-valid.
+  `Matches(board)` ANDs every constraint.
+  * **Text form** — the bracket list: whitespace-separated
+    `[index,min,max]` tokens, each field comma-separated with an empty
+    field meaning "unbounded", e.g. `"[6,,0] [5,2,] [0,,-1]"`. This is
+    the form the FilterPanel exposes; **parsing lives in this library**,
+    not the UI. `Parse` / `TryParse` read it (throwing vs.
+    return-value-on-failure), `ToBracketList` / `ToString` write it, and
+    the two round-trip. `Parse` surfaces `FormatException` (malformed
+    token), `ArgumentOutOfRangeException` (index/bound), and
+    `ArgumentException` (`Min > Max`, duplicate index); `TryParse`
+    absorbs all of those into `false`.
+  * **Equality** — deliberately **not** value-equality: the backing store
+    is a reference-typed `IReadOnlyList`, so structural equality would be
+    a footgun (the same reason `FilterConfig` declined it). Compare
+    structurally (FluentAssertions `BeEquivalentTo`) or via
+    `ToBracketList`.
+  * **Serialization** — the type carries `[JsonConverter(typeof(
+    BoardPatternJsonConverter))]` on itself, so it round-trips as its
+    bracket-list string under *any* `JsonSerializerOptions`; a consumer
+    need not remember to register the converter. This is why
+    `FilterConfig`'s canonical options list omits it.
+* `BoardPatternJsonConverter` — the `JsonConverter<BoardPattern>` the
+  type declares. Writes the bracket-list string; reads it back through
+  `BoardPattern.Parse`, so deserialization stays on the validated path
+  and a malformed/out-of-range pattern in the JSON fails fast as a
+  `JsonException` rather than materializing an invalid object. A JSON
+  `null` reads as `null`.
 
 ### Projection
 
@@ -325,6 +450,13 @@ exception (type, stack, inner) is captured on the log entry, not
 stringified. Iteration continues with the next file rather than
 aborting the run.
 
+The constructor-injected logger is also **forwarded into the producer**:
+every `XgDecisionIterator.Iterate` / `IterateDiagramRequests` call passes
+`_logger` as its final argument, so per-decision warnings the producer
+raises — notably an illegal-play skip — surface through this same
+pipeline alongside the file-level skip warnings above, rather than being
+swallowed inside the producer.
+
 XG-format file discovery (`*.xg` then `*.xgp`) is delegated to the
 producer's public `XgFileReader.EnumerateXgFormatFiles`, the single
 source of truth for the rule. The former private duplicate here has
@@ -363,7 +495,8 @@ callers that want per-row context (this consumer does not).
 namespace XgFilter_Lib.Enums;
 
 public enum PlayType           { Make20Pt }
-public enum PositionType       { Contact, Race, InnerBoard631, InnerBoard54321, VsTwoPlusUp }
+public enum ContactType        { Contact, Race }
+public enum PositionType       { InnerBoard631, InnerBoard54321, VsTwoPlusUp, Holding1386Vs20 }
 public enum DecisionTypeOption { CheckerPlaysOnly, CubeOnly, Both }
 public enum Column
 {
@@ -405,26 +538,34 @@ public sealed class DecisionFilterSet
 
 public sealed class FilterConfig
 {
-    public IList<string>         Players       { get; set; }
-    public DecisionTypeOption    DecisionType  { get; set; }
-    public IList<string>         MatchScores   { get; set; }
-    public double?               ErrorMin      { get; set; }
-    public double?               ErrorMax      { get; set; }
-    public int?                  MoveNumberMin { get; set; }
-    public int?                  MoveNumberMax { get; set; }
-    public IList<PositionType>   PositionTypes { get; set; }
-    public IList<PlayType>       PlayTypes     { get; set; }
+    public IList<string>         Players         { get; set; }
+    public DecisionTypeOption    DecisionType    { get; set; }
+    public IList<string>         MatchScores     { get; set; }
+    public double?               ErrorMin        { get; set; }
+    public double?               ErrorMax        { get; set; }
+    public int?                  MoveNumberMin   { get; set; }
+    public int?                  MoveNumberMax   { get; set; }
+    public IList<ContactType>    ContactTypes    { get; set; }
+    public IList<PositionType>   PositionTypes   { get; set; }
+    public IList<PlayType>       PlayTypes       { get; set; }
+    public BoardPattern?         PositionPattern { get; set; }
 
     public DecisionFilterSet Build();
+
+    public string ToJson();
+    public static FilterConfig FromJson(string json);
+    public static bool TryFromJson(string? json, out FilterConfig config);
 }
 
-public sealed class PlayerFilter       : IDecisionFilter, IMatchFilter { /* ... */ }
-public sealed class DecisionTypeFilter : IDecisionFilter               { /* ... */ }
-public sealed class MatchScoreFilter   : IDecisionFilter, IMatchFilter { /* ... */ }
-public sealed class ErrorRangeFilter   : IDecisionFilter               { /* ... */ }
-public sealed class MoveNumberFilter   : IDecisionFilter, IMatchFilter { /* ... */ }
-public sealed class PositionTypeFilter : IDecisionFilter               { /* ... */ }
-public sealed class PlayTypeFilter     : IDecisionFilter               { /* ... */ }
+public sealed class PlayerFilter          : IDecisionFilter, IMatchFilter { /* ... */ }
+public sealed class DecisionTypeFilter    : IDecisionFilter               { /* ... */ }
+public sealed class MatchScoreFilter      : IDecisionFilter, IMatchFilter { /* ... */ }
+public sealed class ErrorRangeFilter      : IDecisionFilter               { /* ... */ }
+public sealed class MoveNumberFilter      : IDecisionFilter, IMatchFilter { /* ... */ }
+public sealed class ContactTypeFilter     : IDecisionFilter               { /* ... */ }
+public sealed class PositionTypeFilter    : IDecisionFilter               { /* ... */ }
+public sealed class PositionPatternFilter : IDecisionFilter               { /* ... */ }
+public sealed class PlayTypeFilter        : IDecisionFilter               { /* ... */ }
 ```
 
 ```csharp
@@ -471,6 +612,44 @@ public sealed class ColumnSelector
 }
 ```
 
+```csharp
+namespace XgFilter_Lib.Patterns;
+
+public readonly record struct PointRange
+{
+    public const int MaxCheckers = 15;   // ±15 checkers-per-side ceiling
+    public const int MaxIndex    = 25;   // on-roll player's bar
+
+    public int  Index { get; }
+    public int? Min   { get; }           // inclusive; null = unbounded
+    public int? Max   { get; }           // inclusive; null = unbounded
+
+    public PointRange(int index, int? min, int? max);   // validates on construction
+    public bool   Contains(int value);
+    public override string ToString();   // "[index,min,max]"
+}
+
+[JsonConverter(typeof(BoardPatternJsonConverter))]
+public sealed class BoardPattern
+{
+    public static BoardPattern Empty { get; }
+
+    public BoardPattern(IEnumerable<PointRange> ranges);   // rejects duplicate indices
+
+    public IReadOnlyList<PointRange> Ranges { get; }
+    public bool IsEmpty { get; }
+    public bool Matches(IReadOnlyList<int> board);
+
+    public static BoardPattern Parse(string text);
+    public static bool TryParse(string? text, out BoardPattern? pattern);
+    public string ToBracketList();
+    public override string ToString();   // == ToBracketList()
+    // Note: reference equality by design — compare structurally or via ToBracketList().
+}
+
+public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern> { /* ... */ }
+```
+
 ## Pitfalls
 
 * **`PositionTypeFilter` reads `data.Board`, never the XGID.** The board
@@ -490,12 +669,31 @@ public sealed class ColumnSelector
   `false`.** A filter that *can* early-exit mid-game must override them.
   Missing an override is silent — rows just stop being skipped.
 * **`PositionType` is multi-membership by design.** A position can satisfy
-  several categories at once (e.g. Contact + InnerBoard631).
-  `PositionTypeFilter` takes the union: a row passes when *any* selected
-  type matches. Race and Contact happen to be mutually exclusive and
-  exhaustive, but that's a property of those two classifiers, not a
-  contract at the filter level — future categories introduced alongside
-  Contact will overlap with it and do not need a carve-out.
+  several structural categories at once (e.g. InnerBoard631 +
+  VsTwoPlusUp). `PositionTypeFilter` takes the union: a row passes when
+  *any* selected type matches. Contact-vs-race is a *separate* axis,
+  extracted into the `ContactType` enum, where the two members **are**
+  mutually exclusive and exhaustive — but that partition is a property of
+  that enum, not a filter-level contract on `PositionType`. Composing a
+  contact requirement with a structural one is AND across the set (a
+  `ContactTypeFilter` alongside a `PositionTypeFilter`), never OR within
+  one filter.
+* **`BoardPattern` has no value-equality.** Its backing store is a
+  reference-typed list, so `==` / `Equals` are reference comparisons — two
+  structurally identical patterns compare unequal. Compare via
+  `ToBracketList()` or a structural assertion (FluentAssertions
+  `BeEquivalentTo`), never `==`. This is deliberate; giving it a
+  synthesized structural equality over a mutable-shaped member is the
+  footgun `FilterConfig` also declined.
+* **`BoardPattern`'s JSON converter must stay declared on the type.** The
+  `[JsonConverter(typeof(BoardPatternJsonConverter))]` attribute on
+  `BoardPattern` is what makes it round-trip under *any*
+  `JsonSerializerOptions` — the immutable type has no settable property
+  for its constructor parameter, so the default reflection serializer
+  cannot reconstruct it. Remove the attribute and `FilterConfig`'s
+  `PositionPattern` silently stops deserializing correctly, because
+  `FilterConfig.CanonicalOptions` intentionally does **not** register the
+  converter (it relies on the type-level attribute).
 * **Shared `TestData` at `backgammon\TestData`.** Referenced via
   `..\..\TestData` with `Link` in the Tests csproj. Moving TestData or
   changing csproj output depth breaks every file-touching test.
