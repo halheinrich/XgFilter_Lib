@@ -88,6 +88,39 @@ public class DecisionFilterSetTests
     }
 
     // -----------------------------------------------------------------------
+    //  IsEmpty — the SSOT for "no filters active". True on a fresh set and on
+    //  a set Build() produces from a default config; false once any filter is
+    //  present. Cases 3-4 confirm IsEmpty faithfully reflects Build()'s output
+    //  (the activation rule itself is FilterConfigTests' concern).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void IsEmpty_FreshSet_ReturnsTrue()
+    {
+        new DecisionFilterSet().IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsEmpty_AfterAdd_ReturnsFalse()
+    {
+        var set = new DecisionFilterSet().Add(new PlayerFilter(["Alice"]));
+        set.IsEmpty.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsEmpty_DefaultConfigBuild_ReturnsTrue()
+    {
+        new FilterConfig().Build().IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsEmpty_AnyFieldActiveBuild_ReturnsFalse()
+    {
+        var config = new FilterConfig { Players = { "Alice" } };
+        config.Build().IsEmpty.Should().BeFalse();
+    }
+
+    // -----------------------------------------------------------------------
     //  ShouldSkipMatch / ShouldSkipGame aggregation — header-input,
     //  no substrate axis. OR semantics: any IMatchFilter in the set voting
     //  to skip carries.

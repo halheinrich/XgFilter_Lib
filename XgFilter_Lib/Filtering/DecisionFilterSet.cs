@@ -27,6 +27,17 @@ public sealed class DecisionFilterSet
     }
 
     /// <summary>
+    /// True when no filters have been added, in which case <see cref="Matches"/>
+    /// admits every row (and the <c>ShouldSkip*</c>/<c>ShouldAdvance*</c> votes
+    /// are all false). This is the single source of truth for "no filters
+    /// active": consumers must consult it rather than re-inspecting
+    /// <see cref="FilterConfig"/> fields, since <see cref="FilterConfig.Build"/>
+    /// owns the rule for which fields activate a filter. Mirrors
+    /// <see cref="Patterns.BoardPattern.IsEmpty"/>.
+    /// </summary>
+    public bool IsEmpty => _filters.Count == 0;
+
+    /// <summary>
     /// Returns true if the row passes all filters (or if the set is empty).
     /// </summary>
     public bool Matches(IDecisionFilterData data) => _filters.All(f => f.Matches(data));
