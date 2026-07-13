@@ -34,6 +34,7 @@ internal static class DecisionRowBuilder
         bool isStandardStart = true,
         int roll = 31,
         string depth = "3-ply",
+        AnalysisDepthClass depthClass = AnalysisDepthClass.Unknown,
         double equity = 0.0,
         int[]? board = null,
         int[]? afterBestBoard = null,
@@ -55,6 +56,7 @@ internal static class DecisionRowBuilder
             IsStandardStart = isStandardStart,
             Roll = roll,
             AnalysisDepth = depth,
+            AnalysisDepthClass = depthClass,
             Equity = equity,
             Board = board ?? [],
             AfterBestBoard = afterBestBoard ?? [],
@@ -76,11 +78,13 @@ internal static class DecisionRowBuilder
         bool isCrawford = false,
         int matchLength = 7,
         int moveNumber = 1,
-        bool isStandardStart = true)
+        bool isStandardStart = true,
+        AnalysisDepthClass depthClass = AnalysisDepthClass.Unknown)
     {
         return Build(player: player, error: error, onRollNeeds: onRollNeeds,
                      opponentNeeds: opponentNeeds, isCrawford: isCrawford,
                      matchLength: matchLength, moveNumber: moveNumber,
-                     isStandardStart: isStandardStart, roll: 0);
+                     isStandardStart: isStandardStart, roll: 0,
+                     depthClass: depthClass);
     }
 }

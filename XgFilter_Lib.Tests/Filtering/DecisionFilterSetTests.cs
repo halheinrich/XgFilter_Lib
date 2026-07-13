@@ -81,6 +81,28 @@ public class DecisionFilterSetTests
     }
 
     [Fact]
+    public void Matches_AnalysisDepthAndPlayer_ComposeWithAnd_BothSubstrates()
+    {
+        // Depth is an independent facet from player identity; a row must clear
+        // BOTH the depth include-set AND the player filter. A 3-ply row by
+        // Alice passes; the same depth by Bob, and a rollout by Alice, are each
+        // rejected by the AND.
+        var set = new DecisionFilterSet()
+            .Add(new PlayerFilter(["Alice"]))
+            .Add(new AnalysisDepthFilter([AnalysisDepthClass.Ply3]));
+
+        AssertSetMatchesBoth(set,
+            new RowShape(Player: "Alice", AnalysisDepthClass: AnalysisDepthClass.Ply3),
+            expected: true);
+        AssertSetMatchesBoth(set,
+            new RowShape(Player: "Bob", AnalysisDepthClass: AnalysisDepthClass.Ply3),
+            expected: false);
+        AssertSetMatchesBoth(set,
+            new RowShape(Player: "Alice", AnalysisDepthClass: AnalysisDepthClass.Rollout),
+            expected: false);
+    }
+
+    [Fact]
     public void Add_IsFluentAndReturnsSameInstance()
     {
         var set = new DecisionFilterSet();

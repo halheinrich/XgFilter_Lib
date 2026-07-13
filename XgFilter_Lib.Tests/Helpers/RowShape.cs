@@ -24,6 +24,7 @@ internal sealed record RowShape(
     int MatchLength = 7,
     int MoveNumber = 1,
     bool IsStandardStart = true,
+    AnalysisDepthClass AnalysisDepthClass = AnalysisDepthClass.Unknown,
     int[]? Board = null,
     int[]? AfterBestBoard = null,
     int[]? AfterPlayerBoard = null)
@@ -37,7 +38,8 @@ internal sealed record RowShape(
             isCrawford: IsCrawford,
             matchLength: MatchLength,
             moveNumber: MoveNumber,
-            isStandardStart: IsStandardStart)
+            isStandardStart: IsStandardStart,
+            depthClass: AnalysisDepthClass)
         : DecisionRowBuilder.Build(
             player: Player,
             error: Error ?? 0.0,
@@ -47,6 +49,7 @@ internal sealed record RowShape(
             matchLength: MatchLength,
             moveNumber: MoveNumber,
             isStandardStart: IsStandardStart,
+            depthClass: AnalysisDepthClass,
             board: Board,
             afterBestBoard: AfterBestBoard,
             afterPlayerBoard: AfterPlayerBoard);
@@ -61,6 +64,7 @@ internal sealed record RowShape(
         moveNumber: MoveNumber,
         isStandardStart: IsStandardStart,
         userPlayError: Error,
+        depthClass: AnalysisDepthClass,
         board: Board,
         afterBestBoard: AfterBestBoard,
         afterPlayerBoard: AfterPlayerBoard);

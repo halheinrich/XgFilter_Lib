@@ -32,6 +32,7 @@ internal static class BgDecisionDataBuilder
         double? userPlayError = 0.0,
         double? userDoubleError = null,
         double? userTakeError = null,
+        AnalysisDepthClass depthClass = AnalysisDepthClass.Unknown,
         int[]? board = null,
         int[]? afterBestBoard = null,
         int[]? afterPlayerBoard = null)
@@ -46,12 +47,20 @@ internal static class BgDecisionDataBuilder
                 MoveNumber = moveNumber,
                 IsStandardStart = isStandardStart,
             },
+            // BgDecisionData.AnalysisDepthClass derives from the cube analysis
+            // for cube rows and from the best-play candidate for checker rows
+            // (see BgDecisionData). Stamp both surfaces so the derived value
+            // equals depthClass on either row kind; the unused surface is
+            // ignored by the getter.
             Decision = new DecisionData
             {
                 IsCube = isCube,
                 UserPlayError = userPlayError,
                 UserDoubleError = userDoubleError,
                 UserTakeError = userTakeError,
+                CubeDepthClass = depthClass,
+                Plays = [new PlayCandidate { DepthClass = depthClass }],
+                BestPlayIndex = 0,
             },
             Position = new PositionData
             {

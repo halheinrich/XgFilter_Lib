@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Patterns;
@@ -188,6 +189,30 @@ public class FilterConfigTests
     }
 
     [Fact]
+    public void Build_AnalysisDepthClassesNonEmpty_AddsAnalysisDepthFilter()
+    {
+        var set = new FilterConfig
+        {
+            AnalysisDepthClasses = { AnalysisDepthClass.Ply3 },
+        }.Build();
+
+        set.Matches(new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply3).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply1).ToDecisionRow())
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Build_AnalysisDepthClassesEmpty_SkipsAnalysisDepthFilter()
+    {
+        // No depth filter added, so a row carrying Unknown (legacy data) still
+        // passes — an active filter would drop it.
+        var set = new FilterConfig().Build();
+        set.Matches(new RowShape(AnalysisDepthClass: AnalysisDepthClass.Unknown).ToDecisionRow())
+            .Should().BeTrue();
+    }
+
+    [Fact]
     public void Build_PositionPatternSet_AddsPositionPatternFilter()
     {
         // [0,,-2]: opponent two-or-more on the bar.
@@ -255,6 +280,14 @@ public class FilterConfigTests
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
+    [Fact]
+    public void Build_UnknownAnalysisDepthClass_Throws()
+    {
+        var cfg = new FilterConfig { AnalysisDepthClasses = { (AnalysisDepthClass)999 } };
+        var act = () => cfg.Build();
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
     // -----------------------------------------------------------------------
     //  Canonical JSON round-trip — lib-owned wire format the panel persists
     // -----------------------------------------------------------------------
@@ -278,12 +311,38 @@ public class FilterConfigTests
             ContactTypes = { ContactType.Race },
             PositionTypes = { PositionType.InnerBoard631 },
             PlayTypes = { PlayType.Make20Pt },
+            AnalysisDepthClasses = { AnalysisDepthClass.Ply3, AnalysisDepthClass.RolloutPly3 },
             PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
         };
 
         var restored = FilterConfig.FromJson(original.ToJson());
 
         restored.Should().BeEquivalentTo(original);
+    }
+
+    [Fact]
+    public void ToJson_AnalysisDepthClasses_SerializeAsDeclarationNames()
+    {
+        // AnalysisDepthClass carries its own type-level JsonStringEnumConverter
+        // (it is owned by BgDataTypes_Lib), so it rides the wire as its
+        // declaration name even though FilterConfig does not own the enum.
+        var json = new FilterConfig
+        {
+            AnalysisDepthClasses = { AnalysisDepthClass.RolloutPly3 },
+        }.ToJson();
+
+        json.Should().Contain("\"RolloutPly3\"",
+            "AnalysisDepthClass values must serialize as declaration names, not ordinals");
+    }
+
+    [Fact]
+    public void FromJson_MissingAnalysisDepthClasses_RestoresEmptyList()
+    {
+        // Legacy JSON written before the field existed omits it entirely; the
+        // member must materialize as an empty list (filter inactive), not null.
+        var restored = FilterConfig.FromJson("{\"Players\":[\"Alice\"]}");
+
+        restored.AnalysisDepthClasses.Should().NotBeNull().And.BeEmpty();
     }
 
     [Fact]
@@ -369,6 +428,7 @@ public class FilterConfigTests
         restored.ContactTypes.Should().BeEmpty();
         restored.PositionTypes.Should().BeEmpty();
         restored.PlayTypes.Should().BeEmpty();
+        restored.AnalysisDepthClasses.Should().BeEmpty();
     }
 
     [Fact]

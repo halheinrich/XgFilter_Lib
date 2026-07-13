@@ -57,6 +57,7 @@ XgFilter_Lib/
     PositionTypeFilter.cs
     PositionPatternFilter.cs
     PlayTypeFilter.cs
+    AnalysisDepthFilter.cs
   Classification/
     IPositionClassifier.cs
     IPlayTypeClassifier.cs
@@ -104,6 +105,7 @@ XgFilter_Lib.Tests/
     PositionTypeFilterTests.cs
     PositionPatternFilterTests.cs
     PlayTypeFilterTests.cs
+    AnalysisDepthFilterTests.cs
     DecisionFilterSetTests.cs
     FilterConfigTests.cs
   Patterns/
@@ -185,7 +187,8 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   directly (no string-list parsing on the consumer side) and call
   `Build()` to materialize a `DecisionFilterSet`. Empty-list semantics:
   an empty `Players` / `MatchScores` / `ContactTypes` / `PositionTypes` /
-  `PlayTypes`, and a null-or-empty `PositionPattern`, each mean "no
+  `PlayTypes` / `AnalysisDepthClasses`, and a null-or-empty
+  `PositionPattern`, each mean "no
   filter of this kind is active," not "reject everything"; `Build()`
   skips the corresponding `Add()` in that case. Likewise
   `DecisionType = Both` is a no-op and is skipped. Range filters
@@ -194,12 +197,15 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over a
   cached `JsonSerializerOptions` that registers `JsonStringEnumConverter`
   — so the enum-list members round-trip as `["InnerBoard631", ...]`
-  name-arrays rather than ordinals (none of those enums carries a
-  type-level `[JsonConverter]`). `PositionPattern` needs no converter
-  registered here: `BoardPattern` carries its own (see **Patterns**
-  below), so it serializes as its bracket-list string under these options
-  and under any others. `TryFromJson` restores a fresh default config on
-  a null argument, the literal `null` token, or malformed JSON.
+  name-arrays rather than ordinals (`ContactType` / `PositionType` /
+  `PlayType` / `DecisionType` carry no type-level `[JsonConverter]`).
+  `AnalysisDepthClasses` and `PositionPattern` are the self-describing
+  exceptions that need no converter registered here: `AnalysisDepthClass`
+  (owned by `BgDataTypes_Lib`) carries its own type-level
+  `JsonStringEnumConverter`, and `BoardPattern` carries its own (see
+  **Patterns** below), so both serialize as their string form under these
+  options and under any others. `TryFromJson` restores a fresh default
+  config on a null argument, the literal `null` token, or malformed JSON.
 * `PlayerFilter` — implements both interfaces. `Matches` admits rows where
   the on-roll player is in the include list; `ShouldSkipMatch` drops the
   whole file when neither player is in the list.
@@ -271,6 +277,21 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   analyzed candidate set). Empty type set → always false (empty OR).
   The enum→classifier correspondence is owned by the filter, not the
   caller. Unknown enum values are rejected at construction.
+* `AnalysisDepthFilter` — include list of `AnalysisDepthClass`. Unlike the
+  board-reading facets, depth is a scalar the producer already stamped on
+  each decision (`IDecisionFilterData.AnalysisDepthClass` — the cube
+  analysis for cube rows, the best-by-equity candidate for checker rows),
+  so this is a direct enum-membership test: no classifier dispatch, no
+  board reads. OR semantics; empty set → always false (empty OR). Rows
+  carrying `AnalysisDepthClass.Unknown` (legacy archives, or anything the
+  producer could not classify) are excluded unless `Unknown` is itself
+  selected — the same drop-don't-pass convention as `ErrorRangeFilter`'s
+  null `FilterError`, with `Unknown`'s selectability as the deliberate
+  opt-in. Deliberately implements only `Matches` — no `IMatchFilter` and
+  no `ShouldAdvance*` overrides: depth is not knowable from a match/game
+  header and is not monotonic within a game (a single game mixes book,
+  N-ply, and rollout decisions), so there is no sound early-exit. Unknown
+  enum values are rejected at construction.
 
 ### Classification
 
@@ -538,17 +559,18 @@ public sealed class DecisionFilterSet
 
 public sealed class FilterConfig
 {
-    public IList<string>         Players         { get; set; }
-    public DecisionTypeOption    DecisionType    { get; set; }
-    public IList<string>         MatchScores     { get; set; }
-    public double?               ErrorMin        { get; set; }
-    public double?               ErrorMax        { get; set; }
-    public int?                  MoveNumberMin   { get; set; }
-    public int?                  MoveNumberMax   { get; set; }
-    public IList<ContactType>    ContactTypes    { get; set; }
-    public IList<PositionType>   PositionTypes   { get; set; }
-    public IList<PlayType>       PlayTypes       { get; set; }
-    public BoardPattern?         PositionPattern { get; set; }
+    public IList<string>             Players              { get; set; }
+    public DecisionTypeOption        DecisionType         { get; set; }
+    public IList<string>             MatchScores          { get; set; }
+    public double?                   ErrorMin             { get; set; }
+    public double?                   ErrorMax             { get; set; }
+    public int?                      MoveNumberMin        { get; set; }
+    public int?                      MoveNumberMax        { get; set; }
+    public IList<ContactType>        ContactTypes         { get; set; }
+    public IList<PositionType>       PositionTypes        { get; set; }
+    public IList<PlayType>           PlayTypes            { get; set; }
+    public IList<AnalysisDepthClass> AnalysisDepthClasses { get; set; }
+    public BoardPattern?             PositionPattern      { get; set; }
 
     public DecisionFilterSet Build();
 
@@ -566,6 +588,7 @@ public sealed class ContactTypeFilter     : IDecisionFilter               { /* .
 public sealed class PositionTypeFilter    : IDecisionFilter               { /* ... */ }
 public sealed class PositionPatternFilter : IDecisionFilter               { /* ... */ }
 public sealed class PlayTypeFilter        : IDecisionFilter               { /* ... */ }
+public sealed class AnalysisDepthFilter   : IDecisionFilter               { /* ... */ }
 ```
 
 ```csharp
@@ -660,6 +683,15 @@ public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern> { /*
   `null` the filter returns `false` — unanalyzed `.xgp` positions are
   excluded, not admitted as "zero error". Changing that silently regresses
   CSV exports.
+* **`AnalysisDepthFilter` drops `Unknown`-depth rows unless `Unknown` is
+  selected.** Rows carrying `AnalysisDepthClass.Unknown` — legacy archives,
+  or anything the producer could not classify — are excluded by any
+  include-set that does not list `Unknown` explicitly. This is the same
+  drop-don't-pass convention `ErrorRangeFilter` applies to a null
+  `FilterError`; `Unknown`'s selectability is the deliberate opt-in for
+  callers who want the unclassified tail. A filter selecting only real
+  depths (`Ply3`, `Rollout`, …) therefore silently omits pre-classification
+  data — intended, not a bug.
 * **`MatchScoreFilter` has coupled constraints.** Money matches only if
   `matchLength == 0`; a non-zero `IsCrawford` target requires exactly one
   side at 1-away and the other at `> 1`. `ShouldSkipMatch` enforces both;

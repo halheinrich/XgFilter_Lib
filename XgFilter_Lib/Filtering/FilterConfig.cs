@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Patterns;
 
@@ -16,7 +17,8 @@ namespace XgFilter_Lib.Filtering;
 /// Empty-list semantics (matches what consumer-side glue used to do
 /// before this type existed): an empty <see cref="Players"/>,
 /// <see cref="MatchScores"/>, <see cref="ContactTypes"/>,
-/// <see cref="PositionTypes"/>, or <see cref="PlayTypes"/> means "no
+/// <see cref="PositionTypes"/>, <see cref="PlayTypes"/>, or
+/// <see cref="AnalysisDepthClasses"/> means "no
 /// filter of this kind is active" — not "reject everything."
 /// A null or empty <see cref="PositionPattern"/> means the same for the
 /// per-point pattern filter.
@@ -73,6 +75,15 @@ public sealed class FilterConfig
     public IList<PlayType> PlayTypes { get; set; } = new List<PlayType>();
 
     /// <summary>
+    /// Analysis-depth classes to admit (OR semantics). Empty = no depth filter.
+    /// Rows carrying <see cref="AnalysisDepthClass.Unknown"/> (legacy or
+    /// unclassified data) are excluded unless
+    /// <see cref="AnalysisDepthClass.Unknown"/> is explicitly listed —
+    /// see <see cref="AnalysisDepthFilter"/>.
+    /// </summary>
+    public IList<AnalysisDepthClass> AnalysisDepthClasses { get; set; } = new List<AnalysisDepthClass>();
+
+    /// <summary>
     /// A general per-point checker-range constraint on the on-roll board.
     /// Null or empty = no pattern filter. Serializes as its bracket-list string
     /// via the converter <see cref="BoardPattern"/> declares on itself (see
@@ -92,8 +103,9 @@ public sealed class FilterConfig
     /// <see cref="MatchScoreFilter"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>, or
-    /// <see cref="PlayTypes"/> contains an undefined enum value.
+    /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>,
+    /// <see cref="PlayTypes"/>, or <see cref="AnalysisDepthClasses"/> contains
+    /// an undefined enum value.
     /// </exception>
     public DecisionFilterSet Build()
     {
@@ -123,6 +135,9 @@ public sealed class FilterConfig
         if (PlayTypes.Count > 0)
             set.Add(new PlayTypeFilter(PlayTypes));
 
+        if (AnalysisDepthClasses.Count > 0)
+            set.Add(new AnalysisDepthFilter(AnalysisDepthClasses));
+
         if (PositionPattern is { IsEmpty: false })
             set.Add(new PositionPatternFilter(PositionPattern));
 
@@ -148,6 +163,15 @@ public sealed class FilterConfig
     /// <see cref="JsonConverterAttribute"/>, so it round-trips as its
     /// bracket-list string under these options — and under any other
     /// <see cref="JsonSerializerOptions"/> a consumer might use across a wire.
+    /// </para>
+    /// <para>
+    /// <see cref="AnalysisDepthClasses"/> is the same self-describing case as
+    /// <see cref="PositionPattern"/>: <see cref="AnalysisDepthClass"/> carries
+    /// its own type-level <see cref="JsonStringEnumConverter"/> (it is owned by
+    /// <c>BgDataTypes_Lib</c>, not <c>XgFilter_Lib.Enums</c>), so it serializes
+    /// as its declaration name even without the registration above. The shared
+    /// <see cref="JsonStringEnumConverter"/> registered here is redundant for
+    /// this member but harmless.
     /// </para>
     /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
     /// is expensive to build and thread-safe once first used.
