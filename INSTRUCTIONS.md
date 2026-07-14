@@ -118,6 +118,7 @@ XgFilter_Lib.Tests/
   Integration/
     FilteredDecisionIteratorTests.cs
     FilteredDecisionIteratorIdTests.cs
+    MatchScoreFilterIntegrationTests.cs
     BoardPatternCorpusOracleTests.cs
 ```
 
@@ -211,23 +212,41 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   whole file when neither player is in the list.
 * `DecisionTypeFilter` — checker play, cube, or both. Dispatches on
   `data.IsCube`.
-* `MatchScoreFilter` — implements both interfaces. Targets are stored as
-  `(Away1, Away2, IsCrawford)` tuples; the `"money"` token is tracked
-  separately as a `_includesMoney` bool, not as a `(0, 0, false)` tuple.
-  Accepts strings like `"3a5a"`, `"1a5aC"`, `"money"`: the `"money"`
-  token is recognized as a special token (sets `_includesMoney`) and
-  bypasses score parsing. Only `NaNa[C]`-form tokens go through
-  `ParseScore` and are validated. Malformed `NaNa[C]` tokens throw
-  `ArgumentException` at construction (the offending token appears in
-  the message). `ShouldSkipMatch`
-  detects money-vs-match mismatches and impossible away scores;
-  `ShouldSkipGame` drops games whose post-header score cannot reach any
-  target. `ShouldAdvanceMatch` overrides the default to cut the rest of
-  the file when no target tuple is reachable from the current state —
-  exploits monotonic away-score decrease and the once-per-match Crawford
-  rule, branching on (in-Crawford, post-Crawford, pre-Crawford). Crawford
-  flag is matched strictly on reachability: a Crawford tuple is
-  unreachable from any state where Crawford has already occurred.
+* `MatchScoreFilter` — implements both interfaces. Score tokens are
+  **on-roll anchored**: `MaNa` means the player on roll needs M points
+  and the opponent needs N, so `"4a5a"` and `"5a4a"` are distinct
+  targets (include both orientations to admit a score regardless of who
+  is on roll). Targets are stored as `(Away1, Away2, IsCrawford)`
+  tuples; the `"money"` token is tracked separately as a
+  `_includesMoney` bool, not as a `(0, 0, false)` tuple, and bypasses
+  score parsing. Only `NaNa[C]`-form tokens go through `ParseScore`,
+  which fail-louds with `ArgumentException` (offending token in the
+  message) on malformed tokens **and** on impossible scores: away
+  scores below 1 (`0a5a`), and Crawford tokens without exactly one side
+  1-away and the other ≥ 2 (`3a5aC`, `1a1aC` — a (1,1) game is always
+  post-Crawford). Downstream gates rely on these constructor
+  invariants instead of re-validating. Each gate is the exact
+  projection of `Matches` onto its information granularity:
+  `ShouldSkipMatch` detects money-vs-match mismatches and tuples no
+  game of an L-point match can carry — orientation-free `max ≤ L`,
+  tightened to `max ≤ L − 1` for non-Crawford 1-away tuples (a
+  post-Crawford `(1, m)` needs a preceding Crawford `(1, k)` with
+  `m < k ≤ L`), with `1a1a` exempt (valid at every L, including the
+  1-point match whose only game is `(1, 1, false)`).
+  `ShouldSkipGame` compares tuples against the player1/player2-anchored
+  game header in **either orientation** (both players roll within a
+  game), Crawford flag exact; `Matches` stays the per-decision arbiter
+  of orientation. `ShouldAdvanceMatch` cuts the rest of the file only
+  when no tuple matches the *current* game (either orientation — the
+  producer's cut is immediate and would drop the game's remaining rows)
+  **and** no tuple is reachable in any strictly-future game —
+  reachability exploits monotonic away-score decrease and the
+  once-per-match Crawford rule, branching on (in/post-Crawford,
+  pre-Crawford). A Crawford tuple is unreachable once Crawford has
+  occurred, and a post-Crawford `(1, m)` requires `m < max(current)`.
+  `ShouldAdvanceGame` deliberately stays at the interface default
+  (false): a matching decision can be followed by mirror-orientation
+  decisions in the same game, so there is no sound game-level cut.
 * `ErrorRangeFilter` — `double?` min / max on `FilterError`. Returns `false`
   when `FilterError` is `null`, i.e. unanalyzed rows are excluded, not
   passed through.
@@ -692,11 +711,24 @@ public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern> { /*
   callers who want the unclassified tail. A filter selecting only real
   depths (`Ply3`, `Rollout`, …) therefore silently omits pre-classification
   data — intended, not a bug.
+* **`MatchScoreFilter` tokens are on-roll anchored; game headers are
+  player-anchored.** `MaNa` means the *player on roll* needs M — `4a5a`
+  and `5a4a` are different targets — but `XgGameInfo.Away1/Away2` are
+  anchored to the file's player 1/player 2, and both players roll within
+  a game. Any game-level (or coarser) gate must therefore admit a tuple
+  in **either orientation** and leave the orientation verdict to
+  `Matches`; comparing the header orientation only silently eats every
+  decision whose on-roll player is the file's player 2 (the shipped
+  4a5a/`Move1_0001.xgp` bug). The same trap applies mid-stream:
+  `ShouldAdvanceMatch`'s file-cut fires immediately, so it must treat
+  the *current* game's score (either orientation) as still-matchable,
+  not just future games.
 * **`MatchScoreFilter` has coupled constraints.** Money matches only if
-  `matchLength == 0`; a non-zero `IsCrawford` target requires exactly one
-  side at 1-away and the other at `> 1`. `ShouldSkipMatch` enforces both;
-  adding parse shortcuts that bypass these checks will let impossible
-  targets through.
+  `matchLength == 0`; a Crawford target requires exactly one side at
+  1-away and the other at `≥ 2`; away scores below 1 are impossible.
+  The constructor (`ParseScore`) enforces all of these fail-loud, and
+  the gates rely on those invariants — adding parse shortcuts that
+  bypass validation will let impossible targets through unchecked.
 * **`IDecisionFilter.ShouldAdvanceGame` / `ShouldAdvanceMatch` default to
   `false`.** A filter that *can* early-exit mid-game must override them.
   Missing an override is silent — rows just stop being skipped.
