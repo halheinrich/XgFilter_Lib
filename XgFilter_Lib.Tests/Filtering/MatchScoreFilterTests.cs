@@ -567,7 +567,13 @@ public class MatchScoreFilterTests
     [InlineData("garbage")]   // no 'a' separator
     [InlineData("5a")]        // missing second number
     [InlineData("a5a")]       // missing first number
-    [InlineData("")]          // empty
+    [InlineData("")]          // empty (also "" after trim)
+    [InlineData("-1a5a")]     // a sign is a format error, not a ≥ 1 semantic one
+    [InlineData("4aa5a")]     // doubled separator — old Split swallowed the empty
+    [InlineData("a4a5a")]     // leading separator
+    [InlineData("4a5aa")]     // doubled trailing away-marker
+    [InlineData("4Aa5a")]     // separator then a second, numberless separator
+    [InlineData("4 a 5a")]    // embedded whitespace (trim only strips the ends)
     public void Constructor_InvalidScoreString_Throws(string bad)
     {
         var act = () => new MatchScoreFilter([bad]);
@@ -590,12 +596,14 @@ public class MatchScoreFilterTests
     [InlineData("0a5a")]     // a 0-away side has already won the match
     [InlineData("5a0a")]
     [InlineData("0a0a")]
-    [InlineData("-1a5a")]    // negative away score
     public void Constructor_NonPositiveAwayScore_Throws(string bad)
     {
-        // These previously parsed into dead tuples that could never match a
-        // row — exactly the silent "filter does nothing" failure the
-        // fail-loud philosophy exists to prevent.
+        // A well-formed token (grammar accepts the digits) whose away score is
+        // 0 previously parsed into a dead tuple that could never match a row —
+        // exactly the silent "filter does nothing" failure the fail-loud
+        // philosophy exists to prevent. This routes through the ≥ 1 semantic
+        // message, distinct from the format rejection above (a negative sign
+        // never reaches here — \d+ makes it a format error).
         var act = () => new MatchScoreFilter([bad]);
         act.Should().Throw<ArgumentException>().WithMessage($"*{bad}*");
     }
@@ -615,11 +623,53 @@ public class MatchScoreFilterTests
     [InlineData("2a1aC")]    // Crawford, trailer on roll
     [InlineData("1a1a")]     // post-Crawford tie, and a 1-point match's only game
     [InlineData("1a5ac")]    // lowercase Crawford suffix
+    [InlineData("4A5A")]     // uppercase away-separators (case-insensitive grammar)
+    [InlineData("1a5Ac")]    // mixed-case separator + lowercase Crawford suffix
+    [InlineData("1A5aC")]    // mixed-case separator + uppercase Crawford suffix
+    [InlineData(" 4a5a ")]   // surrounding whitespace is trimmed before parsing
     [InlineData("money")]
     [InlineData("MONEY")]
     public void Constructor_ValidTokens_DoNotThrow(string good)
     {
         var act = () => new MatchScoreFilter([good]);
         act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData("4A5A")]     // uppercase separators
+    [InlineData(" 4a5a ")]   // surrounding whitespace
+    public void ParseScore_CaseAndWhitespaceVariants_MatchSameAsCanonical(string variant)
+    {
+        // The grammar is case-insensitive and trims incidental whitespace, so
+        // each variant is equivalent in effect to its canonical "4a5a" form —
+        // it admits exactly the (OnRoll 4, Opp 5) row and rejects the mirror.
+        var filter = new MatchScoreFilter([variant]);
+        AssertMatchesBoth(
+            filter,
+            new RowShape(OnRollNeeds: 4, OpponentNeeds: 5, IsCrawford: false),
+            expected: true);
+        AssertMatchesBoth(
+            filter,
+            new RowShape(OnRollNeeds: 5, OpponentNeeds: 4, IsCrawford: false),
+            expected: false);
+    }
+
+    [Theory]
+    [InlineData("1a5Ac")]    // mixed-case separator + lowercase Crawford
+    [InlineData("1A5aC")]    // mixed-case separator + uppercase Crawford
+    public void ParseScore_MixedCaseCrawfordVariants_MatchSameAsCanonical(string variant)
+    {
+        // Equivalent in effect to the canonical "1a5aC": admits the Crawford
+        // (OnRoll 1, Opp 5) row, rejects the same score with the Crawford flag
+        // off.
+        var filter = new MatchScoreFilter([variant]);
+        AssertMatchesBoth(
+            filter,
+            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
+            expected: true);
+        AssertMatchesBoth(
+            filter,
+            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: false),
+            expected: false);
     }
 }

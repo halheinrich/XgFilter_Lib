@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
 
@@ -6,7 +7,9 @@ namespace XgFilter_Lib.Filtering;
 /// <summary>
 /// Passes rows where <see cref="DecisionRow.MatchScore"/> matches any entry in the include list.
 /// Examples: "5a5a", "3a1aC", "money".
-/// Comparison is case-insensitive.
+/// Comparison is case-insensitive: the <c>a</c> away-separators, the
+/// trailing <c>C</c> Crawford suffix, and the <c>money</c> token all match
+/// in either case (see <see cref="ParseScore"/> for the score-token grammar).
 ///
 /// <para>
 /// Score tokens are <b>on-roll anchored</b>: <c>MaNa</c> means the player on
@@ -19,7 +22,7 @@ namespace XgFilter_Lib.Filtering;
 /// orientation and leaves the per-decision verdict to <see cref="Matches"/>).
 /// </para>
 /// </summary>
-public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
+public sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
 {
     private readonly List<(int Away1, int Away2, bool IsCrawford)> _tuples;
     private readonly bool _includesMoney;
@@ -224,22 +227,37 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
     /// at least 1-away, and a Crawford token with exactly one side 1-away
     /// and the other 2-away or more ("1a1aC" is rejected — a (1,1) game is
     /// always post-Crawford; "3a5aC" is rejected — Crawford requires a side
-    /// at 1-away). Throws <see cref="ArgumentException"/> on any malformed
-    /// or impossible input — silent drop would let UI typos slip through as
-    /// "filter does nothing," which is the kind of failure that bites at
-    /// runtime without a clear cause.
+    /// at 1-away).
+    ///
+    /// <para>
+    /// The accepted format is the case-insensitive grammar
+    /// <c>^(\d+)[aA](\d+)[aA]([cC])?$</c> — an away count, the <c>a</c>
+    /// separator, a second away count and its <c>a</c>, and an optional
+    /// trailing <c>C</c> Crawford flag. The token is trimmed first so
+    /// incidental surrounding whitespace from non-UI callers (CLI args,
+    /// hand-built configs) is tolerated; embedded whitespace and any extra
+    /// or repeated separators are rejected. A sign, decimal point, or any
+    /// non-digit in an away field is a format error.
+    /// </para>
+    ///
+    /// <para>
+    /// Throws <see cref="ArgumentException"/> on any malformed or impossible
+    /// input — silent drop would let UI typos slip through as "filter does
+    /// nothing," which is the kind of failure that bites at runtime without
+    /// a clear cause.
+    /// </para>
     /// </summary>
     private static (int Away1, int Away2, bool IsCrawford) ParseScore(string s)
     {
-        bool isCrawford = s.EndsWith("C", StringComparison.OrdinalIgnoreCase);
-        var clean = isCrawford ? s[..^1] : s;
-        var parts = clean.Split('a', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length != 2
-            || !int.TryParse(parts[0], out int a1)
-            || !int.TryParse(parts[1], out int a2))
+        var match = ScoreTokenRegex().Match(s.Trim());
+        if (!match.Success
+            || !int.TryParse(match.Groups[1].Value, out int a1)
+            || !int.TryParse(match.Groups[2].Value, out int a2))
             throw new ArgumentException(
                 $"Invalid match score: '{s}'. Expected format like '3a5a', '1a5aC', or 'money'.",
                 nameof(s));
+
+        bool isCrawford = match.Groups[3].Success;
 
         if (a1 < 1 || a2 < 1)
             throw new ArgumentException(
@@ -255,4 +273,14 @@ public sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
 
         return (a1, a2, isCrawford);
     }
+
+    /// <summary>
+    /// The case-insensitive score-token grammar: an away count, the <c>a</c>
+    /// separator, a second away count and its <c>a</c>, and an optional
+    /// trailing <c>C</c> Crawford flag. Anchored, so it rejects any leading,
+    /// trailing, embedded, or repeated slop the previous
+    /// <c>Split('a', RemoveEmptyEntries)</c> silently swallowed.
+    /// </summary>
+    [GeneratedRegex(@"^(\d+)[aA](\d+)[aA]([cC])?$")]
+    private static partial Regex ScoreTokenRegex();
 }
