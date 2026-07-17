@@ -1,12 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <RootNamespace>XgFilter_Lib.Tests</RootNamespace>
     <AssemblyName>XgFilter_Lib.Tests</AssemblyName>
+    <!-- Repo policy (Directory.Build.props) turns doc-file generation on;
+         test classes are not a consumer-facing surface, so opting out here
+         beats doc-commenting every test fixture. Warnings-as-errors stays. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="xunit" />

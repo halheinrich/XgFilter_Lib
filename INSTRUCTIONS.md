@@ -30,6 +30,7 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
 ## Directory tree
 
 ```
+Directory.Build.props
 Directory.Packages.props
 XgFilter_Lib.slnx
 XgFilter_Lib/
@@ -124,7 +125,10 @@ XgFilter_Lib.Tests/
 
 `Directory.Packages.props` at the repo root opts the solution into Central
 Package Management: package versions are pinned there and the two csprojs carry
-versionless `<PackageReference>`s.
+versionless `<PackageReference>`s. `Directory.Build.props` carries the
+repo-wide build policy (target framework, nullable, warnings-as-errors,
+doc-file generation); per-project decisions stay in each csproj — see the
+boundary-rule comment in the file.
 
 ## Architecture
 
