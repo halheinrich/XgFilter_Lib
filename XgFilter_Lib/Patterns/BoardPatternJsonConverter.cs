@@ -9,10 +9,15 @@ namespace XgFilter_Lib.Patterns;
 /// the same human-readable text a consumer types. Parsing through
 /// <see cref="BoardPattern.Parse"/> keeps deserialization on the validated path
 /// — a malformed or out-of-range pattern in the JSON fails fast rather than
-/// materializing an invalid object. Registered in the canonical
-/// <see cref="JsonSerializerOptions"/> that <c>FilterConfig</c> owns.
+/// materializing an invalid object. Never registered on any
+/// <see cref="JsonSerializerOptions"/> (<c>FilterConfig</c>'s canonical options
+/// deliberately omit it): the type-level <see cref="JsonConverterAttribute"/>
+/// on <see cref="BoardPattern"/> is the single wiring point, and it reaches
+/// this converter regardless of accessibility — System.Text.Json instantiates
+/// the attribute-named type via reflection, so <c>internal</c> works on the
+/// real wire path (pinned by <c>BoardPatternWireSafetyTests</c>).
 /// </summary>
-public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern>
+internal sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern>
 {
     /// <inheritdoc/>
     public override BoardPattern? Read(

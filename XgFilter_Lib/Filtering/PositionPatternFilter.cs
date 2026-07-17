@@ -11,7 +11,7 @@ namespace XgFilter_Lib.Filtering;
 /// set, so a caller can express a structural shape without a dedicated
 /// <c>PositionType</c>. An empty pattern matches every board.
 /// </summary>
-public sealed class PositionPatternFilter : IDecisionFilter
+internal sealed class PositionPatternFilter : IDecisionFilter
 {
     private readonly BoardPattern _pattern;
 

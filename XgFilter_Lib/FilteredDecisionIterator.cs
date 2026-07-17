@@ -89,18 +89,6 @@ public sealed class FilteredDecisionIterator
                 XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, _logger));
 
     /// <summary>
-    /// Iterates all .json files in <paramref name="jsonDir"/> and returns
-    /// the subset of decisions that match the configured filters,
-    /// shaped as <see cref="BgDecisionData"/>. Filter semantics are
-    /// identical to <see cref="IterateJsonDirectory"/>.
-    /// </summary>
-    public IEnumerable<BgDecisionData> IterateJsonDirectoryDiagrams(string jsonDir) =>
-        IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"),
-            XgFileReader.ReadJson,
-            (file, sourceFile, state, callbacks) =>
-                XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, _logger));
-
-    /// <summary>
     /// Iterates a caller-supplied list of XG-format files presented as named
     /// streams — the directory-free counterpart to
     /// <see cref="IterateXgDirectory"/> for callers that hold the bytes rather

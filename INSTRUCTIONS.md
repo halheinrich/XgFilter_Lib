@@ -169,6 +169,15 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 
 ### Filtering
 
+The ten concrete filter classes (`PlayerFilter` … `AnalysisDepthFilter`)
+and `IMatchFilter` are `internal`. `FilterConfig.Build()` is the intent
+surface — consumers state *what* to filter and the library materializes
+the `DecisionFilterSet`; only `IDecisionFilter` stays public, as the
+`DecisionFilterSet.Add` seam. Like `Classification/`, the internal
+filters are documented here as substantive machinery, not public
+surface, and are reachable from the test project via
+`InternalsVisibleTo("XgFilter_Lib.Tests")`.
+
 * `IDecisionFilter` — `bool Matches(IDecisionFilterData data)`. Two virtual
   defaults for game/match-level early-exit hints:
   `ShouldAdvanceGame(data)` and `ShouldAdvanceMatch(data)`, both returning
@@ -178,7 +187,9 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   `ShouldSkipMatch(XgMatchInfo)` and `ShouldSkipGame(XgGameInfo)`. Filters
   implement both interfaces where applicable.
 * `DecisionFilterSet` — ordered list of `IDecisionFilter` combined with AND
-  semantics. Fluent `Add()`. `Matches()` passes when every filter passes (or
+  semantics. Fluent `Add()`. `IsEmpty` is the SSOT for "no filters
+  active" — consumers consult it rather than re-inspecting whatever
+  config produced the set. `Matches()` passes when every filter passes (or
   the set is empty). `ShouldSkipMatch` / `ShouldSkipGame` delegate to any
   filter in the set that also implements `IMatchFilter`. Duplicates of the
   same concrete filter type are allowed and compose with AND (e.g. two
@@ -417,7 +428,12 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   `BoardPattern.Parse`, so deserialization stays on the validated path
   and a malformed/out-of-range pattern in the JSON fails fast as a
   `JsonException` rather than materializing an invalid object. A JSON
-  `null` reads as `null`.
+  `null` reads as `null`. `internal`: the type-level attribute on
+  `BoardPattern` is the only wiring point, and System.Text.Json
+  instantiates the attribute-named converter via reflection regardless
+  of accessibility — verified on the real wire path by
+  `BoardPatternWireSafetyTests`, so the converter needs no public
+  presence.
 
 ### Projection
 
@@ -440,7 +456,9 @@ that pass the configured filter set.
 Two output shapes are exposed: `DecisionRow` (CSV-flat) via
 `IterateXgDirectory` / `IterateJsonDirectory`, and `BgDecisionData`
 (diagram-shaped — full `Plays` list, after-boards) via
-`IterateXgDirectoryDiagrams` / `IterateJsonDirectoryDiagrams`.
+`IterateXgDirectoryDiagrams`. The JSON-directory source offers only the
+row shape — its diagram variant (`IterateJsonDirectoryDiagrams`) was
+deleted as dead code (zero consumers umbrella-wide).
 
 Two **input** sources are exposed, both shapes for each. The directory
 methods above walk a filesystem path. The stream methods —
@@ -560,15 +578,10 @@ public interface IDecisionFilter
     virtual bool ShouldAdvanceMatch(IDecisionFilterData data) => false;
 }
 
-public interface IMatchFilter
-{
-    bool ShouldSkipMatch(XgMatchInfo match);
-    bool ShouldSkipGame (XgGameInfo  game);
-}
-
 public sealed class DecisionFilterSet
 {
     public DecisionFilterSet Add(IDecisionFilter filter);
+    public bool IsEmpty { get; }
     public bool Matches          (IDecisionFilterData data);
     public bool ShouldSkipMatch  (XgMatchInfo match);
     public bool ShouldSkipGame   (XgGameInfo  game);
@@ -597,17 +610,6 @@ public sealed class FilterConfig
     public static FilterConfig FromJson(string json);
     public static bool TryFromJson(string? json, out FilterConfig config);
 }
-
-public sealed class PlayerFilter          : IDecisionFilter, IMatchFilter { /* ... */ }
-public sealed class DecisionTypeFilter    : IDecisionFilter               { /* ... */ }
-public sealed class MatchScoreFilter      : IDecisionFilter, IMatchFilter { /* ... */ }
-public sealed class ErrorRangeFilter      : IDecisionFilter               { /* ... */ }
-public sealed class MoveNumberFilter      : IDecisionFilter, IMatchFilter { /* ... */ }
-public sealed class ContactTypeFilter     : IDecisionFilter               { /* ... */ }
-public sealed class PositionTypeFilter    : IDecisionFilter               { /* ... */ }
-public sealed class PositionPatternFilter : IDecisionFilter               { /* ... */ }
-public sealed class PlayTypeFilter        : IDecisionFilter               { /* ... */ }
-public sealed class AnalysisDepthFilter   : IDecisionFilter               { /* ... */ }
 ```
 
 ```csharp
@@ -629,7 +631,6 @@ public sealed class FilteredDecisionIterator
     public IEnumerable<DecisionRow>      IterateXgDirectory          (string xgDir);
     public IEnumerable<DecisionRow>      IterateJsonDirectory        (string jsonDir);
     public IEnumerable<BgDecisionData>   IterateXgDirectoryDiagrams  (string xgDir);
-    public IEnumerable<BgDecisionData>   IterateJsonDirectoryDiagrams(string jsonDir);
 
     // Stream / file-list sources (directory-free; WASM-friendly)
     public IEnumerable<DecisionRow>      IterateXgStreams      (IEnumerable<XgFileStream> files);
@@ -688,8 +689,6 @@ public sealed class BoardPattern
     public override string ToString();   // == ToBracketList()
     // Note: reference equality by design — compare structurally or via ToBracketList().
 }
-
-public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern> { /* ... */ }
 ```
 
 ## Pitfalls

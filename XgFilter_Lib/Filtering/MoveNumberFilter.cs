@@ -17,7 +17,7 @@ namespace XgFilter_Lib.Filtering;
 /// later decision can match.
 /// </para>
 /// </summary>
-public sealed class MoveNumberFilter : IDecisionFilter, IMatchFilter
+internal sealed class MoveNumberFilter : IDecisionFilter, IMatchFilter
 {
     private readonly int? _min;
     private readonly int? _max;

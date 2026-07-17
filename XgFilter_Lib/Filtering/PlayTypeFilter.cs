@@ -19,7 +19,7 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="PlayType"/> values are rejected at construction rather than on
 /// first dispatch.
 /// </summary>
-public sealed class PlayTypeFilter : IDecisionFilter
+internal sealed class PlayTypeFilter : IDecisionFilter
 {
     /// <summary>
     /// Single source of truth for the <see cref="PlayType"/> →

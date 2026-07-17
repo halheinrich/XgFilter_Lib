@@ -7,7 +7,7 @@ namespace XgFilter_Lib.Filtering;
 /// Passes rows based on whether they are cube decisions or checker plays,
 /// as determined by <see cref="DecisionRow.IsCube"/>.
 /// </summary>
-public sealed class DecisionTypeFilter : IDecisionFilter
+internal sealed class DecisionTypeFilter : IDecisionFilter
 {
     private readonly DecisionTypeOption _option;
 

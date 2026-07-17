@@ -10,7 +10,7 @@ namespace XgFilter_Lib.Filtering;
 /// evaluated mid-stream after a row has matched. Implement alongside
 /// <see cref="IDecisionFilter"/> where applicable.
 /// </summary>
-public interface IMatchFilter
+internal interface IMatchFilter
 {
     /// <summary>
     /// Pre-stream hint: return true if no row in <paramref name="match"/> can

@@ -12,7 +12,7 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="PositionType"/> values are rejected at construction rather than
 /// on first dispatch.
 /// </summary>
-public sealed class PositionTypeFilter : IDecisionFilter
+internal sealed class PositionTypeFilter : IDecisionFilter
 {
     /// <summary>
     /// Single source of truth for the <see cref="PositionType"/> →

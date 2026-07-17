@@ -7,7 +7,7 @@ namespace XgFilter_Lib.Filtering;
 /// Passes rows where <see cref="DecisionRow.Player"/> matches any entry in the include list.
 /// Comparison is case-insensitive.
 /// </summary>
-public sealed class PlayerFilter : IDecisionFilter, IMatchFilter
+internal sealed class PlayerFilter : IDecisionFilter, IMatchFilter
 {
     private readonly HashSet<string> _players;
 

@@ -14,7 +14,7 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="ContactType"/> values are rejected at construction rather than on
 /// first dispatch.
 /// </summary>
-public sealed class ContactTypeFilter : IDecisionFilter
+internal sealed class ContactTypeFilter : IDecisionFilter
 {
     /// <summary>
     /// Single source of truth for the <see cref="ContactType"/> →

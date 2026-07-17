@@ -35,7 +35,7 @@ namespace XgFilter_Lib.Filtering;
 /// construction rather than on first dispatch.
 /// </para>
 /// </summary>
-public sealed class AnalysisDepthFilter : IDecisionFilter
+internal sealed class AnalysisDepthFilter : IDecisionFilter
 {
     private readonly HashSet<AnalysisDepthClass> _classes;
 

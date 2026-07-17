@@ -22,7 +22,7 @@ namespace XgFilter_Lib.Filtering;
 /// orientation and leaves the per-decision verdict to <see cref="Matches"/>).
 /// </para>
 /// </summary>
-public sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
+internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
 {
     private readonly List<(int Away1, int Away2, bool IsCrawford)> _tuples;
     private readonly bool _includesMoney;

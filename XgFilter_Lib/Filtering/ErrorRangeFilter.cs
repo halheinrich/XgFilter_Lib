@@ -7,7 +7,7 @@ namespace XgFilter_Lib.Filtering;
 /// [min, max] (inclusive). Either bound may be omitted (null) to leave that end open.
 /// Rows with a null <c>FilterError</c> (unanalysed positions) do not pass.
 /// </summary>
-public sealed class ErrorRangeFilter : IDecisionFilter
+internal sealed class ErrorRangeFilter : IDecisionFilter
 {
     private readonly double? _min;
     private readonly double? _max;
