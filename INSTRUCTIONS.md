@@ -203,11 +203,13 @@ surface, and are reachable from the test project via
   directly (no string-list parsing on the consumer side) and call
   `Build()` to materialize a `DecisionFilterSet`. Empty-list semantics:
   an empty `Players` / `MatchScores` / `ContactTypes` / `PositionTypes` /
-  `PlayTypes` / `AnalysisDepthClasses`, and a null-or-empty
-  `PositionPattern`, each mean "no
+  `PlayTypes`, and a null-or-empty `PositionPattern`, each mean "no
   filter of this kind is active," not "reject everything"; `Build()`
-  skips the corresponding `Add()` in that case. Likewise
-  `DecisionType = Both` is a no-op and is skipped. Range filters
+  skips the corresponding `Add()` in that case. The depth facet is the
+  one exception to the single-member pattern — it is inactive (skipped)
+  only when `AnalysisLevels` is empty **and** both `IncludeRollouts` and
+  `IncludeBookRollouts` are off (see **Depth facet semantics** below).
+  Likewise `DecisionType = Both` is a no-op and is skipped. Range filters
   (`ErrorRange`, `MoveNumber`) are added if either bound is set.
   Canonical JSON is single-sourced on the type via `ToJson()` /
   `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over a
@@ -215,13 +217,36 @@ surface, and are reachable from the test project via
   — so the enum-list members round-trip as `["InnerBoard631", ...]`
   name-arrays rather than ordinals (`ContactType` / `PositionType` /
   `PlayType` / `DecisionType` carry no type-level `[JsonConverter]`).
-  `AnalysisDepthClasses` and `PositionPattern` are the self-describing
-  exceptions that need no converter registered here: `AnalysisDepthClass`
+  `AnalysisLevels` and `PositionPattern` are the self-describing
+  exceptions that need no converter registered here: `AnalysisLevel`
   (owned by `BgDataTypes_Lib`) carries its own type-level
   `JsonStringEnumConverter`, and `BoardPattern` carries its own (see
   **Patterns** below), so both serialize as their string form under these
-  options and under any others. `TryFromJson` restores a fresh default
-  config on a null argument, the literal `null` token, or malformed JSON.
+  options and under any others; `IncludeRollouts` / `IncludeBookRollouts`
+  are plain booleans. `TryFromJson` restores a fresh default config on a
+  null argument, the literal `null` token, or malformed JSON — the path by
+  which old saved configs (carrying the retired `AnalysisDepthClasses`
+  field) reset to an inactive depth facet on read.
+
+* **Depth facet semantics.** User-facing selection state is a set of checked
+  levels (`AnalysisLevels`) plus two independent toggles (`IncludeRollouts`,
+  `IncludeBookRollouts`) — raw intent the config stores verbatim. `Build()`
+  is the **single source of truth** for deriving the effective mode set from
+  that intent, and the derivation is:
+  * **Facet inactive** (whole facet passes everything, filter not added) iff
+    no level checked and neither toggle on.
+  * Otherwise the effective **mode set** = `{Rollout if toggled} ∪
+    {BookRollout if toggled}`, defaulting to `{Evaluation}` when neither
+    toggle is on; the effective **level set** = the checked levels, or *any
+    level* when none are checked (an empty set handed straight to the filter).
+    A row passes iff `AnalysisMode ∈ modes && AnalysisLevel ∈ levels`.
+  * Canonical example: 4-ply checked + Rollouts on → only 4-ply *rollouts*
+    pass; plain 4-ply evaluations do not. A book hit with an `Unknown` level
+    (unenriched, V1, or eval-baseline book entry) passes only via the
+    Book-rollouts toggle with no level checked (or `Unknown` explicitly in
+    the level set).
+  * `Unknown` mode (legacy/unstamped rows) is never selectable — no toggle or
+    level maps to it — so those rows pass only when the facet is inactive.
 * `PlayerFilter` — implements both interfaces. `Matches` admits rows where
   the on-roll player is in the include list; `ShouldSkipMatch` drops the
   whole file when neither player is in the list.
@@ -311,21 +336,31 @@ surface, and are reachable from the test project via
   analyzed candidate set). Empty type set → always false (empty OR).
   The enum→classifier correspondence is owned by the filter, not the
   caller. Unknown enum values are rejected at construction.
-* `AnalysisDepthFilter` — include list of `AnalysisDepthClass`. Unlike the
-  board-reading facets, depth is a scalar the producer already stamped on
-  each decision (`IDecisionFilterData.AnalysisDepthClass` — the cube
-  analysis for cube rows, the best-by-equity candidate for checker rows),
-  so this is a direct enum-membership test: no classifier dispatch, no
-  board reads. OR semantics; empty set → always false (empty OR). Rows
-  carrying `AnalysisDepthClass.Unknown` (legacy archives, or anything the
-  producer could not classify) are excluded unless `Unknown` is itself
-  selected — the same drop-don't-pass convention as `ErrorRangeFilter`'s
-  null `FilterError`, with `Unknown`'s selectability as the deliberate
-  opt-in. Deliberately implements only `Matches` — no `IMatchFilter` and
-  no `ShouldAdvance*` overrides: depth is not knowable from a match/game
-  header and is not monotonic within a game (a single game mixes book,
-  N-ply, and rollout decisions), so there is no sound early-exit. Unknown
-  enum values are rejected at construction.
+* `AnalysisDepthFilter` — the depth facet over the **two-axis** analysis
+  taxonomy (`AnalysisMode` × `AnalysisLevel`) that replaced the retired flat
+  `AnalysisDepthClass`. Unlike the board-reading facets, depth is a scalar
+  pair the producer already stamped on each decision
+  (`IDecisionFilterData.AnalysisMode` / `AnalysisLevel` — the cube analysis
+  for cube rows, the best-by-equity candidate for checker rows), so this is
+  a direct two-axis membership test: no classifier dispatch, no board reads.
+  Constructed with `(modes, levels)`; a row passes iff
+  `AnalysisMode ∈ modes && (levels is empty || AnalysisLevel ∈ levels)`. The
+  two axes are deliberately **asymmetric**, mirroring the facet's selection
+  semantics (derived in `FilterConfig.Build` — see **Facet semantics** below):
+  the **mode** set must be non-empty (an active facet always resolves to at
+  least one mode, defaulting to `Evaluation`), so an empty mode set is
+  rejected at construction; the **level** set may be empty, meaning "any
+  level" — the unconstrained level axis is how an unenriched book hit
+  (`BookRollout` + `Unknown` level) is admitted. Mode `Unknown` is never
+  supplied (no selection produces it), so legacy/unstamped `Unknown`-mode
+  rows pass only when the whole facet is inactive and this filter is absent
+  from the set — the same drop-don't-pass posture the old facet had, now
+  naturally expressed by the mode set. Deliberately implements only
+  `Matches` — no `IMatchFilter` and no `ShouldAdvance*` overrides: depth is
+  not knowable from a match/game header and is not monotonic within a game
+  (a single game mixes book, N-ply, and rollout decisions), so there is no
+  sound early-exit. Undefined `AnalysisMode` / `AnalysisLevel` values are
+  rejected at construction.
 
 ### Classification
 
@@ -514,10 +549,12 @@ aborting the run.
 
 The constructor-injected logger is also **forwarded into the producer**:
 every `XgDecisionIterator.Iterate` / `IterateDiagramRequests` call passes
-`_logger` as its final argument, so per-decision warnings the producer
-raises — notably an illegal-play skip — surface through this same
-pipeline alongside the file-level skip warnings above, rather than being
-swallowed inside the producer.
+`_logger` as the named `logger:` argument (the producer's signature grew an
+optional `XgIteratorOptions? options` leg between `callbacks` and `logger`,
+which this consumer leaves defaulted — it supplies no opening book), so
+per-decision warnings the producer raises — notably an illegal-play skip —
+surface through this same pipeline alongside the file-level skip warnings
+above, rather than being swallowed inside the producer.
 
 XG-format file discovery (`*.xg` then `*.xgp`) is delegated to the
 producer's public `XgFileReader.EnumerateXgFormatFiles`, the single
@@ -605,7 +642,9 @@ public sealed class FilterConfig
     public IList<ContactType>        ContactTypes         { get; set; }
     public IList<PositionType>       PositionTypes        { get; set; }
     public IList<PlayType>           PlayTypes            { get; set; }
-    public IList<AnalysisDepthClass> AnalysisDepthClasses { get; set; }
+    public IList<AnalysisLevel>      AnalysisLevels       { get; set; }
+    public bool                      IncludeRollouts      { get; set; }
+    public bool                      IncludeBookRollouts  { get; set; }
     public BoardPattern?             PositionPattern      { get; set; }
 
     public DecisionFilterSet Build();
@@ -705,15 +744,27 @@ public sealed class BoardPattern
   `null` the filter returns `false` — unanalyzed `.xgp` positions are
   excluded, not admitted as "zero error". Changing that silently regresses
   CSV exports.
-* **`AnalysisDepthFilter` drops `Unknown`-depth rows unless `Unknown` is
-  selected.** Rows carrying `AnalysisDepthClass.Unknown` — legacy archives,
-  or anything the producer could not classify — are excluded by any
-  include-set that does not list `Unknown` explicitly. This is the same
-  drop-don't-pass convention `ErrorRangeFilter` applies to a null
-  `FilterError`; `Unknown`'s selectability is the deliberate opt-in for
-  callers who want the unclassified tail. A filter selecting only real
-  depths (`Ply3`, `Rollout`, …) therefore silently omits pre-classification
-  data — intended, not a bug.
+* **The depth facet's mode set is derived in `Build()`, not the panel.**
+  `FilterConfig` stores raw user intent (`AnalysisLevels` + `IncludeRollouts`
+  + `IncludeBookRollouts`); the mapping from those toggles to the effective
+  `AnalysisMode` set — Rollouts→`Rollout`, Book rollouts→`BookRollout`,
+  neither→`Evaluation`, plus the "none checked and neither toggle = inactive"
+  rule — lives **only** in `FilterConfig.Build()`. It is the single source of
+  truth. The XgFilter_Razor panel must bind the three raw inputs and let
+  `Build()` derive the modes; re-encoding the derivation in the UI (e.g.
+  pre-computing an `AnalysisMode` list and stuffing it into the config)
+  duplicates the SSOT and will silently drift — for instance losing the
+  `Evaluation` default or the inactive rule.
+* **The depth facet drops `Unknown`-mode rows whenever it is active.**
+  No selection produces mode `Unknown`, so any active depth facet excludes
+  legacy/unstamped rows (`AnalysisMode.Unknown`) — they pass only when the
+  facet is inactive and `AnalysisDepthFilter` is absent from the set. This is
+  the same drop-don't-pass posture `ErrorRangeFilter` applies to a null
+  `FilterError`. Separately, the **level** axis is unconstrained when
+  `AnalysisLevels` is empty (any level, including `Unknown`), so an unenriched
+  book hit rides through on the Book-rollouts toggle alone; checking any
+  concrete level then excludes those `Unknown`-level hits — intended, not a
+  bug.
 * **`MatchScoreFilter` tokens are on-roll anchored; game headers are
   player-anchored.** `MaNa` means the *player on roll* needs M — `4a5a`
   and `5a4a` are different targets — but `XgGameInfo.Away1/Away2` are

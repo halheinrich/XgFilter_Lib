@@ -89,16 +89,16 @@ public class DecisionFilterSetTests
         // rejected by the AND.
         var set = new DecisionFilterSet()
             .Add(new PlayerFilter(["Alice"]))
-            .Add(new AnalysisDepthFilter([AnalysisDepthClass.Ply3]));
+            .Add(new AnalysisDepthFilter([AnalysisMode.Evaluation], [AnalysisLevel.Ply3]));
 
         AssertSetMatchesBoth(set,
-            new RowShape(Player: "Alice", AnalysisDepthClass: AnalysisDepthClass.Ply3),
+            new RowShape(Player: "Alice", AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
             expected: true);
         AssertSetMatchesBoth(set,
-            new RowShape(Player: "Bob", AnalysisDepthClass: AnalysisDepthClass.Ply3),
+            new RowShape(Player: "Bob", AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
             expected: false);
         AssertSetMatchesBoth(set,
-            new RowShape(Player: "Alice", AnalysisDepthClass: AnalysisDepthClass.Rollout),
+            new RowShape(Player: "Alice", AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
             expected: false);
     }
 

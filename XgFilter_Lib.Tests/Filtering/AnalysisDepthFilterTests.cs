@@ -4,142 +4,208 @@ using XgFilter_Lib.Tests.Helpers;
 
 namespace XgFilter_Lib.Tests.Filtering;
 
+/// <summary>
+/// Mechanics of the two-axis depth filter in isolation — mode axis AND level
+/// axis, over the pre-derived (modes, levels) it receives. The facet-level
+/// derivation of those sets from user intent (which toggles map to which modes,
+/// the Evaluation default, the inactive rule) is <see cref="FilterConfig.Build"/>'s
+/// job and is pinned in <c>FilterConfigTests</c>.
+/// </summary>
 public class AnalysisDepthFilterTests
 {
     // -----------------------------------------------------------------------
-    //  Single class — membership test on both substrates and both row kinds.
-    //  Depth is a scalar the producer stamped; the filter reads it directly.
+    //  Two-axis membership — a row passes iff mode ∈ modes AND level ∈ levels.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void SingleClass_MatchingCheckerRow_Passes()
+    public void ModeAndLevelBothMatch_Passes()
     {
-        var filter = new AnalysisDepthFilter([AnalysisDepthClass.Ply3]);
+        var filter = new AnalysisDepthFilter([AnalysisMode.Evaluation], [AnalysisLevel.Ply3]);
         AssertMatchesBoth(
             filter,
-            new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply3),
+            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
             expected: true);
     }
 
     [Fact]
-    public void SingleClass_NonMatchingCheckerRow_DoesNotPass()
+    public void ModeMismatch_DoesNotPass()
     {
-        var filter = new AnalysisDepthFilter([AnalysisDepthClass.Ply3]);
+        // Level matches but mode does not — the AND across axes rejects it.
+        var filter = new AnalysisDepthFilter([AnalysisMode.Evaluation], [AnalysisLevel.Ply3]);
         AssertMatchesBoth(
             filter,
-            new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply1),
+            new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
             expected: false);
     }
 
     [Fact]
-    public void SingleClass_MatchingCubeRow_Passes()
+    public void LevelMismatch_DoesNotPass()
     {
-        // Cube rows carry a depth just like checker rows (the cube analysis).
-        var filter = new AnalysisDepthFilter([AnalysisDepthClass.Rollout]);
+        // Mode matches but level does not.
+        var filter = new AnalysisDepthFilter([AnalysisMode.Evaluation], [AnalysisLevel.Ply3]);
         AssertMatchesBoth(
             filter,
-            new RowShape(IsCube: true, AnalysisDepthClass: AnalysisDepthClass.Rollout),
+            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4),
+            expected: false);
+    }
+
+    [Fact]
+    public void CubeRow_MatchingBothAxes_Passes()
+    {
+        // Cube rows carry the (mode, level) pair too — the cube analysis.
+        var filter = new AnalysisDepthFilter([AnalysisMode.Rollout], [AnalysisLevel.XgRoller]);
+        AssertMatchesBoth(
+            filter,
+            new RowShape(IsCube: true, AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.XgRoller),
+            expected: true);
+    }
+
+    // -----------------------------------------------------------------------
+    //  OR within each axis — multiple modes / multiple levels.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void MultipleModes_AnyMatchingMode_Passes()
+    {
+        var filter = new AnalysisDepthFilter(
+            [AnalysisMode.Rollout, AnalysisMode.BookRollout],
+            [AnalysisLevel.Ply3]);
+
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
+            expected: true);
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Ply3),
+            expected: true);
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
+            expected: false);
+    }
+
+    [Fact]
+    public void MultipleLevels_AnyMatchingLevel_Passes()
+    {
+        var filter = new AnalysisDepthFilter(
+            [AnalysisMode.Evaluation],
+            [AnalysisLevel.Ply3, AnalysisLevel.Ply4]);
+
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
+            expected: true);
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4),
+            expected: true);
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply5),
+            expected: false);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Empty level set — the level axis is unconstrained (any level).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void EmptyLevels_AnyLevelOfMatchingMode_Passes()
+    {
+        // A mode-only filter: every level of a selected mode passes, including
+        // the Unknown level — this is the path an unenriched book hit takes.
+        var filter = new AnalysisDepthFilter([AnalysisMode.BookRollout], []);
+
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown),
+            expected: true);
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.XgRoller),
             expected: true);
     }
 
     [Fact]
-    public void SingleClass_NonMatchingCubeRow_DoesNotPass()
+    public void EmptyLevels_StillGatesOnMode()
     {
-        var filter = new AnalysisDepthFilter([AnalysisDepthClass.Rollout]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(IsCube: true, AnalysisDepthClass: AnalysisDepthClass.XgRoller),
+        // "Any level" does not mean "any mode" — the mode axis still applies.
+        var filter = new AnalysisDepthFilter([AnalysisMode.BookRollout], []);
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Unknown),
             expected: false);
     }
 
     // -----------------------------------------------------------------------
-    //  Multiple classes in filter — union (OR) semantics within the facet.
+    //  Canonical example (the user's own): 4-ply checked + Rollouts on.
+    //  Derived modes = {Rollout}, levels = {Ply4}. Only 4-ply rollouts pass.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void MultiClass_AnySelectedClass_Passes()
+    public void Canonical_FourPlyRollouts_OnlyFourPlyRolloutsPass()
     {
-        var filter = new AnalysisDepthFilter(
-            [AnalysisDepthClass.Ply3, AnalysisDepthClass.RolloutPly3]);
+        var filter = new AnalysisDepthFilter([AnalysisMode.Rollout], [AnalysisLevel.Ply4]);
 
-        AssertMatchesBoth(filter, new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply3), expected: true);
-        AssertMatchesBoth(filter, new RowShape(AnalysisDepthClass: AnalysisDepthClass.RolloutPly3), expected: true);
-    }
-
-    [Fact]
-    public void MultiClass_UnselectedClass_DoesNotPass()
-    {
-        var filter = new AnalysisDepthFilter(
-            [AnalysisDepthClass.Ply3, AnalysisDepthClass.RolloutPly3]);
-
-        AssertMatchesBoth(filter, new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply4), expected: false);
-    }
-
-    // -----------------------------------------------------------------------
-    //  Empty include-set — admits nothing (empty OR), same as the other facets.
-    // -----------------------------------------------------------------------
-
-    [Fact]
-    public void EmptyClassList_NothingPasses()
-    {
-        var filter = new AnalysisDepthFilter([]);
-        AssertMatchesBoth(filter, new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply3), expected: false);
-        AssertMatchesBoth(filter, new RowShape(AnalysisDepthClass: AnalysisDepthClass.Rollout), expected: false);
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4),
+            expected: true);
+        // A plain 4-ply evaluation is the same level but a different mode.
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4),
+            expected: false);
+        // A rollout at a different level.
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
+            expected: false);
     }
 
     // -----------------------------------------------------------------------
-    //  Unknown — drop-don't-pass unless explicitly selected.
+    //  Unknown mode — never admitted by an active filter, because no selection
+    //  produces mode Unknown (FilterConfig.Build never supplies it).
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void UnknownRow_NotSelected_DoesNotPass()
+    public void UnknownModeRow_DoesNotPassActiveFilter()
     {
-        // Legacy / unclassified rows carry Unknown; a filter selecting real
-        // depths must exclude them (the same convention ErrorRangeFilter uses
-        // for a null FilterError).
-        var filter = new AnalysisDepthFilter([AnalysisDepthClass.Ply3]);
-        AssertMatchesBoth(filter, new RowShape(AnalysisDepthClass: AnalysisDepthClass.Unknown), expected: false);
-    }
-
-    [Fact]
-    public void UnknownRow_UnknownSelected_Passes()
-    {
-        // Unknown's selectability is the deliberate opt-in for consumers that
-        // want the unclassified tail.
-        var filter = new AnalysisDepthFilter([AnalysisDepthClass.Unknown]);
-        AssertMatchesBoth(filter, new RowShape(AnalysisDepthClass: AnalysisDepthClass.Unknown), expected: true);
-    }
-
-    [Fact]
-    public void UnknownSelected_ClassifiedRow_DoesNotPass()
-    {
-        // Selecting Unknown must not sweep in classified rows.
-        var filter = new AnalysisDepthFilter([AnalysisDepthClass.Unknown]);
-        AssertMatchesBoth(filter, new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply3), expected: false);
+        // Legacy / unstamped rows carry Unknown mode; an active depth facet
+        // drops them (they pass only when the facet is inactive and the filter
+        // is absent — see FilterConfigTests).
+        var filter = new AnalysisDepthFilter([AnalysisMode.Evaluation], []);
+        AssertMatchesBoth(filter,
+            new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown),
+            expected: false);
     }
 
     // -----------------------------------------------------------------------
-    //  Unknown enum value — fails fast at construction
+    //  Construction guards.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void AnalysisDepthFilter_ConstructsForDefinedValue()
+    public void ConstructsForDefinedValues()
     {
-        var act = () => new AnalysisDepthFilter([AnalysisDepthClass.Ply3]);
+        var act = () => new AnalysisDepthFilter([AnalysisMode.Rollout], [AnalysisLevel.Ply3]);
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void UnknownAnalysisDepthClass_Constructor_Throws()
+    public void EmptyLevels_IsLegal()
     {
-        var act = () => new AnalysisDepthFilter([(AnalysisDepthClass)999]);
+        // The level axis is optional; only the mode set must be non-empty.
+        var act = () => new AnalysisDepthFilter([AnalysisMode.Rollout], []);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void EmptyModes_Throws()
+    {
+        var act = () => new AnalysisDepthFilter([], [AnalysisLevel.Ply3]);
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void UnknownMode_Constructor_Throws()
+    {
+        var act = () => new AnalysisDepthFilter([(AnalysisMode)999], [AnalysisLevel.Ply3]);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]
-    public void UnknownAnalysisDepthClass_MixedWithValid_Constructor_Throws()
+    public void UnknownLevel_Constructor_Throws()
     {
-        var act = () => new AnalysisDepthFilter([AnalysisDepthClass.Ply3, (AnalysisDepthClass)999]);
+        var act = () => new AnalysisDepthFilter([AnalysisMode.Rollout], [(AnalysisLevel)999]);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 }

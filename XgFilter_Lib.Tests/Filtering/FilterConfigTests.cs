@@ -188,28 +188,126 @@ public class FilterConfigTests
             .Should().BeTrue();
     }
 
+    // -----------------------------------------------------------------------
+    //  Depth facet — the two-axis semantics matrix. Build owns the derivation
+    //  of the effective mode set from raw intent (checked levels + the two
+    //  toggles); these tests pin every rule of that derivation through the
+    //  observable behaviour of the built set.
+    // -----------------------------------------------------------------------
+
     [Fact]
-    public void Build_AnalysisDepthClassesNonEmpty_AddsAnalysisDepthFilter()
+    public void Build_DepthFacetInactive_PassesEveryRow()
     {
+        // No level checked AND neither toggle on → facet inactive → filter not
+        // added, so even an Unknown-mode row (legacy data) passes.
+        var set = new FilterConfig().Build();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void Build_LevelsOnly_DefaultsToEvaluationMode()
+    {
+        // Levels checked, neither toggle on → mode set defaults to {Evaluation}.
+        // A 4-ply evaluation passes; a 4-ply rollout is the same level but a
+        // mode the facet did not select.
         var set = new FilterConfig
         {
-            AnalysisDepthClasses = { AnalysisDepthClass.Ply3 },
+            AnalysisLevels = { AnalysisLevel.Ply4 },
         }.Build();
 
-        set.Matches(new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply3).ToDecisionRow())
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
             .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisDepthClass: AnalysisDepthClass.Ply1).ToDecisionRow())
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
             .Should().BeFalse();
     }
 
     [Fact]
-    public void Build_AnalysisDepthClassesEmpty_SkipsAnalysisDepthFilter()
+    public void Build_RolloutsToggleOnly_AnyLevelRollout_Passes()
     {
-        // No depth filter added, so a row carrying Unknown (legacy data) still
-        // passes — an active filter would drop it.
-        var set = new FilterConfig().Build();
-        set.Matches(new RowShape(AnalysisDepthClass: AnalysisDepthClass.Unknown).ToDecisionRow())
+        // Rollouts on, no level checked → modes {Rollout}, level axis "any".
+        var set = new FilterConfig { IncludeRollouts = true }.Build();
+
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
             .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.XgRoller).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Build_Canonical_FourPlyChecked_RolloutsOn_OnlyFourPlyRolloutsPass()
+    {
+        // The user's own canonical example: 4-ply checked + Rollouts on → only
+        // 4-ply rollouts pass; plain 4-ply evaluations do not.
+        var set = new FilterConfig
+        {
+            AnalysisLevels = { AnalysisLevel.Ply4 },
+            IncludeRollouts = true,
+        }.Build();
+
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Build_BothToggles_AdmitBothRolloutModes()
+    {
+        // Rollouts AND Book rollouts on → modes {Rollout, BookRollout}.
+        var set = new FilterConfig
+        {
+            IncludeRollouts = true,
+            IncludeBookRollouts = true,
+        }.Build();
+
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Build_BookRolloutsToggle_NoLevel_AdmitsUnenrichedBookHit()
+    {
+        // An unenriched / V1 / eval-baseline book hit carries BookRollout mode
+        // and an Unknown level. With Book rollouts on and no level checked, the
+        // "any level" axis lets it through.
+        var set = new FilterConfig { IncludeBookRollouts = true }.Build();
+
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void Build_BookRolloutsToggle_LevelChecked_DropsUnknownLevelBookHit()
+    {
+        // Once a concrete level is checked, an Unknown-level book hit no longer
+        // matches the level axis — only book hits enriched to that level pass.
+        var set = new FilterConfig
+        {
+            IncludeBookRollouts = true,
+            AnalysisLevels = { AnalysisLevel.Ply4 },
+        }.Build();
+
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
+            .Should().BeFalse();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void Build_DepthFacetActive_DropsUnknownModeRow()
+    {
+        // No selection produces mode Unknown, so any active facet drops legacy
+        // Unknown-mode rows.
+        var set = new FilterConfig { IncludeRollouts = true }.Build();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
+            .Should().BeFalse();
     }
 
     [Fact]
@@ -281,9 +379,9 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void Build_UnknownAnalysisDepthClass_Throws()
+    public void Build_UnknownAnalysisLevel_Throws()
     {
-        var cfg = new FilterConfig { AnalysisDepthClasses = { (AnalysisDepthClass)999 } };
+        var cfg = new FilterConfig { AnalysisLevels = { (AnalysisLevel)999 } };
         var act = () => cfg.Build();
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
@@ -311,7 +409,9 @@ public class FilterConfigTests
             ContactTypes = { ContactType.Race },
             PositionTypes = { PositionType.InnerBoard631 },
             PlayTypes = { PlayType.Make20Pt },
-            AnalysisDepthClasses = { AnalysisDepthClass.Ply3, AnalysisDepthClass.RolloutPly3 },
+            AnalysisLevels = { AnalysisLevel.Ply3, AnalysisLevel.XgRoller },
+            IncludeRollouts = true,
+            IncludeBookRollouts = true,
             PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
         };
 
@@ -321,28 +421,34 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void ToJson_AnalysisDepthClasses_SerializeAsDeclarationNames()
+    public void ToJson_AnalysisLevels_SerializeAsDeclarationNames()
     {
-        // AnalysisDepthClass carries its own type-level JsonStringEnumConverter
-        // (it is owned by BgDataTypes_Lib), so it rides the wire as its
-        // declaration name even though FilterConfig does not own the enum.
+        // AnalysisLevel carries its own type-level JsonStringEnumConverter (it is
+        // owned by BgDataTypes_Lib), so it rides the wire as its declaration name
+        // even though FilterConfig does not own the enum.
         var json = new FilterConfig
         {
-            AnalysisDepthClasses = { AnalysisDepthClass.RolloutPly3 },
+            AnalysisLevels = { AnalysisLevel.XgRoller },
         }.ToJson();
 
-        json.Should().Contain("\"RolloutPly3\"",
-            "AnalysisDepthClass values must serialize as declaration names, not ordinals");
+        json.Should().Contain("\"XgRoller\"",
+            "AnalysisLevel values must serialize as declaration names, not ordinals");
     }
 
     [Fact]
-    public void FromJson_MissingAnalysisDepthClasses_RestoresEmptyList()
+    public void FromJson_MissingDepthMembers_RestoreToInactiveDefaults()
     {
-        // Legacy JSON written before the field existed omits it entirely; the
-        // member must materialize as an empty list (filter inactive), not null.
-        var restored = FilterConfig.FromJson("{\"Players\":[\"Alice\"]}");
+        // Legacy JSON written before the depth facet existed (or under the
+        // retired AnalysisDepthClasses field) omits the new members entirely;
+        // they must materialize as an empty level list and both toggles off —
+        // an inactive facet — not null. This is the beta-acceptable reset of
+        // old saved configs.
+        var restored = FilterConfig.FromJson(
+            "{\"Players\":[\"Alice\"],\"AnalysisDepthClasses\":[\"Ply3\"]}");
 
-        restored.AnalysisDepthClasses.Should().NotBeNull().And.BeEmpty();
+        restored.AnalysisLevels.Should().NotBeNull().And.BeEmpty();
+        restored.IncludeRollouts.Should().BeFalse();
+        restored.IncludeBookRollouts.Should().BeFalse();
     }
 
     [Fact]
@@ -428,7 +534,9 @@ public class FilterConfigTests
         restored.ContactTypes.Should().BeEmpty();
         restored.PositionTypes.Should().BeEmpty();
         restored.PlayTypes.Should().BeEmpty();
-        restored.AnalysisDepthClasses.Should().BeEmpty();
+        restored.AnalysisLevels.Should().BeEmpty();
+        restored.IncludeRollouts.Should().BeFalse();
+        restored.IncludeBookRollouts.Should().BeFalse();
     }
 
     [Fact]

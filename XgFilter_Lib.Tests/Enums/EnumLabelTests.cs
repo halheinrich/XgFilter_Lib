@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
 
 namespace XgFilter_Lib.Tests.Enums;
@@ -81,6 +82,34 @@ public class EnumLabelTests
         Column.MoveNumber.ToLabel().Should().Be("MoveNumber");
     }
 
+    // The two depth-taxonomy enums are owned by BgDataTypes_Lib but their
+    // UI labels are read through this same helper; a missing [Description]
+    // on either must surface as a loud failure, per the shared convention.
+
+    [Fact]
+    public void AnalysisMode_Evaluation_HasExpectedLabel()
+    {
+        AnalysisMode.Evaluation.ToLabel().Should().Be("Evaluation");
+    }
+
+    [Fact]
+    public void AnalysisMode_BookRollout_HasExpectedLabel()
+    {
+        AnalysisMode.BookRollout.ToLabel().Should().Be("Book rollout");
+    }
+
+    [Fact]
+    public void AnalysisLevel_Ply4_HasExpectedLabel()
+    {
+        AnalysisLevel.Ply4.ToLabel().Should().Be("4-ply");
+    }
+
+    [Fact]
+    public void AnalysisLevel_XgRollerPlusPlus_HasExpectedLabel()
+    {
+        AnalysisLevel.XgRollerPlusPlus.ToLabel().Should().Be("XG Roller++");
+    }
+
     // -----------------------------------------------------------------------
     //  Exhaustive round-trip — any new enum value missing [Description] fails
     //  via the throw-on-missing contract; the non-empty check just guards
@@ -119,6 +148,20 @@ public class EnumLabelTests
     public void EveryColumn_HasNonEmptyLabel()
     {
         foreach (var value in Enum.GetValues<Column>())
+            value.ToLabel().Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public void EveryAnalysisMode_HasNonEmptyLabel()
+    {
+        foreach (var value in Enum.GetValues<AnalysisMode>())
+            value.ToLabel().Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public void EveryAnalysisLevel_HasNonEmptyLabel()
+    {
+        foreach (var value in Enum.GetValues<AnalysisLevel>())
             value.ToLabel().Should().NotBeNullOrWhiteSpace();
     }
 

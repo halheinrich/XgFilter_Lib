@@ -62,7 +62,7 @@ public sealed class FilteredDecisionIterator
     public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir) =>
         IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
             (file, sourceFile, state, callbacks) =>
-                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, _logger));
+                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, logger: _logger));
 
     /// <summary>
     /// Iterates all .json files in <paramref name="jsonDir"/> and returns
@@ -73,7 +73,7 @@ public sealed class FilteredDecisionIterator
         IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"),
             XgFileReader.ReadJson,
             (file, sourceFile, state, callbacks) =>
-                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, _logger));
+                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, logger: _logger));
 
     /// <summary>
     /// Iterates every XG-format file in <paramref name="xgDir"/> — both
@@ -86,7 +86,7 @@ public sealed class FilteredDecisionIterator
     public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir) =>
         IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile,
             (file, sourceFile, state, callbacks) =>
-                XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, _logger));
+                XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, logger: _logger));
 
     /// <summary>
     /// Iterates a caller-supplied list of XG-format files presented as named
@@ -112,7 +112,7 @@ public sealed class FilteredDecisionIterator
         ArgumentNullException.ThrowIfNull(files);
         return IterateSources(ToSources(files),
             (file, sourceFile, state, callbacks) =>
-                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, _logger));
+                XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, logger: _logger));
     }
 
     /// <summary>
@@ -127,7 +127,7 @@ public sealed class FilteredDecisionIterator
         ArgumentNullException.ThrowIfNull(files);
         return IterateSources(ToSources(files),
             (file, sourceFile, state, callbacks) =>
-                XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, _logger));
+                XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, logger: _logger));
     }
 
     /// <summary>

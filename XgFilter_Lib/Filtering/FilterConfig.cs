@@ -17,11 +17,13 @@ namespace XgFilter_Lib.Filtering;
 /// Empty-list semantics (matches what consumer-side glue used to do
 /// before this type existed): an empty <see cref="Players"/>,
 /// <see cref="MatchScores"/>, <see cref="ContactTypes"/>,
-/// <see cref="PositionTypes"/>, <see cref="PlayTypes"/>, or
-/// <see cref="AnalysisDepthClasses"/> means "no
+/// <see cref="PositionTypes"/>, or <see cref="PlayTypes"/> means "no
 /// filter of this kind is active" — not "reject everything."
 /// A null or empty <see cref="PositionPattern"/> means the same for the
-/// per-point pattern filter.
+/// per-point pattern filter. The depth facet is inactive — and so passes
+/// everything — only when <see cref="AnalysisLevels"/> is empty <em>and</em>
+/// both <see cref="IncludeRollouts"/> and <see cref="IncludeBookRollouts"/>
+/// are off; see <see cref="Build"/> for the derivation.
 /// <see cref="Build"/> simply skips adding the filter to the set in that
 /// case. <see cref="DecisionType"/>
 /// defaults to <see cref="DecisionTypeOption.Both"/>, which is a
@@ -75,13 +77,31 @@ public sealed class FilterConfig
     public IList<PlayType> PlayTypes { get; set; } = new List<PlayType>();
 
     /// <summary>
-    /// Analysis-depth classes to admit (OR semantics). Empty = no depth filter.
-    /// Rows carrying <see cref="AnalysisDepthClass.Unknown"/> (legacy or
-    /// unclassified data) are excluded unless
-    /// <see cref="AnalysisDepthClass.Unknown"/> is explicitly listed —
-    /// see <see cref="AnalysisDepthFilter"/>.
+    /// Checked evaluation levels for the depth facet (OR semantics). Empty = no
+    /// level constraint (every level admitted, including
+    /// <see cref="AnalysisLevel.Unknown"/>). This is raw user intent, one of the
+    /// three inputs to the depth facet alongside <see cref="IncludeRollouts"/>
+    /// and <see cref="IncludeBookRollouts"/>; <see cref="Build"/> owns the
+    /// derivation into a mode set — see there and <see cref="AnalysisDepthFilter"/>.
     /// </summary>
-    public IList<AnalysisDepthClass> AnalysisDepthClasses { get; set; } = new List<AnalysisDepthClass>();
+    public IList<AnalysisLevel> AnalysisLevels { get; set; } = new List<AnalysisLevel>();
+
+    /// <summary>
+    /// Whether the depth facet admits full rollouts
+    /// (<see cref="AnalysisMode.Rollout"/>). One of the two independent mode
+    /// toggles; see <see cref="Build"/> for how the toggles and
+    /// <see cref="AnalysisLevels"/> compose.
+    /// </summary>
+    public bool IncludeRollouts { get; set; }
+
+    /// <summary>
+    /// Whether the depth facet admits opening-book hits
+    /// (<see cref="AnalysisMode.BookRollout"/>). Selecting this with no level
+    /// checked is the path by which an unenriched book hit
+    /// (<see cref="AnalysisMode.BookRollout"/> + <see cref="AnalysisLevel.Unknown"/>)
+    /// is admitted — see <see cref="Build"/>.
+    /// </summary>
+    public bool IncludeBookRollouts { get; set; }
 
     /// <summary>
     /// A general per-point checker-range constraint on the on-roll board.
@@ -104,7 +124,7 @@ public sealed class FilterConfig
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>,
-    /// <see cref="PlayTypes"/>, or <see cref="AnalysisDepthClasses"/> contains
+    /// <see cref="PlayTypes"/>, or <see cref="AnalysisLevels"/> contains
     /// an undefined enum value.
     /// </exception>
     public DecisionFilterSet Build()
@@ -135,8 +155,24 @@ public sealed class FilterConfig
         if (PlayTypes.Count > 0)
             set.Add(new PlayTypeFilter(PlayTypes));
 
-        if (AnalysisDepthClasses.Count > 0)
-            set.Add(new AnalysisDepthFilter(AnalysisDepthClasses));
+        // Depth facet (two axes: modes × levels). This block is the single
+        // source of truth for turning raw user intent — checked levels plus the
+        // two mode toggles — into the effective mode set. The panel supplies the
+        // three inputs verbatim and must not re-derive the modes here.
+        var modes = new List<AnalysisMode>();
+        if (IncludeRollouts) modes.Add(AnalysisMode.Rollout);
+        if (IncludeBookRollouts) modes.Add(AnalysisMode.BookRollout);
+
+        // Facet inactive iff no level checked AND neither toggle on — carries
+        // forward the "none selected = pass everything" convention, so the
+        // filter is simply not added. Otherwise Evaluation is the mode default
+        // when neither rollout toggle is on; the level axis defaults to "any"
+        // (an empty AnalysisLevels), which AnalysisDepthFilter honours directly.
+        if (AnalysisLevels.Count > 0 || modes.Count > 0)
+        {
+            if (modes.Count == 0) modes.Add(AnalysisMode.Evaluation);
+            set.Add(new AnalysisDepthFilter(modes, AnalysisLevels));
+        }
 
         if (PositionPattern is { IsEmpty: false })
             set.Add(new PositionPatternFilter(PositionPattern));
@@ -165,13 +201,15 @@ public sealed class FilterConfig
     /// <see cref="JsonSerializerOptions"/> a consumer might use across a wire.
     /// </para>
     /// <para>
-    /// <see cref="AnalysisDepthClasses"/> is the same self-describing case as
-    /// <see cref="PositionPattern"/>: <see cref="AnalysisDepthClass"/> carries
-    /// its own type-level <see cref="JsonStringEnumConverter"/> (it is owned by
+    /// <see cref="AnalysisLevels"/> is the same self-describing case as
+    /// <see cref="PositionPattern"/>: <see cref="AnalysisLevel"/> carries its own
+    /// type-level <see cref="JsonStringEnumConverter"/> (it is owned by
     /// <c>BgDataTypes_Lib</c>, not <c>XgFilter_Lib.Enums</c>), so it serializes
     /// as its declaration name even without the registration above. The shared
     /// <see cref="JsonStringEnumConverter"/> registered here is redundant for
-    /// this member but harmless.
+    /// this member but harmless. <see cref="IncludeRollouts"/> /
+    /// <see cref="IncludeBookRollouts"/> are plain booleans and need no
+    /// converter.
     /// </para>
     /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
     /// is expensive to build and thread-safe once first used.
