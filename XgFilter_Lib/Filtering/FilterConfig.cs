@@ -17,7 +17,8 @@ namespace XgFilter_Lib.Filtering;
 /// Empty-list semantics (matches what consumer-side glue used to do
 /// before this type existed): an empty <see cref="Players"/>,
 /// <see cref="MatchScores"/>, <see cref="ContactTypes"/>,
-/// <see cref="PositionTypes"/>, or <see cref="PlayTypes"/> means "no
+/// <see cref="PositionTypes"/>, <see cref="PlayTypes"/>, or
+/// <see cref="DiceRolls"/> means "no
 /// filter of this kind is active" — not "reject everything."
 /// A null or empty <see cref="PositionPattern"/> means the same for the
 /// per-point pattern filter. The depth facet is inactive — and so passes
@@ -104,6 +105,18 @@ public sealed class FilterConfig
     public bool IncludeBookRollouts { get; set; }
 
     /// <summary>
+    /// Dice rolls to admit (OR semantics). Empty = no dice filter. Each roll is
+    /// canonical and unordered, so listing <c>"31"</c> admits both dice orders;
+    /// cube decisions (which carry no roll) never pass an active dice filter.
+    /// Serializes as a string-token array (e.g. <c>["31","66"]</c>) via the
+    /// converter <see cref="DiceRoll"/> declares on itself, so it needs no
+    /// converter registered in <see cref="CanonicalOptions"/> — the same
+    /// self-describing case as <see cref="AnalysisLevels"/> and
+    /// <see cref="PositionPattern"/>.
+    /// </summary>
+    public IList<DiceRoll> DiceRolls { get; set; } = new List<DiceRoll>();
+
+    /// <summary>
     /// A general per-point checker-range constraint on the on-roll board.
     /// Null or empty = no pattern filter. Serializes as its bracket-list string
     /// via the converter <see cref="BoardPattern"/> declares on itself (see
@@ -174,6 +187,9 @@ public sealed class FilterConfig
             set.Add(new AnalysisDepthFilter(modes, AnalysisLevels));
         }
 
+        if (DiceRolls.Count > 0)
+            set.Add(new DiceRollFilter(DiceRolls));
+
         if (PositionPattern is { IsEmpty: false })
             set.Add(new PositionPatternFilter(PositionPattern));
 
@@ -201,13 +217,19 @@ public sealed class FilterConfig
     /// <see cref="JsonSerializerOptions"/> a consumer might use across a wire.
     /// </para>
     /// <para>
-    /// <see cref="AnalysisLevels"/> is the same self-describing case as
+    /// <see cref="AnalysisLevels"/> and <see cref="DiceRolls"/> are the same
+    /// self-describing case as
     /// <see cref="PositionPattern"/>: <see cref="AnalysisLevel"/> carries its own
     /// type-level <see cref="JsonStringEnumConverter"/> (it is owned by
-    /// <c>BgDataTypes_Lib</c>, not <c>XgFilter_Lib.Enums</c>), so it serializes
-    /// as its declaration name even without the registration above. The shared
+    /// <c>BgDataTypes_Lib</c>, not <c>XgFilter_Lib.Enums</c>) and
+    /// <see cref="DiceRoll"/> carries its own type-level
+    /// <c>[JsonConverter]</c> (also owned by <c>BgDataTypes_Lib</c>), so each
+    /// serializes as its string form even without the registration above —
+    /// <see cref="AnalysisLevel"/> as its declaration name,
+    /// <see cref="DiceRoll"/> as its two-digit token (<c>"31"</c>). The shared
     /// <see cref="JsonStringEnumConverter"/> registered here is redundant for
-    /// this member but harmless. <see cref="IncludeRollouts"/> /
+    /// <see cref="AnalysisLevels"/> (and does not touch <see cref="DiceRolls"/>)
+    /// but harmless. <see cref="IncludeRollouts"/> /
     /// <see cref="IncludeBookRollouts"/> are plain booleans and need no
     /// converter.
     /// </para>

@@ -310,6 +310,34 @@ public class FilterConfigTests
             .Should().BeFalse();
     }
 
+    // -----------------------------------------------------------------------
+    //  Dice facet
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Build_DiceRollsNonEmpty_AddsDiceRollFilter()
+    {
+        var set = new FilterConfig
+        {
+            DiceRolls = { new DiceRoll(3, 1) },
+        }.Build();
+
+        set.Matches(new RowShape(Roll: 31).ToDecisionRow()).Should().BeTrue();
+        set.Matches(new RowShape(Roll: 52).ToDecisionRow()).Should().BeFalse();
+        // Cube rows carry no roll and never pass an active dice facet.
+        set.Matches(new RowShape(IsCube: true).ToDecisionRow()).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Build_DiceRollsEmpty_SkipsDiceRollFilter()
+    {
+        // Empty = facet inactive; the filter is not added, so every row passes
+        // (an added empty-set DiceRollFilter would instead reject everything).
+        var set = new FilterConfig().Build();
+        set.Matches(new RowShape(Roll: 52).ToDecisionRow()).Should().BeTrue();
+        set.Matches(new RowShape(IsCube: true).ToDecisionRow()).Should().BeTrue();
+    }
+
     [Fact]
     public void Build_PositionPatternSet_AddsPositionPatternFilter()
     {
@@ -412,12 +440,50 @@ public class FilterConfigTests
             AnalysisLevels = { AnalysisLevel.Ply3, AnalysisLevel.XgRoller },
             IncludeRollouts = true,
             IncludeBookRollouts = true,
+            DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
             PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
         };
 
         var restored = FilterConfig.FromJson(original.ToJson());
 
         restored.Should().BeEquivalentTo(original);
+    }
+
+    [Fact]
+    public void ToJson_DiceRolls_SerializeAsTwoDigitTokenArray()
+    {
+        // DiceRoll carries its own type-level [JsonConverter] (owned by
+        // BgDataTypes_Lib), so the list rides the wire as a string-token array —
+        // ["31","66"] — even though FilterConfig registers no converter for it.
+        var json = new FilterConfig
+        {
+            DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
+        }.ToJson();
+
+        json.Should().Contain("[\"31\",\"66\"]",
+            "DiceRoll values must serialize as their canonical two-digit tokens, not objects or ordinals");
+    }
+
+    [Fact]
+    public void FromJson_DiceRollTokenArray_RestoresRolls()
+    {
+        // The inverse: a token array reads back through the type's converter,
+        // canonicalized (the low-first "13" token yields the same value as "31").
+        var restored = FilterConfig.FromJson("{\"DiceRolls\":[\"13\",\"66\"]}");
+
+        restored.DiceRolls.Should().BeEquivalentTo(
+            new[] { new DiceRoll(3, 1), new DiceRoll(6, 6) });
+    }
+
+    [Fact]
+    public void FromJson_MissingDiceRolls_RestoresToInactiveFacet()
+    {
+        // An old saved config written before the dice facet existed omits the
+        // field entirely; it must materialize as an empty list (facet inactive),
+        // not null — the same additive-field tolerance the other list members get.
+        var restored = FilterConfig.FromJson("{\"Players\":[\"Alice\"]}");
+
+        restored.DiceRolls.Should().NotBeNull().And.BeEmpty();
     }
 
     [Fact]
@@ -537,6 +603,7 @@ public class FilterConfigTests
         restored.AnalysisLevels.Should().BeEmpty();
         restored.IncludeRollouts.Should().BeFalse();
         restored.IncludeBookRollouts.Should().BeFalse();
+        restored.DiceRolls.Should().BeEmpty();
     }
 
     [Fact]

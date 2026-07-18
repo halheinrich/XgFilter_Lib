@@ -173,7 +173,7 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 
 ### Filtering
 
-The ten concrete filter classes (`PlayerFilter` … `AnalysisDepthFilter`)
+The eleven concrete filter classes (`PlayerFilter` … `DiceRollFilter`)
 and `IMatchFilter` are `internal`. `FilterConfig.Build()` is the intent
 surface — consumers state *what* to filter and the library materializes
 the `DecisionFilterSet`; only `IDecisionFilter` stays public, as the
@@ -203,9 +203,9 @@ surface, and are reachable from the test project via
   directly (no string-list parsing on the consumer side) and call
   `Build()` to materialize a `DecisionFilterSet`. Empty-list semantics:
   an empty `Players` / `MatchScores` / `ContactTypes` / `PositionTypes` /
-  `PlayTypes`, and a null-or-empty `PositionPattern`, each mean "no
-  filter of this kind is active," not "reject everything"; `Build()`
-  skips the corresponding `Add()` in that case. The depth facet is the
+  `PlayTypes` / `DiceRolls`, and a null-or-empty `PositionPattern`, each
+  mean "no filter of this kind is active," not "reject everything";
+  `Build()` skips the corresponding `Add()` in that case. The depth facet is the
   one exception to the single-member pattern — it is inactive (skipped)
   only when `AnalysisLevels` is empty **and** both `IncludeRollouts` and
   `IncludeBookRollouts` are off (see **Depth facet semantics** below).
@@ -217,13 +217,15 @@ surface, and are reachable from the test project via
   — so the enum-list members round-trip as `["InnerBoard631", ...]`
   name-arrays rather than ordinals (`ContactType` / `PositionType` /
   `PlayType` / `DecisionType` carry no type-level `[JsonConverter]`).
-  `AnalysisLevels` and `PositionPattern` are the self-describing
-  exceptions that need no converter registered here: `AnalysisLevel`
-  (owned by `BgDataTypes_Lib`) carries its own type-level
-  `JsonStringEnumConverter`, and `BoardPattern` carries its own (see
-  **Patterns** below), so both serialize as their string form under these
-  options and under any others; `IncludeRollouts` / `IncludeBookRollouts`
-  are plain booleans. `TryFromJson` restores a fresh default config on a
+  `AnalysisLevels`, `DiceRolls`, and `PositionPattern` are the
+  self-describing exceptions that need no converter registered here:
+  `AnalysisLevel` (owned by `BgDataTypes_Lib`) carries its own type-level
+  `JsonStringEnumConverter`, `DiceRoll` (also `BgDataTypes_Lib`) carries its
+  own type-level `[JsonConverter]` serializing as the `"31"` two-digit token,
+  and `BoardPattern` carries its own (see **Patterns** below), so all three
+  serialize as their string form under these options and under any others —
+  `DiceRolls` thus rides the wire as a `["31","66"]` token array;
+  `IncludeRollouts` / `IncludeBookRollouts` are plain booleans. `TryFromJson` restores a fresh default config on a
   null argument, the literal `null` token, or malformed JSON — the path by
   which old saved configs (carrying the retired `AnalysisDepthClasses`
   field) reset to an inactive depth facet on read.
@@ -361,6 +363,23 @@ surface, and are reachable from the test project via
   (a single game mixes book, N-ply, and rollout decisions), so there is no
   sound early-exit. Undefined `AnalysisMode` / `AnalysisLevel` values are
   rejected at construction.
+* `DiceRollFilter` — include list of `DiceRoll`. Like the depth facet, the
+  roll is a scalar the producer already stamped on each decision
+  (`IDecisionFilterData.Dice`), so this is a direct set-membership test — no
+  classifier dispatch, no board reads. OR semantics: a row passes iff its
+  `Dice` value-equals a selected roll, over `DiceRoll`'s record-struct value
+  equality. `DiceRoll` is canonical-unordered by construction, so 3-1 ≡ 1-3
+  and the filter does **no** normalization of its own; the include-set and the
+  row's roll may each be spelled in either dice order. Cube rows always fail —
+  `Dice` is null (no roll exists before the cube is offered), the same
+  drop-don't-pass posture `PlayTypeFilter`/`ErrorRangeFilter` apply to their
+  null cases. Empty set → always false (empty OR), which `FilterConfig.Build`
+  keeps out of the set by skipping the add. Unlike the enum facets there is no
+  unknown-value guard: `DiceRoll` is validated by construction, so an ill-formed
+  roll cannot reach the set. Deliberately `Matches`-only — no `IMatchFilter`,
+  no `ShouldAdvance*`: dice are not knowable from a match/game header and are
+  not monotonic within a game, so there is no sound early-exit (the
+  `AnalysisDepthFilter` reasoning).
 
 ### Classification
 
@@ -645,6 +664,7 @@ public sealed class FilterConfig
     public IList<AnalysisLevel>      AnalysisLevels       { get; set; }
     public bool                      IncludeRollouts      { get; set; }
     public bool                      IncludeBookRollouts  { get; set; }
+    public IList<DiceRoll>           DiceRolls            { get; set; }
     public BoardPattern?             PositionPattern      { get; set; }
 
     public DecisionFilterSet Build();

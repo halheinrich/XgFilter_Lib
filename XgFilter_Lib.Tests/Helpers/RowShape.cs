@@ -24,6 +24,7 @@ internal sealed record RowShape(
     int MatchLength = 7,
     int MoveNumber = 1,
     bool IsStandardStart = true,
+    int Roll = 31,
     AnalysisMode AnalysisMode = AnalysisMode.Unknown,
     AnalysisLevel AnalysisLevel = AnalysisLevel.Unknown,
     int[]? Board = null,
@@ -53,6 +54,7 @@ internal sealed record RowShape(
             isStandardStart: IsStandardStart,
             mode: AnalysisMode,
             level: AnalysisLevel,
+            roll: Roll,
             board: Board,
             afterBestBoard: AfterBestBoard,
             afterPlayerBoard: AfterPlayerBoard);
@@ -69,6 +71,7 @@ internal sealed record RowShape(
         userPlayError: Error,
         mode: AnalysisMode,
         level: AnalysisLevel,
+        roll: Roll,
         board: Board,
         afterBestBoard: AfterBestBoard,
         afterPlayerBoard: AfterPlayerBoard);

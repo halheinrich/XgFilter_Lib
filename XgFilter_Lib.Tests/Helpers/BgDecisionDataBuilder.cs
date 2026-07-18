@@ -34,6 +34,7 @@ internal static class BgDecisionDataBuilder
         double? userTakeError = null,
         AnalysisMode mode = AnalysisMode.Unknown,
         AnalysisLevel level = AnalysisLevel.Unknown,
+        int roll = 31,
         int[]? board = null,
         int[]? afterBestBoard = null,
         int[]? afterPlayerBoard = null)
@@ -56,6 +57,12 @@ internal static class BgDecisionDataBuilder
             Decision = new DecisionData
             {
                 IsCube = isCube,
+                // Two producer-stamped faces, rolled order; BgDecisionData.Dice
+                // canonicalizes them. A cube row's Dice getter returns null
+                // regardless, so this is ignored there. Default 31 mirrors
+                // DecisionRowBuilder's default roll, keeping the two substrates'
+                // Dice in step for the shared RowShape default.
+                Dice = [roll / 10, roll % 10],
                 UserPlayError = userPlayError,
                 UserDoubleError = userDoubleError,
                 UserTakeError = userTakeError,
