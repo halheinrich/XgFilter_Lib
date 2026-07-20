@@ -701,15 +701,15 @@ public class FilteredDecisionIteratorTests
     private sealed class SkipAllMatchesFilter : IDecisionFilter, IMatchFilter
     {
         public bool Matches(IDecisionFilterData data) => true;
-        public bool ShouldSkipMatch(XgMatchInfo match) => true;
-        public bool ShouldSkipGame(XgGameInfo game) => false;
+        public bool ShouldSkipMatch(IMatchInfo match) => true;
+        public bool ShouldSkipGame(IGameInfo game) => false;
     }
 
     private sealed class SkipAllGamesFilter : IDecisionFilter, IMatchFilter
     {
         public bool Matches(IDecisionFilterData data) => true;
-        public bool ShouldSkipMatch(XgMatchInfo match) => false;
-        public bool ShouldSkipGame(XgGameInfo game) => true;
+        public bool ShouldSkipMatch(IMatchInfo match) => false;
+        public bool ShouldSkipGame(IGameInfo game) => true;
     }
 
     private sealed class AdvanceMatchOnAnyRowFilter : IDecisionFilter

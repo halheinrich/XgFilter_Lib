@@ -1,5 +1,4 @@
 using BgDataTypes_Lib;
-using ConvertXgToJson_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
@@ -30,8 +29,8 @@ public class DecisionFilterSetTests
         : IDecisionFilter, IMatchFilter
     {
         public bool Matches(IDecisionFilterData data) => true;
-        public bool ShouldSkipMatch(XgMatchInfo match) => skipMatch;
-        public bool ShouldSkipGame(XgGameInfo game) => skipGame;
+        public bool ShouldSkipMatch(IMatchInfo match) => skipMatch;
+        public bool ShouldSkipGame(IGameInfo game) => skipGame;
     }
 
     // -----------------------------------------------------------------------
@@ -151,7 +150,7 @@ public class DecisionFilterSetTests
     [Fact]
     public void ShouldSkipMatch_EmptySet_ReturnsFalse()
     {
-        new DecisionFilterSet().ShouldSkipMatch(new XgMatchInfo()).Should().BeFalse();
+        new DecisionFilterSet().ShouldSkipMatch(new FakeMatchInfo()).Should().BeFalse();
     }
 
     [Fact]
@@ -160,7 +159,7 @@ public class DecisionFilterSetTests
         // A filter that implements IDecisionFilter but not IMatchFilter
         // must not influence the skip decision.
         var set = new DecisionFilterSet().Add(new AlwaysMatchFilter());
-        set.ShouldSkipMatch(new XgMatchInfo()).Should().BeFalse();
+        set.ShouldSkipMatch(new FakeMatchInfo()).Should().BeFalse();
     }
 
     [Fact]
@@ -170,7 +169,7 @@ public class DecisionFilterSetTests
             .Add(new SkipVoteFilter(skipMatch: false))
             .Add(new SkipVoteFilter(skipMatch: true));
 
-        set.ShouldSkipMatch(new XgMatchInfo()).Should().BeTrue();
+        set.ShouldSkipMatch(new FakeMatchInfo()).Should().BeTrue();
     }
 
     [Fact]
@@ -180,7 +179,7 @@ public class DecisionFilterSetTests
             .Add(new SkipVoteFilter(skipMatch: false))
             .Add(new SkipVoteFilter(skipMatch: false));
 
-        set.ShouldSkipMatch(new XgMatchInfo()).Should().BeFalse();
+        set.ShouldSkipMatch(new FakeMatchInfo()).Should().BeFalse();
     }
 
     [Fact]
@@ -190,7 +189,7 @@ public class DecisionFilterSetTests
             .Add(new SkipVoteFilter(skipGame: false))
             .Add(new SkipVoteFilter(skipGame: true));
 
-        set.ShouldSkipGame(new XgGameInfo()).Should().BeTrue();
+        set.ShouldSkipGame(new FakeGameInfo()).Should().BeTrue();
     }
 
     [Fact]
@@ -200,7 +199,7 @@ public class DecisionFilterSetTests
             .Add(new SkipVoteFilter(skipGame: false))
             .Add(new SkipVoteFilter(skipGame: false));
 
-        set.ShouldSkipGame(new XgGameInfo()).Should().BeFalse();
+        set.ShouldSkipGame(new FakeGameInfo()).Should().BeFalse();
     }
 
     // -----------------------------------------------------------------------
@@ -252,5 +251,56 @@ public class DecisionFilterSetTests
             .Add(new AdvanceVoteFilter(advanceGame: false));
 
         AssertSetShouldAdvanceGameBoth(set, new RowShape(), expected: false);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Decoupling proof — the encapsulation this contract-layer arc exists to
+    //  buy. The header-skip surface consumes only BgDataTypes_Lib abstractions,
+    //  so a real filter set decides skips from a plain IMatchInfo / IGameInfo
+    //  with no parser (ConvertXgToJson_Lib) type anywhere in reach. Inputs are
+    //  statically typed as the interfaces to make that explicit, and the fakes
+    //  redeclare none of the interface's default members — proving IsMoneyGame
+    //  answers through the DIM on an interface-typed reference (a concrete-typed
+    //  reference could not call it).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ShouldSkipMatch_DecidesFromPlainIMatchInfo_NoParserType()
+    {
+        var set = new DecisionFilterSet().Add(new PlayerFilter(["Alice"]));
+
+        IMatchInfo present = new FakeMatchInfo { Player1 = "Alice", Player2 = "Bob" };
+        IMatchInfo absent = new FakeMatchInfo { Player1 = "Bob", Player2 = "Charlie" };
+
+        set.ShouldSkipMatch(present).Should().BeFalse();
+        set.ShouldSkipMatch(absent).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSkipGame_DecidesFromPlainIGameInfo_NoParserType()
+    {
+        var set = new DecisionFilterSet().Add(new MoveNumberFilter(min: 1, max: 5));
+
+        IGameInfo standard = new FakeGameInfo { IsStandardStart = true };
+        IGameInfo custom = new FakeGameInfo { IsStandardStart = false };
+
+        set.ShouldSkipGame(standard).Should().BeFalse();
+        set.ShouldSkipGame(custom).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldSkipMatch_MoneyPredicate_AnswersThroughDimOnPlainIMatchInfo()
+    {
+        // money-only filter: skips a match session, admits a money session.
+        // The verdict turns on IMatchInfo.IsMoneyGame — a default interface
+        // member the fake never restates — so this only compiles and passes
+        // because the input is interface-typed.
+        var set = new DecisionFilterSet().Add(new MatchScoreFilter(["money"]));
+
+        IMatchInfo money = new FakeMatchInfo { MatchLength = 0 };
+        IMatchInfo match = new FakeMatchInfo { MatchLength = 7 };
+
+        set.ShouldSkipMatch(money).Should().BeFalse();
+        set.ShouldSkipMatch(match).Should().BeTrue();
     }
 }

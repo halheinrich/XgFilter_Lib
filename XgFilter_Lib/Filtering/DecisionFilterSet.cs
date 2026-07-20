@@ -1,5 +1,4 @@
 using BgDataTypes_Lib;
-using ConvertXgToJson_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -46,14 +45,14 @@ public sealed class DecisionFilterSet
     /// Pre-stream: true if any <see cref="IMatchFilter"/> in the set votes to
     /// skip the match from header metadata alone.
     /// </summary>
-    public bool ShouldSkipMatch(XgMatchInfo match) =>
+    public bool ShouldSkipMatch(IMatchInfo match) =>
         _filters.OfType<IMatchFilter>().Any(f => f.ShouldSkipMatch(match));
 
     /// <summary>
     /// Pre-stream: true if any <see cref="IMatchFilter"/> in the set votes to
     /// skip the game from header metadata alone.
     /// </summary>
-    public bool ShouldSkipGame(XgGameInfo game) =>
+    public bool ShouldSkipGame(IGameInfo game) =>
         _filters.OfType<IMatchFilter>().Any(f => f.ShouldSkipGame(game));
 
     /// <summary>

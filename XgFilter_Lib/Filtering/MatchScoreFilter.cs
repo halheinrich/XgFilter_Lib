@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using BgDataTypes_Lib;
-using ConvertXgToJson_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -50,7 +49,7 @@ internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
     /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data)
     {
-        if (data.MatchLength == 0)
+        if (data.IsMoneyGame)
             return _includesMoney;
 
         return _tuples.Any(t =>
@@ -68,9 +67,9 @@ internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
     /// Match headers carry no orientation, and the length bound is
     /// orientation-free, so this projection is exact for either orientation.
     /// </summary>
-    public bool ShouldSkipMatch(XgMatchInfo match)
+    public bool ShouldSkipMatch(IMatchInfo match)
     {
-        bool isMoney = match.MatchLength == 0;
+        bool isMoney = match.IsMoneyGame;
 
         if (isMoney && !_includesMoney) return true;
         if (!isMoney && _tuples.Count == 0) return true;
@@ -122,7 +121,7 @@ internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
     /// flag exact. <see cref="Matches"/> remains the per-decision arbiter
     /// of orientation.
     /// </summary>
-    public bool ShouldSkipGame(XgGameInfo game)
+    public bool ShouldSkipGame(IGameInfo game)
     {
         bool isMoney = game.Away1 == 0 && game.Away2 == 0 && !game.IsCrawfordGame;
 
@@ -158,7 +157,7 @@ internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
     /// </summary>
     public bool ShouldAdvanceMatch(IDecisionFilterData data)
     {
-        if (data.MatchLength == 0) return false;
+        if (data.IsMoneyGame) return false;
         return !_tuples.Any(t =>
             MatchesGameScore(t, data.OnRollNeeds, data.OpponentNeeds, data.IsCrawford) ||
             IsReachable(t, data));

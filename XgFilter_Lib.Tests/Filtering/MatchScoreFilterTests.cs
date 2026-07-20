@@ -1,4 +1,3 @@
-using ConvertXgToJson_Lib;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
 
@@ -97,14 +96,14 @@ public class MatchScoreFilterTests
     }
 
     // -----------------------------------------------------------------------
-    //  IMatchFilter: ShouldSkipMatch — XgMatchInfo input, no substrate axis
+    //  IMatchFilter: ShouldSkipMatch — IMatchInfo input, no substrate axis
     // -----------------------------------------------------------------------
 
     [Fact]
     public void ShouldSkipMatch_MoneySession_FilterHasNoMoney_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
 
         filter.ShouldSkipMatch(match).Should().BeTrue();
     }
@@ -113,7 +112,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipMatch_MoneySession_FilterIncludesMoney_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["money"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
     }
@@ -122,7 +121,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipMatch_MatchSession_FilterIsMoneyOnly_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["money"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
 
         filter.ShouldSkipMatch(match).Should().BeTrue();
     }
@@ -131,7 +130,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipMatch_MatchSession_TargetsExceedMatchLength_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["7a7a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
         filter.ShouldSkipMatch(match).Should().BeTrue();
     }
@@ -140,7 +139,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipMatch_MatchSession_AtLeastOneTargetReachable_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
     }
@@ -151,7 +150,7 @@ public class MatchScoreFilterTests
         // The length bound is orientation-free: 5a3a fits a 5-point match
         // exactly as 3a5a does.
         var filter = new MatchScoreFilter(["5a3a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
     }
@@ -164,7 +163,7 @@ public class MatchScoreFilterTests
         // occur in a 5-point match; the naive "both sides <= L" bound
         // over-admitted it.
         var filter = new MatchScoreFilter(["1a5a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
         filter.ShouldSkipMatch(match).Should().BeTrue();
     }
@@ -173,7 +172,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipMatch_PostCrawfordTargetBelowMatchLength_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a4a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
     }
@@ -185,7 +184,7 @@ public class MatchScoreFilterTests
         // the trailer still needs the full match length. Only the
         // non-Crawford 1-away family is capped at L - 1.
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
     }
@@ -202,7 +201,7 @@ public class MatchScoreFilterTests
         // those rows carry IsCrawford=true and match no valid token, so this
         // header-level admit stays harmless.
         var filter = new MatchScoreFilter(["1a1a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 1 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 1 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
     }
@@ -213,7 +212,7 @@ public class MatchScoreFilterTests
         // In a 2-point match the post-Crawford family is only (1,1):
         // (1, 2, false) would need a Crawford game at (1, k) with k > 2 > L.
         var filter = new MatchScoreFilter(["1a2a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 2 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 2 };
 
         filter.ShouldSkipMatch(match).Should().BeTrue();
     }
@@ -222,7 +221,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipMatch_TwoPointMatch_1a1a_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a1a"]);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 2 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 2 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
     }
@@ -235,7 +234,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_MoneyGame_FilterHasNoMoney_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var game = new XgGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
+        var game = new FakeGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
 
         filter.ShouldSkipGame(game).Should().BeTrue();
     }
@@ -244,7 +243,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_MoneyGame_FilterIncludesMoney_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["money"]);
-        var game = new XgGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
+        var game = new FakeGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
 
         filter.ShouldSkipGame(game).Should().BeFalse();
     }
@@ -253,7 +252,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_ScoreMatchesTarget_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var game = new XgGameInfo { Away1 = 3, Away2 = 5, IsCrawfordGame = false };
+        var game = new FakeGameInfo { Away1 = 3, Away2 = 5, IsCrawfordGame = false };
 
         filter.ShouldSkipGame(game).Should().BeFalse();
     }
@@ -262,7 +261,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_ScoreMissesTarget_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var game = new XgGameInfo { Away1 = 2, Away2 = 4, IsCrawfordGame = false };
+        var game = new FakeGameInfo { Away1 = 2, Away2 = 4, IsCrawfordGame = false };
 
         filter.ShouldSkipGame(game).Should().BeTrue();
     }
@@ -271,7 +270,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_CrawfordMismatch_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var game = new XgGameInfo { Away1 = 1, Away2 = 5, IsCrawfordGame = false };
+        var game = new FakeGameInfo { Away1 = 1, Away2 = 5, IsCrawfordGame = false };
 
         filter.ShouldSkipGame(game).Should().BeTrue();
     }
@@ -280,7 +279,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_CrawfordMatch_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var game = new XgGameInfo { Away1 = 1, Away2 = 5, IsCrawfordGame = true };
+        var game = new FakeGameInfo { Away1 = 1, Away2 = 5, IsCrawfordGame = true };
 
         filter.ShouldSkipGame(game).Should().BeFalse();
     }
@@ -294,7 +293,7 @@ public class MatchScoreFilterTests
         // (4,5). The game gate must admit either orientation; Matches stays
         // the per-decision arbiter.
         var filter = new MatchScoreFilter(["4a5a"]);
-        var game = new XgGameInfo { Away1 = 5, Away2 = 4, IsCrawfordGame = false };
+        var game = new FakeGameInfo { Away1 = 5, Away2 = 4, IsCrawfordGame = false };
 
         filter.ShouldSkipGame(game).Should().BeFalse();
     }
@@ -303,7 +302,7 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_SwappedOrientationCrawford_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var game = new XgGameInfo { Away1 = 5, Away2 = 1, IsCrawfordGame = true };
+        var game = new FakeGameInfo { Away1 = 5, Away2 = 1, IsCrawfordGame = true };
 
         filter.ShouldSkipGame(game).Should().BeFalse();
     }
@@ -314,7 +313,7 @@ public class MatchScoreFilterTests
         // Orientation is projected loosely (either order) but the Crawford
         // flag stays exact — it is game-level information the header knows.
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var game = new XgGameInfo { Away1 = 5, Away2 = 1, IsCrawfordGame = false };
+        var game = new FakeGameInfo { Away1 = 5, Away2 = 1, IsCrawfordGame = false };
 
         filter.ShouldSkipGame(game).Should().BeTrue();
     }

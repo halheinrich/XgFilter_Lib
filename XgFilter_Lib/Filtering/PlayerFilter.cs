@@ -1,5 +1,4 @@
 using BgDataTypes_Lib;
-using ConvertXgToJson_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -26,11 +25,11 @@ internal sealed class PlayerFilter : IDecisionFilter, IMatchFilter
     /// <summary>
     /// Skip the match if neither player is in the include list.
     /// </summary>
-    public bool ShouldSkipMatch(XgMatchInfo match) =>
+    public bool ShouldSkipMatch(IMatchInfo match) =>
         !_players.Contains(match.Player1) && !_players.Contains(match.Player2);
 
     /// <summary>
     /// Player names do not change per game — no game-level skip.
     /// </summary>
-    public bool ShouldSkipGame(XgGameInfo game) => false;
+    public bool ShouldSkipGame(IGameInfo game) => false;
 }

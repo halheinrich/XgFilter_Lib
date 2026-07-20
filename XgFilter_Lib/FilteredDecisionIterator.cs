@@ -191,7 +191,7 @@ public sealed class FilteredDecisionIterator
     private IEnumerable<T> IterateFiles<T>(
         IEnumerable<string> paths,
         Func<string, XgFile> reader,
-        Func<XgFile, string?, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source)
+        Func<XgFile, string, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source)
         where T : IDecisionFilterData =>
         IterateSources(
             paths.Select(path => (Path.GetFileName(path), (Func<XgFile>)(() => reader(path)))),
@@ -218,7 +218,7 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     private IEnumerable<T> IterateSources<T>(
         IEnumerable<(string sourceFile, Func<XgFile> read)> sources,
-        Func<XgFile, string?, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source)
+        Func<XgFile, string, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source)
         where T : IDecisionFilterData
     {
         var callbacks = new XgIteratorCallbacks(

@@ -1,5 +1,4 @@
 using BgDataTypes_Lib;
-using ConvertXgToJson_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -53,8 +52,8 @@ internal sealed class MoveNumberFilter : IDecisionFilter, IMatchFilter
         _max is int max && data.MoveNumber > max;
 
     /// <inheritdoc/>
-    public bool ShouldSkipMatch(XgMatchInfo match) => false;
+    public bool ShouldSkipMatch(IMatchInfo match) => false;
 
     /// <inheritdoc/>
-    public bool ShouldSkipGame(XgGameInfo game) => !game.IsStandardStart;
+    public bool ShouldSkipGame(IGameInfo game) => !game.IsStandardStart;
 }

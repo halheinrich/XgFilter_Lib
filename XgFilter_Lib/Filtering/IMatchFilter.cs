@@ -1,4 +1,4 @@
-using ConvertXgToJson_Lib;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -17,12 +17,12 @@ internal interface IMatchFilter
     /// match this filter. Called once per .xg file after the match header is
     /// extracted and before any rows are yielded.
     /// </summary>
-    bool ShouldSkipMatch(XgMatchInfo match);
+    bool ShouldSkipMatch(IMatchInfo match);
 
     /// <summary>
     /// Pre-stream hint: return true if no row in <paramref name="game"/> can
     /// match this filter. Called once per game header and before any rows of
     /// that game are yielded.
     /// </summary>
-    bool ShouldSkipGame(XgGameInfo game);
+    bool ShouldSkipGame(IGameInfo game);
 }

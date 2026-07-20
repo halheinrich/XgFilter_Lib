@@ -1,4 +1,3 @@
-using ConvertXgToJson_Lib;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
 
@@ -111,14 +110,14 @@ public class MoveNumberFilterTests
     }
 
     // -----------------------------------------------------------------------
-    //  IMatchFilter: ShouldSkipGame — XgGameInfo input, no substrate axis
+    //  IMatchFilter: ShouldSkipGame — IGameInfo input, no substrate axis
     // -----------------------------------------------------------------------
 
     [Fact]
     public void ShouldSkipGame_StandardStart_ReturnsFalse()
     {
         var filter = new MoveNumberFilter(min: 1, max: 5);
-        var game = new XgGameInfo { IsStandardStart = true };
+        var game = new FakeGameInfo { IsStandardStart = true };
 
         filter.ShouldSkipGame(game).Should().BeFalse();
     }
@@ -127,7 +126,7 @@ public class MoveNumberFilterTests
     public void ShouldSkipGame_NonStandardStart_ReturnsTrue()
     {
         var filter = new MoveNumberFilter(min: 1, max: 5);
-        var game = new XgGameInfo { IsStandardStart = false };
+        var game = new FakeGameInfo { IsStandardStart = false };
 
         filter.ShouldSkipGame(game).Should().BeTrue();
     }
@@ -136,7 +135,7 @@ public class MoveNumberFilterTests
     public void ShouldSkipMatch_AlwaysReturnsFalse()
     {
         var filter = new MoveNumberFilter(min: 1, max: 5);
-        var match = new XgMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
     }
