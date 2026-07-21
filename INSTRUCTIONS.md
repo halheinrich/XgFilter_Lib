@@ -72,6 +72,7 @@ XgFilter_Lib/
   Patterns/
     BoardPattern.cs
     BoardPatternJsonConverter.cs
+    PatternSlot.cs
     PointRange.cs
   Projection/
     ColumnSelector.cs
@@ -113,6 +114,7 @@ XgFilter_Lib.Tests/
     BoardPatternTests.cs
     BoardPatternOracleTests.cs
     BoardPatternWireSafetyTests.cs
+    PatternSlotTests.cs
     PointRangeTests.cs
   Projection/
     ColumnSelectorTests.cs
@@ -322,9 +324,10 @@ surface, and are reachable from the test project via
   (see **Patterns**) and passes rows whose `data.Board` satisfies every
   per-point constraint in it. Where `PositionTypeFilter` dispatches to
   hand-written classifiers, this evaluates an arbitrary sparse
-  `[index,min,max]` constraint set, so a caller can express a structural
-  shape without a dedicated `PositionType`. An empty pattern matches
-  every board.
+  `[slot,min,max]` constraint set — board indices and the derived
+  borne-off slots alike — so a caller can express a structural shape
+  without a dedicated `PositionType`. An empty pattern matches every
+  board.
 * `PlayTypeFilter` — include list of `PlayType`. Reads `data.Board`,
   `data.AfterBestBoard`, and `data.AfterPlayerBoard` and dispatches
   each selected type to its matching `IPlayTypeClassifier` via the
@@ -442,35 +445,63 @@ classifiers are hand-written predicates, a `BoardPattern` is a
 runtime, including via a compact text form. This is the public,
 reintroduction-ready alternative to the named `PositionType` machinery.
 
+* `PatternSlot` — a `readonly record struct`, the discriminated location
+  a constraint addresses, and the **single source of truth for slot
+  vocabulary**: a `Kind` (`PatternSlotKind.Board` / `PlayerOff` /
+  `OpponentOff`), the named tokens the grammar uses (`off` / `opp-off`),
+  each slot's signed value interval (board `[-15, 15]`, player-off
+  `[0, 15]`, opponent-off `[-15, 0]`), and how a slot's value is read or
+  derived from a board (`ValueOn`, internal). Constructed only via
+  `Board(int index)` (validated 0–25, `ArgumentOutOfRangeException`) and
+  the `PlayerOff` / `OpponentOff` statics, so never invalid;
+  `BoardIndex` is `null` on the off slots (no throwing property).
+  `default(PatternSlot)` is `Board(0)`. Carries the domain constants
+  `MaxBoardIndex` (25) and `MaxCheckers` (15) — moved here from
+  `PointRange`, since they are slot-domain facts. Value-equality is what
+  `BoardPattern` keys duplicate detection on. `ToString` renders the
+  canonical (lower-case) token head; name parsing is case-insensitive.
 * `PointRange` — a `readonly record struct`: an inclusive signed-count
-  constraint on one board-array index. `Index` is 0–25 (bars included),
+  constraint on one `PatternSlot`, the element of a pattern. (The name
+  predates the borne-off slots; "point" reads loosely as "location".)
   `Min` / `Max` are inclusive bounds on the on-roll-relative checker
-  count there (negative = opponent's checkers; `null` = that side
-  unbounded). Validated at construction — `Index` in `[0, MaxIndex]`
-  (25), each bound's magnitude ≤ `MaxCheckers` (15), and `Min <= Max` —
-  so it is never invalid once it exists; `ArgumentOutOfRangeException` on
-  index/bound violations, `ArgumentException` on `Min > Max`. `Contains`
-  tests one signed count; `ToString` renders the `[index,min,max]` token
-  (unbounded side → empty field). It is a struct with value-equality by
+  count at the slot (negative = opponent; `null` = that side unbounded).
+  Validated at construction — each bound must lie in the **slot's own
+  value interval**, so a wrong-signed borne-off bound (e.g. `[off,-2,]`)
+  is an `ArgumentOutOfRangeException`, not a constraint that silently
+  never matches; `ArgumentException` on `Min > Max`. The `(int index,
+  min, max)` ctor remains as sugar for the board-slot case. `Contains`
+  tests one signed count; internal `IsSatisfiedBy(board)` pairs it with
+  `Slot.ValueOn`; `ToString` renders the `[slot,min,max]` token
+  (unbounded side → empty field). A struct with value-equality by
   design — the small immutable element, unlike the pattern that wraps it.
 * `BoardPattern` — an immutable, validated bag of `PointRange`
   constraints over the on-roll-relative board (`[0]` opponent bar,
-  `[1..24]` points, `[25]` on-roll bar; positive = on-roll player). An
-  index named by no range is unconstrained; the empty pattern (`Empty`,
+  `[1..24]` points, `[25]` on-roll bar; positive = on-roll player). A
+  slot named by no range is unconstrained; the empty pattern (`Empty`,
   `IsEmpty`) matches every board (vacuous truth). The one cross-element
   invariant the constructor enforces is **no two ranges on the same
-  index** (`ArgumentException`); each element is already self-valid.
-  `Matches(board)` ANDs every constraint.
+  slot** (`ArgumentException`, keyed on `PatternSlot` value-equality, so
+  the check spans numeric and named slots alike); each element is
+  already self-valid. `Matches(board)` ANDs every constraint; borne-off
+  values are derived per element (see the derivation pitfall), and board
+  indexing never exceeds the real 26 elements.
   * **Text form** — the bracket list: whitespace-separated
-    `[index,min,max]` tokens, each field comma-separated with an empty
-    field meaning "unbounded", e.g. `"[6,,0] [5,2,] [0,,-1]"`. This is
-    the form the FilterPanel exposes; **parsing lives in this library**,
-    not the UI. `Parse` / `TryParse` read it (throwing vs.
+    `[slot,min,max]` tokens, each field comma-separated with an empty
+    bound field meaning "unbounded". The slot head is a board index or a
+    named borne-off slot — `[off,min,max]` (on-roll player, bounds
+    `[0, 15]`) / `[opp-off,min,max]` (opponent, bounds `[-15, 0]`,
+    negative per the grammar-wide sign rule: `[opp-off,,-2]` = "opponent
+    has ≥ 2 off", reading exactly like `[5,,-2]`), e.g.
+    `"[6,,0] [5,2,] [off,1,] [opp-off,,-2]"`. Names parse
+    case-insensitively and render canonically lower-case. This is the
+    form the FilterPanel exposes; **parsing lives in this library**, not
+    the UI. `Parse` / `TryParse` read it (throwing vs.
     return-value-on-failure), `ToBracketList` / `ToString` write it, and
     the two round-trip. `Parse` surfaces `FormatException` (malformed
-    token), `ArgumentOutOfRangeException` (index/bound), and
-    `ArgumentException` (`Min > Max`, duplicate index); `TryParse`
-    absorbs all of those into `false`.
+    token, unknown slot name), `ArgumentOutOfRangeException` (index /
+    bound, including wrong-signed off bounds), and `ArgumentException`
+    (`Min > Max`, duplicate slot); `TryParse` absorbs all of those into
+    `false`.
   * **Equality** — deliberately **not** value-equality: the backing store
     is a reference-typed `IReadOnlyList`, so structural equality would be
     a footgun (the same reason `FilterConfig` declined it). Compare
@@ -721,18 +752,33 @@ public sealed class ColumnSelector
 ```csharp
 namespace XgFilter_Lib.Patterns;
 
+public enum PatternSlotKind { Board, PlayerOff, OpponentOff }
+
+public readonly record struct PatternSlot
+{
+    public const int MaxBoardIndex = 25;   // on-roll player's bar
+    public const int MaxCheckers   = 15;   // per-side checker ceiling
+
+    public static PatternSlot PlayerOff   { get; }      // "off";     values [0, 15]
+    public static PatternSlot OpponentOff { get; }      // "opp-off"; values [-15, 0]
+    public static PatternSlot Board(int index);         // validated 0–25
+
+    public PatternSlotKind Kind       { get; }
+    public int?            BoardIndex { get; }          // null for the off slots
+
+    public override string ToString();   // "6" | "off" | "opp-off" (canonical lower-case)
+}
+
 public readonly record struct PointRange
 {
-    public const int MaxCheckers = 15;   // ±15 checkers-per-side ceiling
-    public const int MaxIndex    = 25;   // on-roll player's bar
+    public PatternSlot Slot { get; }
+    public int?        Min  { get; }     // inclusive; null = unbounded
+    public int?        Max  { get; }     // inclusive; null = unbounded
 
-    public int  Index { get; }
-    public int? Min   { get; }           // inclusive; null = unbounded
-    public int? Max   { get; }           // inclusive; null = unbounded
-
-    public PointRange(int index, int? min, int? max);   // validates on construction
+    public PointRange(int index, int? min, int? max);        // board-slot sugar
+    public PointRange(PatternSlot slot, int? min, int? max); // validates bounds per slot
     public bool   Contains(int value);
-    public override string ToString();   // "[index,min,max]"
+    public override string ToString();   // "[slot,min,max]"
 }
 
 [JsonConverter(typeof(BoardPatternJsonConverter))]
@@ -816,6 +862,19 @@ public sealed class BoardPattern
   contact requirement with a structural one is AND across the set (a
   `ContactTypeFilter` alongside a `PositionTypeFilter`), never OR within
   one filter.
+* **Borne-off counts are derived, never stored.** The `[off,…]` /
+  `[opp-off,…]` slots compute a side's off count as 15 minus its on-board
+  sum **with bars included** (`board[0]` / `board[25]` count as on-board),
+  the opponent's value signed negative. Don't plumb off-count data into
+  `IDecisionFilterData` or grow the board past 26 elements to support
+  them — the derivation in `PatternSlot.ValueOn` is the SSOT. A malformed
+  board carrying more than 15 checkers a side yields an out-of-interval
+  derived value that simply fails any off constraint (garbage in, no
+  throw — same posture as `Matches` on any other absurd board). Related:
+  wrong-signed off bounds (`[off,-2,]`, `[opp-off,,2]`) are
+  construction/parse **errors**, not empty ranges — a consumer must not
+  "helpfully" flip signs before handing text to `Parse`; the sign rule is
+  validated here, and `TryParse` already absorbs the rejection.
 * **`BoardPattern` has no value-equality.** Its backing store is a
   reference-typed list, so `==` / `Equals` are reference comparisons — two
   structurally identical patterns compare unequal. Compare via

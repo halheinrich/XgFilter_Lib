@@ -113,6 +113,74 @@ public class PointRangeTests
         act.Should().NotThrow();
     }
 
+    [Fact]
+    public void Ctor_IndexForm_EqualsSlotForm()
+    {
+        // The index ctor is sugar for the board-slot form of the slot ctor.
+        new PointRange(6, 2, null).Should().Be(
+            new PointRange(PatternSlot.Board(6), 2, null));
+    }
+
+    // -----------------------------------------------------------------------
+    //  Borne-off slots — per-slot signed bound intervals, fail-loud
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0, 15)]     // full interval
+    [InlineData(0, 0)]      // nobody off, exactly
+    [InlineData(15, 15)]    // everybody off, exactly
+    [InlineData(2, null)]   // at least two off
+    [InlineData(null, null)]
+    public void Ctor_PlayerOff_BoundsWithinZeroToFifteen_Construct(int? min, int? max)
+    {
+        var act = () => new PointRange(PatternSlot.PlayerOff, min, max);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(-1, null)]   // wrong sign: player's off count is never negative
+    [InlineData(null, -2)]
+    [InlineData(16, null)]   // beyond the checker ceiling
+    [InlineData(null, 16)]
+    public void Ctor_PlayerOff_BoundOutsideInterval_Throws(int? min, int? max)
+    {
+        var act = () => new PointRange(PatternSlot.PlayerOff, min, max);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Theory]
+    [InlineData(-15, 0)]     // full interval
+    [InlineData(0, 0)]       // nobody off, exactly
+    [InlineData(-15, -15)]   // everybody off, exactly
+    [InlineData(null, -2)]   // at least two off (signed convention)
+    [InlineData(null, null)]
+    public void Ctor_OpponentOff_BoundsWithinMinusFifteenToZero_Construct(int? min, int? max)
+    {
+        var act = () => new PointRange(PatternSlot.OpponentOff, min, max);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(1, null)]    // wrong sign: opponent's off count is never positive
+    [InlineData(null, 2)]
+    [InlineData(-16, null)]  // beyond the checker ceiling
+    [InlineData(null, -16)]
+    public void Ctor_OpponentOff_BoundOutsideInterval_Throws(int? min, int? max)
+    {
+        var act = () => new PointRange(PatternSlot.OpponentOff, min, max);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Ctor_OffSlot_MinGreaterThanMax_Throws()
+    {
+        var playerAct = () => new PointRange(PatternSlot.PlayerOff, 3, 1);
+        playerAct.Should().Throw<ArgumentException>();
+
+        var opponentAct = () => new PointRange(PatternSlot.OpponentOff, -1, -3);
+        opponentAct.Should().Throw<ArgumentException>();
+    }
+
     // -----------------------------------------------------------------------
     //  Value-equality and bracket-token rendering
     // -----------------------------------------------------------------------
@@ -133,5 +201,14 @@ public class PointRangeTests
     public void ToString_RendersBracketToken(int index, int? min, int? max, string expected)
     {
         new PointRange(index, min, max).ToString().Should().Be(expected);
+    }
+
+    [Fact]
+    public void ToString_OffSlots_RenderNamedTokens()
+    {
+        new PointRange(PatternSlot.PlayerOff, 1, null).ToString().Should().Be("[off,1,]");
+        new PointRange(PatternSlot.PlayerOff, 0, 0).ToString().Should().Be("[off,0,0]");
+        new PointRange(PatternSlot.OpponentOff, null, -2).ToString().Should().Be("[opp-off,,-2]");
+        new PointRange(PatternSlot.OpponentOff, -15, -15).ToString().Should().Be("[opp-off,-15,-15]");
     }
 }

@@ -24,9 +24,11 @@ namespace XgFilter_Lib.Tests.Patterns;
 /// </summary>
 public class BoardPatternWireSafetyTests
 {
-    // A non-trivial pattern: mixed bounds and both signs, so a degenerate
-    // serializer that dropped fields couldn't accidentally round-trip it.
-    private const string Bracket = "[6,2,] [5,,-2] [12,,-2]";
+    // A non-trivial pattern: mixed bounds, both signs, and both named
+    // borne-off tokens, so a degenerate serializer that dropped fields — or a
+    // wire path that lost the named-slot vocabulary — couldn't accidentally
+    // round-trip it.
+    private const string Bracket = "[6,2,] [5,,-2] [12,,-2] [off,1,] [opp-off,,-2]";
 
     // No converter registered — the attribute on BoardPattern is the only thing
     // that can carry the bracket-list form across this wire.

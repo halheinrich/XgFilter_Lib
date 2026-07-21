@@ -6,24 +6,33 @@ using System.Text.Json.Serialization;
 namespace XgFilter_Lib.Patterns;
 
 /// <summary>
-/// A sparse, per-point constraint set over the on-roll-relative board array —
-/// the general checker-range predicate that a position must satisfy. It is an
-/// immutable, validated bag of <see cref="PointRange"/> constraints; an index
-/// not named by any range is unconstrained, and an empty pattern matches every
-/// board (vacuous truth).
+/// A sparse, per-slot constraint set over the on-roll-relative board — the
+/// general checker-range predicate that a position must satisfy. It is an
+/// immutable, validated bag of <see cref="PointRange"/> constraints; a
+/// <see cref="PatternSlot"/> not named by any range is unconstrained, and an
+/// empty pattern matches every board (vacuous truth).
 ///
 /// <para>
 /// Board convention (shared with <c>IDecisionFilterData.Board</c>): a
 /// 26-element array where <c>[0]</c> is the opponent's bar, <c>[1..24]</c> the
 /// points, and <c>[25]</c> the on-roll player's bar; positive values are the
-/// on-roll player's checkers and negative the opponent's.
+/// on-roll player's checkers and negative the opponent's. The two borne-off
+/// slots are <em>derived</em> from that array (fifteen minus the side's
+/// on-board sum, bars included — see <see cref="PatternSlot"/>), so a pattern
+/// can constrain off counts with no extra data plumbed in.
 /// </para>
 ///
 /// <para>
 /// Text form — the bracket list — is a whitespace-separated sequence of
-/// <c>[index,min,max]</c> tokens, each field comma-separated and an empty field
-/// meaning "unbounded": <c>"[6,,0] [5,2,] [0,,-1]"</c>.
-/// <see cref="Parse"/>/<see cref="TryParse"/> read it and
+/// <c>[slot,min,max]</c> tokens, each field comma-separated and an empty field
+/// meaning "unbounded". The slot head is a board index (<c>[6,,0]</c>) or a
+/// named borne-off slot: <c>[off,min,max]</c> for the on-roll player (bounds
+/// in <c>[0, 15]</c>) and <c>[opp-off,min,max]</c> for the opponent (bounds in
+/// <c>[-15, 0]</c>, negative per the grammar-wide sign rule — so
+/// <c>[opp-off,,-2]</c> reads "opponent has two or more off" exactly like
+/// <c>[5,,-2]</c> reads "two or more on the 5-point"). Names parse
+/// case-insensitively and render canonically lower-case.
+/// <see cref="Parse"/>/<see cref="TryParse"/> read the form and
 /// <see cref="ToBracketList"/>/<see cref="ToString"/> write it; the two
 /// round-trip.
 /// </para>
@@ -59,12 +68,12 @@ public sealed class BoardPattern
     /// Creates a validated pattern from <paramref name="ranges"/>. Each
     /// <see cref="PointRange"/> is already self-valid by construction; this
     /// constructor enforces the only cross-element invariant — no two ranges may
-    /// constrain the same <see cref="PointRange.Index"/>.
+    /// constrain the same <see cref="PointRange.Slot"/>.
     /// </summary>
-    /// <param name="ranges">The per-point constraints; order is not significant.</param>
+    /// <param name="ranges">The per-slot constraints; order is not significant.</param>
     /// <exception cref="ArgumentNullException"><paramref name="ranges"/> is null.</exception>
     /// <exception cref="ArgumentException">
-    /// Two ranges share the same <see cref="PointRange.Index"/>.
+    /// Two ranges share the same <see cref="PointRange.Slot"/>.
     /// </exception>
     public BoardPattern(IEnumerable<PointRange> ranges)
     {
@@ -72,11 +81,11 @@ public sealed class BoardPattern
 
         _ranges = ranges.ToArray();
 
-        var seen = new HashSet<int>(_ranges.Length);
+        var seen = new HashSet<PatternSlot>(_ranges.Length);
         foreach (var range in _ranges)
-            if (!seen.Add(range.Index))
+            if (!seen.Add(range.Slot))
                 throw new ArgumentException(
-                    $"Duplicate constraint on board index {range.Index}.", nameof(ranges));
+                    $"Duplicate constraint on slot '{range.Slot}'.", nameof(ranges));
     }
 
     /// <summary>The constraints making up this pattern, in construction order.</summary>
@@ -91,9 +100,11 @@ public sealed class BoardPattern
 
     /// <summary>
     /// Tests whether <paramref name="board"/> satisfies every constraint.
-    /// Unconstrained indices are ignored; an empty pattern matches all. The
-    /// board must be long enough to index every constrained point — it always
-    /// is for the canonical 26-element on-roll-relative array.
+    /// Unconstrained slots are ignored; an empty pattern matches all. Board
+    /// slots index the array directly, so it must be long enough to index
+    /// every constrained point — it always is for the canonical 26-element
+    /// on-roll-relative array; borne-off slots only sum the elements the list
+    /// actually has, never indexing beyond it.
     /// </summary>
     /// <param name="board">The on-roll-relative board array.</param>
     /// <exception cref="ArgumentNullException"><paramref name="board"/> is null.</exception>
@@ -102,29 +113,32 @@ public sealed class BoardPattern
         ArgumentNullException.ThrowIfNull(board);
 
         foreach (var range in _ranges)
-            if (!range.Contains(board[range.Index]))
+            if (!range.IsSatisfiedBy(board))
                 return false;
         return true;
     }
 
     /// <summary>
     /// Parses a bracket-list pattern such as
-    /// <c>"[6,,0] [5,2,] [4,2,] [0,,-1]"</c>. Tokens are whitespace-separated;
-    /// within a token the three comma-separated fields are
-    /// <c>index,min,max</c>, and an empty field means unbounded. Whitespace-only
-    /// (or empty) input yields the empty pattern.
+    /// <c>"[6,,0] [5,2,] [off,1,] [opp-off,,-2]"</c>. Tokens are
+    /// whitespace-separated; within a token the three comma-separated fields
+    /// are <c>slot,min,max</c>, where the slot is a board index or a named
+    /// borne-off slot (<c>off</c> / <c>opp-off</c>, case-insensitive) and an
+    /// empty bound field means unbounded. Whitespace-only (or empty) input
+    /// yields the empty pattern.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
     /// <exception cref="FormatException">
-    /// A token is malformed (not bracketed, wrong field count, or a non-integer
-    /// field).
+    /// A token is malformed (not bracketed, wrong field count, an unrecognized
+    /// slot head, or a non-integer bound field).
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// A token's index or bound magnitude is out of range — see
-    /// <see cref="PointRange(int, int?, int?)"/>.
+    /// A token's index or bound is out of range — see
+    /// <see cref="PointRange(PatternSlot, int?, int?)"/>; a wrong-signed
+    /// borne-off bound lands here.
     /// </exception>
     /// <exception cref="ArgumentException">
-    /// A token has <c>min &gt; max</c>, or two tokens share an index.
+    /// A token has <c>min &gt; max</c>, or two tokens share a slot.
     /// </exception>
     public static BoardPattern Parse(string text)
     {
@@ -143,8 +157,9 @@ public sealed class BoardPattern
     /// <summary>
     /// Non-throwing counterpart to <see cref="Parse"/>, following the
     /// <c>TryParse</c> convention. Absorbs every way a bracket list can be
-    /// rejected — malformed token, out-of-range index or bound, <c>min &gt;
-    /// max</c>, or duplicate index — and reports failure via the return value.
+    /// rejected — malformed token, unrecognized slot name, out-of-range index
+    /// or bound (including a wrong-signed borne-off bound), <c>min &gt;
+    /// max</c>, or duplicate slot — and reports failure via the return value.
     /// </summary>
     /// <param name="text">The candidate bracket list, or null.</param>
     /// <param name="pattern">
@@ -165,8 +180,9 @@ public sealed class BoardPattern
             catch (Exception ex) when (ex is FormatException or ArgumentException)
             {
                 // ArgumentException covers ArgumentOutOfRangeException (index /
-                // bound magnitude), min > max, and duplicate index; FormatException
-                // covers malformed tokens. Anything else is unexpected and propagates.
+                // bound, including wrong-signed borne-off bounds), min > max, and
+                // duplicate slot; FormatException covers malformed tokens and
+                // unrecognized slot names. Anything else is unexpected and propagates.
             }
         }
 
@@ -193,15 +209,16 @@ public sealed class BoardPattern
     public override string ToString() => ToBracketList();
 
     /// <summary>
-    /// Parses one <c>[index,min,max]</c> token. Throws
-    /// <see cref="FormatException"/> on a structurally malformed token; bound
-    /// and index validation is delegated to <see cref="PointRange"/>.
+    /// Parses one <c>[slot,min,max]</c> token. Throws
+    /// <see cref="FormatException"/> on a structurally malformed token or an
+    /// unrecognized slot head; bound and index validation is delegated to
+    /// <see cref="PointRange"/> / <see cref="PatternSlot"/>.
     /// </summary>
     private static PointRange ParseToken(string token)
     {
         if (token.Length < 2 || token[0] != '[' || token[^1] != ']')
             throw new FormatException(
-                $"Malformed pattern token '{token}'. Expected '[index,min,max]'.");
+                $"Malformed pattern token '{token}'. Expected '[slot,min,max]'.");
 
         var fields = token[1..^1].Split(',');
         if (fields.Length != 3)
@@ -209,14 +226,38 @@ public sealed class BoardPattern
                 $"Malformed pattern token '{token}'. Expected three comma-separated fields.");
 
         return new PointRange(
-            ParseField(fields[0], token) ?? throw new FormatException(
-                $"Malformed pattern token '{token}'. Index is required."),
+            ParseSlot(fields[0], token),
             ParseField(fields[1], token),
             ParseField(fields[2], token));
     }
 
     /// <summary>
-    /// Parses one bracket-token field: an empty/whitespace field is
+    /// Parses a token's slot head: a board-array index, or a named borne-off
+    /// slot (case-insensitive — the vocabulary lives on
+    /// <see cref="PatternSlot"/>). An out-of-range index is a range error from
+    /// <see cref="PatternSlot.Board"/>, not a format error; anything that is
+    /// neither an integer nor a known name is a <see cref="FormatException"/>.
+    /// </summary>
+    private static PatternSlot ParseSlot(string field, string token)
+    {
+        field = field.Trim();
+        if (field.Length == 0)
+            throw new FormatException(
+                $"Malformed pattern token '{token}'. Slot is required.");
+
+        if (int.TryParse(field, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int index))
+            return PatternSlot.Board(index);
+
+        if (PatternSlot.TryParseName(field, out var slot))
+            return slot;
+
+        throw new FormatException(
+            $"Malformed pattern token '{token}'. Slot '{field}' is neither a board index " +
+            $"nor a named slot ('{PatternSlot.PlayerOffName}', '{PatternSlot.OpponentOffName}').");
+    }
+
+    /// <summary>
+    /// Parses one bracket-token bound field: an empty/whitespace field is
     /// <see langword="null"/> (unbounded); otherwise it must be an integer.
     /// </summary>
     private static int? ParseField(string field, string token)
