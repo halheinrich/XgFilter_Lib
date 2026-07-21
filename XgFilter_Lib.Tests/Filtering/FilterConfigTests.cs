@@ -646,7 +646,7 @@ public class FilterConfigTests
     [Fact]
     public void TryFromJson_NullString_ReturnsFalseAndDefaultConfig()
     {
-        // The absent-key case: a storage slot that was never written hands the
+        // The absent-key case: a storage entry that was never written hands the
         // consumer a null reference, not the string "null".
         var ok = FilterConfig.TryFromJson(null, out var restored);
 

@@ -72,8 +72,8 @@ XgFilter_Lib/
   Patterns/
     BoardPattern.cs
     BoardPatternJsonConverter.cs
-    Slot.cs
-    SlotRange.cs
+    CheckerLocation.cs
+    CheckerRange.cs
   Projection/
     ColumnSelector.cs
 XgFilter_Lib.Tests/
@@ -114,8 +114,8 @@ XgFilter_Lib.Tests/
     BoardPatternTests.cs
     BoardPatternOracleTests.cs
     BoardPatternWireSafetyTests.cs
-    SlotTests.cs
-    SlotRangeTests.cs
+    CheckerLocationTests.cs
+    CheckerRangeTests.cs
   Projection/
     ColumnSelectorTests.cs
   Integration/
@@ -322,10 +322,10 @@ surface, and are reachable from the test project via
 * `PositionPatternFilter` — the general, data-driven counterpart to the
   named `PositionTypeFilter`. Holds a single immutable `BoardPattern`
   (see **Patterns**) and passes rows whose `data.Board` satisfies every
-  per-slot constraint in it. Where `PositionTypeFilter` dispatches to
+  per-location constraint in it. Where `PositionTypeFilter` dispatches to
   hand-written classifiers, this evaluates an arbitrary sparse
-  `[slot,min,max]` constraint set — board indices and the derived
-  borne-off slots alike — so a caller can express a structural shape
+  `[location,min,max]` constraint set — board indices and the derived
+  borne-off locations alike — so a caller can express a structural shape
   without a dedicated `PositionType`. An empty pattern matches every
   board.
 * `PlayTypeFilter` — include list of `PlayType`. Reads `data.Board`,
@@ -445,62 +445,65 @@ classifiers are hand-written predicates, a `BoardPattern` is a
 runtime, including via a compact text form. This is the public,
 reintroduction-ready alternative to the named `PositionType` machinery.
 
-* `Slot` — a `readonly record struct`, the discriminated location
-  a constraint addresses, and the **single source of truth for slot
-  vocabulary**: a `Kind` (`SlotKind.Board` / `PlayerOff` /
-  `OpponentOff`), the named tokens the grammar uses (`off` / `opp-off`),
-  each slot's signed value interval (board `[-15, 15]`, player-off
-  `[0, 15]`, opponent-off `[-15, 0]`), and how a slot's value is read or
-  derived from a board (`ValueOn`, internal). Constructed only via
-  `Board(int index)` (validated 0–25, `ArgumentOutOfRangeException`) and
-  the `PlayerOff` / `OpponentOff` statics, so never invalid;
-  `BoardIndex` is `null` on the off slots (no throwing property).
-  `default(Slot)` is `Board(0)`. Carries the domain constants
-  `MaxBoardIndex` (25) and `MaxCheckers` (15) — slot-domain facts, so
-  they live on the slot type. Value-equality is what
-  `BoardPattern` keys duplicate detection on. `ToString` renders the
-  canonical (lower-case) token head; name parsing is case-insensitive.
-* `SlotRange` — a `readonly record struct`: an inclusive signed-count
-  constraint on one `Slot`, the element of a pattern.
+* `CheckerLocation` — a `readonly record struct`, the discriminated
+  place a constraint addresses, and the **single source of truth for
+  location vocabulary**: a `Kind` (`CheckerLocationKind.Board` /
+  `PlayerOff` / `OpponentOff`), the named tokens the grammar uses
+  (`off` / `opp-off`), each location's signed value interval (board
+  `[-15, 15]`, player-off `[0, 15]`, opponent-off `[-15, 0]`), and how a
+  location's value is read or derived from a board (`ValueOn`,
+  internal). Constructed only via `Board(int index)` (validated 0–25,
+  `ArgumentOutOfRangeException`) and the `PlayerOff` / `OpponentOff`
+  statics, so never invalid; `BoardIndex` is `null` on the off locations
+  (no throwing property). `default(CheckerLocation)` is `Board(0)`.
+  Carries the domain constants `MaxBoardIndex` (25) and `MaxCheckers`
+  (15) — location-domain facts, so they live on the location type.
+  Value-equality is what `BoardPattern` keys duplicate detection on.
+  `ToString` renders the canonical (lower-case) token head; name parsing
+  is case-insensitive.
+* `CheckerRange` — a `readonly record struct`: an inclusive signed-count
+  constraint on one `CheckerLocation`, the element of a pattern.
   `Min` / `Max` are inclusive bounds on the on-roll-relative checker
-  count at the slot (negative = opponent; `null` = that side unbounded).
-  Validated at construction — each bound must lie in the **slot's own
-  value interval**, so a wrong-signed borne-off bound (e.g. `[off,-2,]`)
-  is an `ArgumentOutOfRangeException`, not a constraint that silently
-  never matches; `ArgumentException` on `Min > Max`. The `(int index,
-  min, max)` ctor remains as sugar for the board-slot case. `Contains`
-  tests one signed count; internal `IsSatisfiedBy(board)` pairs it with
-  `Slot.ValueOn`; `ToString` renders the `[slot,min,max]` token
-  (unbounded side → empty field). A struct with value-equality by
-  design — the small immutable element, unlike the pattern that wraps it.
-* `BoardPattern` — an immutable, validated bag of `SlotRange`
+  count at the location (negative = opponent; `null` = that side
+  unbounded). Validated at construction — each bound must lie in the
+  **location's own value interval**, so a wrong-signed borne-off bound
+  (e.g. `[off,-2,]`) is an `ArgumentOutOfRangeException`, not a
+  constraint that silently never matches; `ArgumentException` on
+  `Min > Max`. The `(int index, min, max)` ctor remains as sugar for the
+  board-location case. `Contains` tests one signed count; internal
+  `IsSatisfiedBy(board)` pairs it with `CheckerLocation.ValueOn`;
+  `ToString` renders the `[location,min,max]` token (unbounded side →
+  empty field). A struct with value-equality by design — the small
+  immutable element, unlike the pattern that wraps it.
+* `BoardPattern` — an immutable, validated bag of `CheckerRange`
   constraints over the on-roll-relative board (`[0]` opponent bar,
   `[1..24]` points, `[25]` on-roll bar; positive = on-roll player). A
-  slot named by no range is unconstrained; the empty pattern (`Empty`,
-  `IsEmpty`) matches every board (vacuous truth). The one cross-element
-  invariant the constructor enforces is **no two ranges on the same
-  slot** (`ArgumentException`, keyed on `Slot` value-equality, so
-  the check spans numeric and named slots alike); each element is
-  already self-valid. `Matches(board)` ANDs every constraint; borne-off
-  values are derived per element (see the derivation pitfall), and board
-  indexing never exceeds the real 26 elements.
+  location named by no range is unconstrained; the empty pattern
+  (`Empty`, `IsEmpty`) matches every board (vacuous truth). The one
+  cross-element invariant the constructor enforces is **no two ranges on
+  the same location** (`ArgumentException`, keyed on `CheckerLocation`
+  value-equality, so the check spans numeric and named locations alike);
+  each element is already self-valid. `Matches(board)` ANDs every
+  constraint; borne-off values are derived per element (see the
+  derivation pitfall), and board indexing never exceeds the real 26
+  elements.
   * **Text form** — the bracket list: whitespace-separated
-    `[slot,min,max]` tokens, each field comma-separated with an empty
-    bound field meaning "unbounded". The slot head is a board index or a
-    named borne-off slot — `[off,min,max]` (on-roll player, bounds
-    `[0, 15]`) / `[opp-off,min,max]` (opponent, bounds `[-15, 0]`,
-    negative per the grammar-wide sign rule: `[opp-off,,-2]` = "opponent
-    has ≥ 2 off", reading exactly like `[5,,-2]`), e.g.
-    `"[6,,0] [5,2,] [off,1,] [opp-off,,-2]"`. Names parse
-    case-insensitively and render canonically lower-case. This is the
-    form the FilterPanel exposes; **parsing lives in this library**, not
-    the UI. `Parse` / `TryParse` read it (throwing vs.
+    `[location,min,max]` tokens, each field comma-separated with an
+    empty bound field meaning "unbounded". The location head is a board
+    index or a named borne-off location — `[off,min,max]` (on-roll
+    player, bounds `[0, 15]`) / `[opp-off,min,max]` (opponent, bounds
+    `[-15, 0]`, negative per the grammar-wide sign rule:
+    `[opp-off,,-2]` = "opponent has ≥ 2 off", reading exactly like
+    `[5,,-2]`), e.g. `"[6,,0] [5,2,] [off,1,] [opp-off,,-2]"`. Names
+    parse case-insensitively and render canonically lower-case. This is
+    the form the FilterPanel exposes; **parsing lives in this library**,
+    not the UI. `Parse` / `TryParse` read it (throwing vs.
     return-value-on-failure), `ToBracketList` / `ToString` write it, and
     the two round-trip. `Parse` surfaces `FormatException` (malformed
-    token, unknown slot name), `ArgumentOutOfRangeException` (index /
-    bound, including wrong-signed off bounds), and `ArgumentException`
-    (`Min > Max`, duplicate slot); `TryParse` absorbs all of those into
-    `false`.
+    token, unknown location name), `ArgumentOutOfRangeException` (index
+    / bound, including wrong-signed off bounds), and `ArgumentException`
+    (`Min > Max`, duplicate location); `TryParse` absorbs all of those
+    into `false`.
   * **Equality** — deliberately **not** value-equality: the backing store
     is a reference-typed `IReadOnlyList`, so structural equality would be
     a footgun (the same reason `FilterConfig` declined it). Compare
@@ -751,33 +754,34 @@ public sealed class ColumnSelector
 ```csharp
 namespace XgFilter_Lib.Patterns;
 
-public enum SlotKind { Board, PlayerOff, OpponentOff }
+public enum CheckerLocationKind { Board, PlayerOff, OpponentOff }
 
-public readonly record struct Slot
+public readonly record struct CheckerLocation
 {
     public const int MaxBoardIndex = 25;   // on-roll player's bar
     public const int MaxCheckers   = 15;   // per-side checker ceiling
 
-    public static Slot PlayerOff   { get; }      // "off";     values [0, 15]
-    public static Slot OpponentOff { get; }      // "opp-off"; values [-15, 0]
-    public static Slot Board(int index);         // validated 0–25
+    public static CheckerLocation PlayerOff   { get; }   // "off";     values [0, 15]
+    public static CheckerLocation OpponentOff { get; }   // "opp-off"; values [-15, 0]
+    public static CheckerLocation Board(int index);      // validated 0–25
 
-    public SlotKind Kind       { get; }
-    public int?            BoardIndex { get; }          // null for the off slots
+    public CheckerLocationKind Kind       { get; }
+    public int?                BoardIndex { get; }       // null for the off locations
 
     public override string ToString();   // "6" | "off" | "opp-off" (canonical lower-case)
 }
 
-public readonly record struct SlotRange
+public readonly record struct CheckerRange
 {
-    public Slot Slot { get; }
-    public int?        Min  { get; }     // inclusive; null = unbounded
-    public int?        Max  { get; }     // inclusive; null = unbounded
+    public CheckerLocation Location { get; }
+    public int?            Min      { get; }   // inclusive; null = unbounded
+    public int?            Max      { get; }   // inclusive; null = unbounded
 
-    public SlotRange(int index, int? min, int? max);        // board-slot sugar
-    public SlotRange(Slot slot, int? min, int? max); // validates bounds per slot
+    public CheckerRange(int index, int? min, int? max);   // board-location sugar
+    public CheckerRange(CheckerLocation location, int? min, int? max);  // validates
+                                                        // bounds per location
     public bool   Contains(int value);
-    public override string ToString();   // "[slot,min,max]"
+    public override string ToString();   // "[location,min,max]"
 }
 
 [JsonConverter(typeof(BoardPatternJsonConverter))]
@@ -785,9 +789,9 @@ public sealed class BoardPattern
 {
     public static BoardPattern Empty { get; }
 
-    public BoardPattern(IEnumerable<SlotRange> ranges);   // rejects duplicate indices
+    public BoardPattern(IEnumerable<CheckerRange> ranges);   // rejects duplicate indices
 
-    public IReadOnlyList<SlotRange> Ranges { get; }
+    public IReadOnlyList<CheckerRange> Ranges { get; }
     public bool IsEmpty { get; }
     public bool Matches(IReadOnlyList<int> board);
 
@@ -862,16 +866,16 @@ public sealed class BoardPattern
   `ContactTypeFilter` alongside a `PositionTypeFilter`), never OR within
   one filter.
 * **Borne-off counts are derived, never stored.** The `[off,…]` /
-  `[opp-off,…]` slots compute a side's off count as 15 minus its on-board
-  sum **with bars included** (`board[0]` / `board[25]` count as on-board),
-  the opponent's value signed negative. Don't plumb off-count data into
-  `IDecisionFilterData` or grow the board past 26 elements to support
-  them — the derivation in `Slot.ValueOn` is the SSOT. A malformed
-  board carrying more than 15 checkers a side yields an out-of-interval
-  derived value that simply fails any off constraint (garbage in, no
-  throw — same posture as `Matches` on any other absurd board). Related:
-  wrong-signed off bounds (`[off,-2,]`, `[opp-off,,2]`) are
-  construction/parse **errors**, not empty ranges — a consumer must not
+  `[opp-off,…]` locations compute a side's off count as 15 minus its
+  on-board sum **with bars included** (`board[0]` / `board[25]` count as
+  on-board), the opponent's value signed negative. Don't plumb off-count
+  data into `IDecisionFilterData` or grow the board past 26 elements to
+  support them — the derivation in `CheckerLocation.ValueOn` is the SSOT.
+  A malformed board carrying more than 15 checkers a side yields an
+  out-of-interval derived value that simply fails any off constraint
+  (garbage in, no throw — same posture as `Matches` on any other absurd
+  board). Related: wrong-signed off bounds (`[off,-2,]`, `[opp-off,,2]`)
+  are construction/parse **errors**, not empty ranges — a consumer must not
   "helpfully" flip signs before handing text to `Parse`; the sign rule is
   validated here, and `TryParse` already absorbs the rejection.
 * **`BoardPattern` has no value-equality.** Its backing store is a

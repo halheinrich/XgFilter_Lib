@@ -14,10 +14,10 @@ namespace XgFilter_Lib.Tests.Integration;
 /// equality) from the producer through to the consumer. The filter pipeline
 /// is a row-level inclusion / exclusion stage — it never constructs or
 /// transforms records — so Ids must survive both the pass-all case and the
-/// drop case for every public delegate slot.
+/// drop case for every public delegate entry point.
 ///
 /// <para>
-/// Each public slot of <see cref="FilteredDecisionIterator"/> is pinned
+/// Each public entry point of <see cref="FilteredDecisionIterator"/> is pinned
 /// independently rather than coupling to the internal shared-helper
 /// structure: tests cover the row shape (<c>IterateXgDirectory</c>) and the
 /// diagram shape (<c>IterateXgDirectoryDiagrams</c>), cross-multiplied
@@ -38,8 +38,8 @@ public class FilteredDecisionIteratorIdTests
         new FilteredDecisionIterator(filters, NullLogger);
 
     // -----------------------------------------------------------------------
-    //  Pass-all passthrough — IDs survive unchanged on every delegate slot,
-    //  for both Id carrier types.
+    //  Pass-all passthrough — IDs survive unchanged on every delegate entry
+    //  point, for both Id carrier types.
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -170,8 +170,9 @@ public class FilteredDecisionIteratorIdTests
     public void IterateXgDirectoryDiagrams_FilterDropsCubes_SurvivingIdsMatchProducerSubset()
     {
         // Mirror of the DecisionRow drop test on the diagram-shape delegate
-        // slot. Pinning each public slot independently — even though they
-        // share an internal helper today, the public contract is per-slot.
+        // entry point. Pinning each public entry point independently — even
+        // though they share an internal helper today, the public contract
+        // is per-entry-point.
         var producerAll = RawIterate(FixtureDir,
             (file, sf, state, callbacks) => XgDecisionIterator.IterateDiagramRequests(file, sf, state, callbacks)).ToList();
         var producerKept = producerAll.Where(d => !d.Decision.IsCube).ToList();

@@ -12,7 +12,7 @@ public class BoardPatternTests
     [Fact]
     public void Matches_InclusiveBoundaries_BothEndsCount()
     {
-        var pattern = new BoardPattern([new SlotRange(6, 2, 5)]);
+        var pattern = new BoardPattern([new CheckerRange(6, 2, 5)]);
 
         pattern.Matches(BoardBuilder.Build((6, 2))).Should().BeTrue();   // at min
         pattern.Matches(BoardBuilder.Build((6, 5))).Should().BeTrue();   // at max
@@ -25,7 +25,7 @@ public class BoardPatternTests
     public void Matches_SignedOpponentConstraint_Honoured()
     {
         // [0,,-2]: opponent has two-or-more on the bar (board[0] <= -2).
-        var pattern = new BoardPattern([new SlotRange(0, null, -2)]);
+        var pattern = new BoardPattern([new CheckerRange(0, null, -2)]);
 
         pattern.Matches(BoardBuilder.Build((0, -2))).Should().BeTrue();
         pattern.Matches(BoardBuilder.Build((0, -5))).Should().BeTrue();
@@ -37,7 +37,7 @@ public class BoardPatternTests
     public void Matches_UnconstrainedIndices_AreIgnored()
     {
         // Only index 6 is constrained; whatever sits elsewhere is irrelevant.
-        var pattern = new BoardPattern([new SlotRange(6, 2, null)]);
+        var pattern = new BoardPattern([new CheckerRange(6, 2, null)]);
 
         pattern.Matches(BoardBuilder.Build((6, 2), (8, -7), (25, 3), (0, -4))).Should().BeTrue();
     }
@@ -47,8 +47,8 @@ public class BoardPatternTests
     {
         // Every range must hold — one failing index sinks the whole board.
         var pattern = new BoardPattern([
-            new SlotRange(6, 2, null),
-            new SlotRange(8, 2, null),
+            new CheckerRange(6, 2, null),
+            new CheckerRange(8, 2, null),
         ]);
 
         pattern.Matches(BoardBuilder.Build((6, 3), (8, 3))).Should().BeTrue();
@@ -65,7 +65,7 @@ public class BoardPatternTests
     }
 
     // -----------------------------------------------------------------------
-    //  Matches — borne-off slots, derived from the board (15 minus on-board
+    //  Matches — borne-off locations, derived from the board (15 minus on-board
     //  sum, bars included; opponent's value signed negative)
     // -----------------------------------------------------------------------
 
@@ -76,7 +76,7 @@ public class BoardPatternTests
         (1, -2), (12, -5), (17, -3), (19, -5));
 
     [Fact]
-    public void Matches_OffSlots_NobodyOff_ZeroCountsMatch()
+    public void Matches_OffLocations_NobodyOff_ZeroCountsMatch()
     {
         var board = FullBoard();
 
@@ -86,7 +86,7 @@ public class BoardPatternTests
     }
 
     [Fact]
-    public void Matches_OffSlots_AllFifteenOff_BoundsAtTheCeilingMatch()
+    public void Matches_OffLocations_AllFifteenOff_BoundsAtTheCeilingMatch()
     {
         // An empty board: both sides have borne off all fifteen.
         var board = BoardBuilder.Build();
@@ -123,7 +123,7 @@ public class BoardPatternTests
     }
 
     [Fact]
-    public void Matches_OffSlots_BarCheckersCountAsOnBoard()
+    public void Matches_OffLocations_BarCheckersCountAsOnBoard()
     {
         // Player: 12 on points + 3 on the bar (index 25) → 0 off.
         // Opponent: all 15 on their bar (index 0) → 0 off.
@@ -133,7 +133,7 @@ public class BoardPatternTests
     }
 
     [Fact]
-    public void Matches_OffSlotCombinedWithPointConstraint_BothMustHold()
+    public void Matches_OffLocationCombinedWithPointConstraint_BothMustHold()
     {
         var pattern = BoardPattern.Parse("[6,2,] [off,1,]");
 
@@ -146,22 +146,22 @@ public class BoardPatternTests
     }
 
     // -----------------------------------------------------------------------
-    //  Construction — duplicate slot is the only cross-element invariant
+    //  Construction — duplicate location is the only cross-element invariant
     // -----------------------------------------------------------------------
 
     [Fact]
     public void Ctor_DuplicateIndex_Throws()
     {
-        var act = () => new BoardPattern([new SlotRange(6, 2, null), new SlotRange(6, null, 5)]);
+        var act = () => new BoardPattern([new CheckerRange(6, 2, null), new CheckerRange(6, null, 5)]);
         act.Should().Throw<ArgumentException>();
     }
 
     [Fact]
-    public void Ctor_DuplicateOffSlot_Throws()
+    public void Ctor_DuplicateOffLocation_Throws()
     {
         var act = () => new BoardPattern([
-            new SlotRange(Slot.PlayerOff, 1, null),
-            new SlotRange(Slot.PlayerOff, null, 5),
+            new CheckerRange(CheckerLocation.PlayerOff, 1, null),
+            new CheckerRange(CheckerLocation.PlayerOff, null, 5),
         ]);
         act.Should().Throw<ArgumentException>();
     }
@@ -191,21 +191,21 @@ public class BoardPatternTests
 
         pattern.Ranges.Should().BeEquivalentTo(new[]
         {
-            new SlotRange(6, null, 0),
-            new SlotRange(5, 2, null),
-            new SlotRange(0, null, -1),
+            new CheckerRange(6, null, 0),
+            new CheckerRange(5, 2, null),
+            new CheckerRange(0, null, -1),
         }, options => options.WithStrictOrdering());
     }
 
     [Fact]
-    public void Parse_NamedOffTokens_ProduceOffSlotRanges()
+    public void Parse_NamedOffTokens_ProduceOffCheckerRanges()
     {
         var pattern = BoardPattern.Parse("[off,1,] [opp-off,,-2]");
 
         pattern.Ranges.Should().BeEquivalentTo(new[]
         {
-            new SlotRange(Slot.PlayerOff, 1, null),
-            new SlotRange(Slot.OpponentOff, null, -2),
+            new CheckerRange(CheckerLocation.PlayerOff, 1, null),
+            new CheckerRange(CheckerLocation.OpponentOff, null, -2),
         }, options => options.WithStrictOrdering());
     }
 
@@ -278,19 +278,19 @@ public class BoardPatternTests
         "6,2,",         // missing brackets
         "[6,2]",        // too few fields
         "[6,2,3,4]",    // too many fields
-        "[x,2,3]",      // unrecognized slot head
+        "[x,2,3]",      // unrecognized location head
         "[6,a,]",       // non-integer min
-        "[,2,3]",       // empty slot field
-        "[offf,1,]",    // unknown slot name
+        "[,2,3]",       // empty location field
+        "[offf,1,]",    // unknown location name
         "[off,-1,]",    // wrong-signed bound: player's off count is never negative
         "[opp-off,,1]", // wrong-signed bound: opponent's off count is never positive
         "[off,,16]",    // off bound beyond the 15-checker ceiling
         "[opp-off,-16,]", // opp-off bound beyond the ceiling
-        "[off,3,1]",    // min > max on an off slot
-        "[opp-off,-1,-3]", // min > max on the opponent's off slot
-        "[off,1,] [off,,3]",          // duplicate off slot
-        "[opp-off,,-1] [opp-off,,-2]",// duplicate opp-off slot
-        "[off,1,] [OFF,2,]",          // duplicate off slot, spelled in mixed case
+        "[off,3,1]",    // min > max on an off location
+        "[opp-off,-1,-3]", // min > max on the opponent's off location
+        "[off,1,] [off,,3]",          // duplicate off location
+        "[opp-off,,-1] [opp-off,,-2]",// duplicate opp-off location
+        "[off,1,] [OFF,2,]",          // duplicate off location, spelled in mixed case
     };
 
     [Theory]

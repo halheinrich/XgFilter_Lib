@@ -2,7 +2,7 @@ using XgFilter_Lib.Patterns;
 
 namespace XgFilter_Lib.Tests.Patterns;
 
-public class SlotRangeTests
+public class CheckerRangeTests
 {
     // -----------------------------------------------------------------------
     //  Contains — inclusive, signed, unbounded sides
@@ -16,7 +16,7 @@ public class SlotRangeTests
     [InlineData(2, 5, 6, false)]  // above
     public void Contains_BothBounds_IsInclusive(int min, int max, int value, bool expected)
     {
-        new SlotRange(6, min, max).Contains(value).Should().Be(expected);
+        new CheckerRange(6, min, max).Contains(value).Should().Be(expected);
     }
 
     [Theory]
@@ -26,13 +26,13 @@ public class SlotRangeTests
     public void Contains_OpponentSide_RespectsSignedBound(int min, int value, bool expected)
     {
         // Min only; Max unbounded.
-        new SlotRange(0, min, null).Contains(value).Should().Be(expected);
+        new CheckerRange(0, min, null).Contains(value).Should().Be(expected);
     }
 
     [Fact]
     public void Contains_NullMin_LowerSideUnbounded()
     {
-        var range = new SlotRange(0, null, -1);
+        var range = new CheckerRange(0, null, -1);
         range.Contains(-15).Should().BeTrue();
         range.Contains(-1).Should().BeTrue();
         range.Contains(0).Should().BeFalse();
@@ -41,7 +41,7 @@ public class SlotRangeTests
     [Fact]
     public void Contains_NullMax_UpperSideUnbounded()
     {
-        var range = new SlotRange(6, 2, null);
+        var range = new CheckerRange(6, 2, null);
         range.Contains(15).Should().BeTrue();
         range.Contains(2).Should().BeTrue();
         range.Contains(1).Should().BeFalse();
@@ -50,7 +50,7 @@ public class SlotRangeTests
     [Fact]
     public void Contains_BothNull_MatchesEveryValue()
     {
-        var range = new SlotRange(13, null, null);
+        var range = new CheckerRange(13, null, null);
         range.Contains(int.MinValue).Should().BeTrue();
         range.Contains(0).Should().BeTrue();
         range.Contains(int.MaxValue).Should().BeTrue();
@@ -65,7 +65,7 @@ public class SlotRangeTests
     [InlineData(26)]
     public void Ctor_IndexOutOfRange_Throws(int index)
     {
-        var act = () => new SlotRange(index, null, null);
+        var act = () => new CheckerRange(index, null, null);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
@@ -74,7 +74,7 @@ public class SlotRangeTests
     [InlineData(25)]
     public void Ctor_IndexAtBoundary_Constructs(int index)
     {
-        var act = () => new SlotRange(index, null, null);
+        var act = () => new CheckerRange(index, null, null);
         act.Should().NotThrow();
     }
 
@@ -85,7 +85,7 @@ public class SlotRangeTests
     [InlineData(null, -16)]
     public void Ctor_BoundMagnitudeOverFifteen_Throws(int? min, int? max)
     {
-        var act = () => new SlotRange(6, min, max);
+        var act = () => new CheckerRange(6, min, max);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
@@ -94,14 +94,14 @@ public class SlotRangeTests
     [InlineData(-15)]
     public void Ctor_BoundMagnitudeAtFifteen_Constructs(int bound)
     {
-        var act = () => new SlotRange(6, bound, bound);
+        var act = () => new CheckerRange(6, bound, bound);
         act.Should().NotThrow();
     }
 
     [Fact]
     public void Ctor_MinGreaterThanMax_Throws()
     {
-        var act = () => new SlotRange(6, 3, 2);
+        var act = () => new CheckerRange(6, 3, 2);
         act.Should().Throw<ArgumentException>();
     }
 
@@ -109,20 +109,20 @@ public class SlotRangeTests
     public void Ctor_MinEqualsMax_Constructs()
     {
         // A single-value range (e.g. "exactly empty", [7,0,0]) is valid.
-        var act = () => new SlotRange(7, 0, 0);
+        var act = () => new CheckerRange(7, 0, 0);
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void Ctor_IndexForm_EqualsSlotForm()
+    public void Ctor_IndexForm_EqualsLocationForm()
     {
-        // The index ctor is sugar for the board-slot form of the slot ctor.
-        new SlotRange(6, 2, null).Should().Be(
-            new SlotRange(Slot.Board(6), 2, null));
+        // The index ctor is sugar for the board form of the location ctor.
+        new CheckerRange(6, 2, null).Should().Be(
+            new CheckerRange(CheckerLocation.Board(6), 2, null));
     }
 
     // -----------------------------------------------------------------------
-    //  Borne-off slots — per-slot signed bound intervals, fail-loud
+    //  Borne-off locations — per-location signed bound intervals, fail-loud
     // -----------------------------------------------------------------------
 
     [Theory]
@@ -133,7 +133,7 @@ public class SlotRangeTests
     [InlineData(null, null)]
     public void Ctor_PlayerOff_BoundsWithinZeroToFifteen_Construct(int? min, int? max)
     {
-        var act = () => new SlotRange(Slot.PlayerOff, min, max);
+        var act = () => new CheckerRange(CheckerLocation.PlayerOff, min, max);
         act.Should().NotThrow();
     }
 
@@ -144,7 +144,7 @@ public class SlotRangeTests
     [InlineData(null, 16)]
     public void Ctor_PlayerOff_BoundOutsideInterval_Throws(int? min, int? max)
     {
-        var act = () => new SlotRange(Slot.PlayerOff, min, max);
+        var act = () => new CheckerRange(CheckerLocation.PlayerOff, min, max);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
@@ -156,7 +156,7 @@ public class SlotRangeTests
     [InlineData(null, null)]
     public void Ctor_OpponentOff_BoundsWithinMinusFifteenToZero_Construct(int? min, int? max)
     {
-        var act = () => new SlotRange(Slot.OpponentOff, min, max);
+        var act = () => new CheckerRange(CheckerLocation.OpponentOff, min, max);
         act.Should().NotThrow();
     }
 
@@ -167,17 +167,17 @@ public class SlotRangeTests
     [InlineData(null, -16)]
     public void Ctor_OpponentOff_BoundOutsideInterval_Throws(int? min, int? max)
     {
-        var act = () => new SlotRange(Slot.OpponentOff, min, max);
+        var act = () => new CheckerRange(CheckerLocation.OpponentOff, min, max);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]
-    public void Ctor_OffSlot_MinGreaterThanMax_Throws()
+    public void Ctor_OffLocation_MinGreaterThanMax_Throws()
     {
-        var playerAct = () => new SlotRange(Slot.PlayerOff, 3, 1);
+        var playerAct = () => new CheckerRange(CheckerLocation.PlayerOff, 3, 1);
         playerAct.Should().Throw<ArgumentException>();
 
-        var opponentAct = () => new SlotRange(Slot.OpponentOff, -1, -3);
+        var opponentAct = () => new CheckerRange(CheckerLocation.OpponentOff, -1, -3);
         opponentAct.Should().Throw<ArgumentException>();
     }
 
@@ -188,8 +188,8 @@ public class SlotRangeTests
     [Fact]
     public void Equality_IsStructural()
     {
-        new SlotRange(6, 2, null).Should().Be(new SlotRange(6, 2, null));
-        new SlotRange(6, 2, null).Should().NotBe(new SlotRange(6, 2, 5));
+        new CheckerRange(6, 2, null).Should().Be(new CheckerRange(6, 2, null));
+        new CheckerRange(6, 2, null).Should().NotBe(new CheckerRange(6, 2, 5));
     }
 
     [Theory]
@@ -200,15 +200,15 @@ public class SlotRangeTests
     [InlineData(13, null, null, "[13,,]")]
     public void ToString_RendersBracketToken(int index, int? min, int? max, string expected)
     {
-        new SlotRange(index, min, max).ToString().Should().Be(expected);
+        new CheckerRange(index, min, max).ToString().Should().Be(expected);
     }
 
     [Fact]
-    public void ToString_OffSlots_RenderNamedTokens()
+    public void ToString_OffLocations_RenderNamedTokens()
     {
-        new SlotRange(Slot.PlayerOff, 1, null).ToString().Should().Be("[off,1,]");
-        new SlotRange(Slot.PlayerOff, 0, 0).ToString().Should().Be("[off,0,0]");
-        new SlotRange(Slot.OpponentOff, null, -2).ToString().Should().Be("[opp-off,,-2]");
-        new SlotRange(Slot.OpponentOff, -15, -15).ToString().Should().Be("[opp-off,-15,-15]");
+        new CheckerRange(CheckerLocation.PlayerOff, 1, null).ToString().Should().Be("[off,1,]");
+        new CheckerRange(CheckerLocation.PlayerOff, 0, 0).ToString().Should().Be("[off,0,0]");
+        new CheckerRange(CheckerLocation.OpponentOff, null, -2).ToString().Should().Be("[opp-off,,-2]");
+        new CheckerRange(CheckerLocation.OpponentOff, -15, -15).ToString().Should().Be("[opp-off,-15,-15]");
     }
 }

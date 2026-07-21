@@ -6,10 +6,10 @@ using System.Text.Json.Serialization;
 namespace XgFilter_Lib.Patterns;
 
 /// <summary>
-/// A sparse, per-slot constraint set over the on-roll-relative board — the
+/// A sparse, per-location constraint set over the on-roll-relative board — the
 /// general checker-range predicate that a position must satisfy. It is an
-/// immutable, validated bag of <see cref="SlotRange"/> constraints; a
-/// <see cref="Slot"/> not named by any range is unconstrained, and an
+/// immutable, validated bag of <see cref="CheckerRange"/> constraints; a
+/// <see cref="CheckerLocation"/> not named by any range is unconstrained, and an
 /// empty pattern matches every board (vacuous truth).
 ///
 /// <para>
@@ -17,16 +17,16 @@ namespace XgFilter_Lib.Patterns;
 /// 26-element array where <c>[0]</c> is the opponent's bar, <c>[1..24]</c> the
 /// points, and <c>[25]</c> the on-roll player's bar; positive values are the
 /// on-roll player's checkers and negative the opponent's. The two borne-off
-/// slots are <em>derived</em> from that array (fifteen minus the side's
-/// on-board sum, bars included — see <see cref="Slot"/>), so a pattern
-/// can constrain off counts with no extra data plumbed in.
+/// locations are <em>derived</em> from that array (fifteen minus the side's
+/// on-board sum, bars included — see <see cref="CheckerLocation"/>), so a
+/// pattern can constrain off counts with no extra data plumbed in.
 /// </para>
 ///
 /// <para>
 /// Text form — the bracket list — is a whitespace-separated sequence of
-/// <c>[slot,min,max]</c> tokens, each field comma-separated and an empty field
-/// meaning "unbounded". The slot head is a board index (<c>[6,,0]</c>) or a
-/// named borne-off slot: <c>[off,min,max]</c> for the on-roll player (bounds
+/// <c>[location,min,max]</c> tokens, each field comma-separated and an empty field
+/// meaning "unbounded". The location head is a board index (<c>[6,,0]</c>) or a
+/// named borne-off location: <c>[off,min,max]</c> for the on-roll player (bounds
 /// in <c>[0, 15]</c>) and <c>[opp-off,min,max]</c> for the opponent (bounds in
 /// <c>[-15, 0]</c>, negative per the grammar-wide sign rule — so
 /// <c>[opp-off,,-2]</c> reads "opponent has two or more off" exactly like
@@ -59,37 +59,37 @@ namespace XgFilter_Lib.Patterns;
 [JsonConverter(typeof(BoardPatternJsonConverter))]
 public sealed class BoardPattern
 {
-    private readonly SlotRange[] _ranges;
+    private readonly CheckerRange[] _ranges;
 
     /// <summary>The shared empty pattern, which matches every board.</summary>
-    public static BoardPattern Empty { get; } = new(Array.Empty<SlotRange>());
+    public static BoardPattern Empty { get; } = new(Array.Empty<CheckerRange>());
 
     /// <summary>
     /// Creates a validated pattern from <paramref name="ranges"/>. Each
-    /// <see cref="SlotRange"/> is already self-valid by construction; this
+    /// <see cref="CheckerRange"/> is already self-valid by construction; this
     /// constructor enforces the only cross-element invariant — no two ranges may
-    /// constrain the same <see cref="SlotRange.Slot"/>.
+    /// constrain the same <see cref="CheckerRange.Location"/>.
     /// </summary>
-    /// <param name="ranges">The per-slot constraints; order is not significant.</param>
+    /// <param name="ranges">The per-location constraints; order is not significant.</param>
     /// <exception cref="ArgumentNullException"><paramref name="ranges"/> is null.</exception>
     /// <exception cref="ArgumentException">
-    /// Two ranges share the same <see cref="SlotRange.Slot"/>.
+    /// Two ranges share the same <see cref="CheckerRange.Location"/>.
     /// </exception>
-    public BoardPattern(IEnumerable<SlotRange> ranges)
+    public BoardPattern(IEnumerable<CheckerRange> ranges)
     {
         ArgumentNullException.ThrowIfNull(ranges);
 
         _ranges = ranges.ToArray();
 
-        var seen = new HashSet<Slot>(_ranges.Length);
+        var seen = new HashSet<CheckerLocation>(_ranges.Length);
         foreach (var range in _ranges)
-            if (!seen.Add(range.Slot))
+            if (!seen.Add(range.Location))
                 throw new ArgumentException(
-                    $"Duplicate constraint on slot '{range.Slot}'.", nameof(ranges));
+                    $"Duplicate constraint on location '{range.Location}'.", nameof(ranges));
     }
 
     /// <summary>The constraints making up this pattern, in construction order.</summary>
-    public IReadOnlyList<SlotRange> Ranges => _ranges;
+    public IReadOnlyList<CheckerRange> Ranges => _ranges;
 
     /// <summary>
     /// True when the pattern carries no constraints, in which case
@@ -100,11 +100,11 @@ public sealed class BoardPattern
 
     /// <summary>
     /// Tests whether <paramref name="board"/> satisfies every constraint.
-    /// Unconstrained slots are ignored; an empty pattern matches all. Board
-    /// slots index the array directly, so it must be long enough to index
+    /// Unconstrained locations are ignored; an empty pattern matches all. Board
+    /// locations index the array directly, so it must be long enough to index
     /// every constrained point — it always is for the canonical 26-element
-    /// on-roll-relative array; borne-off slots only sum the elements the list
-    /// actually has, never indexing beyond it.
+    /// on-roll-relative array; borne-off locations only sum the elements the
+    /// list actually has, never indexing beyond it.
     /// </summary>
     /// <param name="board">The on-roll-relative board array.</param>
     /// <exception cref="ArgumentNullException"><paramref name="board"/> is null.</exception>
@@ -122,29 +122,29 @@ public sealed class BoardPattern
     /// Parses a bracket-list pattern such as
     /// <c>"[6,,0] [5,2,] [off,1,] [opp-off,,-2]"</c>. Tokens are
     /// whitespace-separated; within a token the three comma-separated fields
-    /// are <c>slot,min,max</c>, where the slot is a board index or a named
-    /// borne-off slot (<c>off</c> / <c>opp-off</c>, case-insensitive) and an
+    /// are <c>location,min,max</c>, where the location is a board index or a named
+    /// borne-off location (<c>off</c> / <c>opp-off</c>, case-insensitive) and an
     /// empty bound field means unbounded. Whitespace-only (or empty) input
     /// yields the empty pattern.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
     /// <exception cref="FormatException">
     /// A token is malformed (not bracketed, wrong field count, an unrecognized
-    /// slot head, or a non-integer bound field).
+    /// location head, or a non-integer bound field).
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// A token's index or bound is out of range — see
-    /// <see cref="SlotRange(Slot, int?, int?)"/>; a wrong-signed
+    /// <see cref="CheckerRange(CheckerLocation, int?, int?)"/>; a wrong-signed
     /// borne-off bound lands here.
     /// </exception>
     /// <exception cref="ArgumentException">
-    /// A token has <c>min &gt; max</c>, or two tokens share a slot.
+    /// A token has <c>min &gt; max</c>, or two tokens share a location.
     /// </exception>
     public static BoardPattern Parse(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        var ranges = new List<SlotRange>();
+        var ranges = new List<CheckerRange>();
         foreach (var token in text.Split(
             (char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
@@ -157,9 +157,9 @@ public sealed class BoardPattern
     /// <summary>
     /// Non-throwing counterpart to <see cref="Parse"/>, following the
     /// <c>TryParse</c> convention. Absorbs every way a bracket list can be
-    /// rejected — malformed token, unrecognized slot name, out-of-range index
+    /// rejected — malformed token, unrecognized location name, out-of-range index
     /// or bound (including a wrong-signed borne-off bound), <c>min &gt;
-    /// max</c>, or duplicate slot — and reports failure via the return value.
+    /// max</c>, or duplicate location — and reports failure via the return value.
     /// </summary>
     /// <param name="text">The candidate bracket list, or null.</param>
     /// <param name="pattern">
@@ -181,8 +181,8 @@ public sealed class BoardPattern
             {
                 // ArgumentException covers ArgumentOutOfRangeException (index /
                 // bound, including wrong-signed borne-off bounds), min > max, and
-                // duplicate slot; FormatException covers malformed tokens and
-                // unrecognized slot names. Anything else is unexpected and propagates.
+                // duplicate location; FormatException covers malformed tokens and
+                // unrecognized location names. Anything else is unexpected and propagates.
             }
         }
 
@@ -209,51 +209,51 @@ public sealed class BoardPattern
     public override string ToString() => ToBracketList();
 
     /// <summary>
-    /// Parses one <c>[slot,min,max]</c> token. Throws
+    /// Parses one <c>[location,min,max]</c> token. Throws
     /// <see cref="FormatException"/> on a structurally malformed token or an
-    /// unrecognized slot head; bound and index validation is delegated to
-    /// <see cref="SlotRange"/> / <see cref="Slot"/>.
+    /// unrecognized location head; bound and index validation is delegated to
+    /// <see cref="CheckerRange"/> / <see cref="CheckerLocation"/>.
     /// </summary>
-    private static SlotRange ParseToken(string token)
+    private static CheckerRange ParseToken(string token)
     {
         if (token.Length < 2 || token[0] != '[' || token[^1] != ']')
             throw new FormatException(
-                $"Malformed pattern token '{token}'. Expected '[slot,min,max]'.");
+                $"Malformed pattern token '{token}'. Expected '[location,min,max]'.");
 
         var fields = token[1..^1].Split(',');
         if (fields.Length != 3)
             throw new FormatException(
                 $"Malformed pattern token '{token}'. Expected three comma-separated fields.");
 
-        return new SlotRange(
-            ParseSlot(fields[0], token),
+        return new CheckerRange(
+            ParseLocation(fields[0], token),
             ParseField(fields[1], token),
             ParseField(fields[2], token));
     }
 
     /// <summary>
-    /// Parses a token's slot head: a board-array index, or a named borne-off
-    /// slot (case-insensitive — the vocabulary lives on
-    /// <see cref="Slot"/>). An out-of-range index is a range error from
-    /// <see cref="Slot.Board"/>, not a format error; anything that is
+    /// Parses a token's location head: a board-array index, or a named
+    /// borne-off location (case-insensitive — the vocabulary lives on
+    /// <see cref="CheckerLocation"/>). An out-of-range index is a range error from
+    /// <see cref="CheckerLocation.Board"/>, not a format error; anything that is
     /// neither an integer nor a known name is a <see cref="FormatException"/>.
     /// </summary>
-    private static Slot ParseSlot(string field, string token)
+    private static CheckerLocation ParseLocation(string field, string token)
     {
         field = field.Trim();
         if (field.Length == 0)
             throw new FormatException(
-                $"Malformed pattern token '{token}'. Slot is required.");
+                $"Malformed pattern token '{token}'. Location is required.");
 
         if (int.TryParse(field, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int index))
-            return Slot.Board(index);
+            return CheckerLocation.Board(index);
 
-        if (Slot.TryParseName(field, out var slot))
-            return slot;
+        if (CheckerLocation.TryParseName(field, out var location))
+            return location;
 
         throw new FormatException(
-            $"Malformed pattern token '{token}'. Slot '{field}' is neither a board index " +
-            $"nor a named slot ('{Slot.PlayerOffName}', '{Slot.OpponentOffName}').");
+            $"Malformed pattern token '{token}'. Location '{field}' is neither a board index " +
+            $"nor a named location ('{CheckerLocation.PlayerOffName}', '{CheckerLocation.OpponentOffName}').");
     }
 
     /// <summary>
