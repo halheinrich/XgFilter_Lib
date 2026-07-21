@@ -12,7 +12,7 @@ public class BoardPatternTests
     [Fact]
     public void Matches_InclusiveBoundaries_BothEndsCount()
     {
-        var pattern = new BoardPattern([new PointRange(6, 2, 5)]);
+        var pattern = new BoardPattern([new SlotRange(6, 2, 5)]);
 
         pattern.Matches(BoardBuilder.Build((6, 2))).Should().BeTrue();   // at min
         pattern.Matches(BoardBuilder.Build((6, 5))).Should().BeTrue();   // at max
@@ -25,7 +25,7 @@ public class BoardPatternTests
     public void Matches_SignedOpponentConstraint_Honoured()
     {
         // [0,,-2]: opponent has two-or-more on the bar (board[0] <= -2).
-        var pattern = new BoardPattern([new PointRange(0, null, -2)]);
+        var pattern = new BoardPattern([new SlotRange(0, null, -2)]);
 
         pattern.Matches(BoardBuilder.Build((0, -2))).Should().BeTrue();
         pattern.Matches(BoardBuilder.Build((0, -5))).Should().BeTrue();
@@ -37,7 +37,7 @@ public class BoardPatternTests
     public void Matches_UnconstrainedIndices_AreIgnored()
     {
         // Only index 6 is constrained; whatever sits elsewhere is irrelevant.
-        var pattern = new BoardPattern([new PointRange(6, 2, null)]);
+        var pattern = new BoardPattern([new SlotRange(6, 2, null)]);
 
         pattern.Matches(BoardBuilder.Build((6, 2), (8, -7), (25, 3), (0, -4))).Should().BeTrue();
     }
@@ -47,8 +47,8 @@ public class BoardPatternTests
     {
         // Every range must hold — one failing index sinks the whole board.
         var pattern = new BoardPattern([
-            new PointRange(6, 2, null),
-            new PointRange(8, 2, null),
+            new SlotRange(6, 2, null),
+            new SlotRange(8, 2, null),
         ]);
 
         pattern.Matches(BoardBuilder.Build((6, 3), (8, 3))).Should().BeTrue();
@@ -152,7 +152,7 @@ public class BoardPatternTests
     [Fact]
     public void Ctor_DuplicateIndex_Throws()
     {
-        var act = () => new BoardPattern([new PointRange(6, 2, null), new PointRange(6, null, 5)]);
+        var act = () => new BoardPattern([new SlotRange(6, 2, null), new SlotRange(6, null, 5)]);
         act.Should().Throw<ArgumentException>();
     }
 
@@ -160,8 +160,8 @@ public class BoardPatternTests
     public void Ctor_DuplicateOffSlot_Throws()
     {
         var act = () => new BoardPattern([
-            new PointRange(PatternSlot.PlayerOff, 1, null),
-            new PointRange(PatternSlot.PlayerOff, null, 5),
+            new SlotRange(Slot.PlayerOff, 1, null),
+            new SlotRange(Slot.PlayerOff, null, 5),
         ]);
         act.Should().Throw<ArgumentException>();
     }
@@ -191,9 +191,9 @@ public class BoardPatternTests
 
         pattern.Ranges.Should().BeEquivalentTo(new[]
         {
-            new PointRange(6, null, 0),
-            new PointRange(5, 2, null),
-            new PointRange(0, null, -1),
+            new SlotRange(6, null, 0),
+            new SlotRange(5, 2, null),
+            new SlotRange(0, null, -1),
         }, options => options.WithStrictOrdering());
     }
 
@@ -204,8 +204,8 @@ public class BoardPatternTests
 
         pattern.Ranges.Should().BeEquivalentTo(new[]
         {
-            new PointRange(PatternSlot.PlayerOff, 1, null),
-            new PointRange(PatternSlot.OpponentOff, null, -2),
+            new SlotRange(Slot.PlayerOff, 1, null),
+            new SlotRange(Slot.OpponentOff, null, -2),
         }, options => options.WithStrictOrdering());
     }
 

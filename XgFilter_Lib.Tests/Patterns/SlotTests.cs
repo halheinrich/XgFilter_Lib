@@ -2,7 +2,7 @@ using XgFilter_Lib.Patterns;
 
 namespace XgFilter_Lib.Tests.Patterns;
 
-public class PatternSlotTests
+public class SlotTests
 {
     // -----------------------------------------------------------------------
     //  Factories — the only construction paths, each validated
@@ -13,8 +13,8 @@ public class PatternSlotTests
     [InlineData(25)]
     public void Board_IndexAtBoundary_Constructs(int index)
     {
-        var slot = PatternSlot.Board(index);
-        slot.Kind.Should().Be(PatternSlotKind.Board);
+        var slot = Slot.Board(index);
+        slot.Kind.Should().Be(SlotKind.Board);
         slot.BoardIndex.Should().Be(index);
     }
 
@@ -23,18 +23,18 @@ public class PatternSlotTests
     [InlineData(26)]
     public void Board_IndexOutOfRange_Throws(int index)
     {
-        var act = () => PatternSlot.Board(index);
+        var act = () => Slot.Board(index);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]
     public void OffSlots_CarryTheirKind_AndNoBoardIndex()
     {
-        PatternSlot.PlayerOff.Kind.Should().Be(PatternSlotKind.PlayerOff);
-        PatternSlot.PlayerOff.BoardIndex.Should().BeNull();
+        Slot.PlayerOff.Kind.Should().Be(SlotKind.PlayerOff);
+        Slot.PlayerOff.BoardIndex.Should().BeNull();
 
-        PatternSlot.OpponentOff.Kind.Should().Be(PatternSlotKind.OpponentOff);
-        PatternSlot.OpponentOff.BoardIndex.Should().BeNull();
+        Slot.OpponentOff.Kind.Should().Be(SlotKind.OpponentOff);
+        Slot.OpponentOff.BoardIndex.Should().BeNull();
     }
 
     // -----------------------------------------------------------------------
@@ -44,20 +44,20 @@ public class PatternSlotTests
     [Fact]
     public void Equality_IsStructural()
     {
-        PatternSlot.Board(3).Should().Be(PatternSlot.Board(3));
-        PatternSlot.Board(3).Should().NotBe(PatternSlot.Board(4));
-        PatternSlot.PlayerOff.Should().Be(PatternSlot.PlayerOff);
-        PatternSlot.OpponentOff.Should().Be(PatternSlot.OpponentOff);
-        PatternSlot.PlayerOff.Should().NotBe(PatternSlot.OpponentOff);
-        PatternSlot.Board(0).Should().NotBe(PatternSlot.PlayerOff);
+        Slot.Board(3).Should().Be(Slot.Board(3));
+        Slot.Board(3).Should().NotBe(Slot.Board(4));
+        Slot.PlayerOff.Should().Be(Slot.PlayerOff);
+        Slot.OpponentOff.Should().Be(Slot.OpponentOff);
+        Slot.PlayerOff.Should().NotBe(Slot.OpponentOff);
+        Slot.Board(0).Should().NotBe(Slot.PlayerOff);
     }
 
     [Fact]
     public void Default_IsBoardIndexZero()
     {
-        // Mirrors default(PointRange) before the slot model: a valid slot at
+        // Mirrors default(SlotRange) before the slot model: a valid slot at
         // the opponent's bar, never an invalid state.
-        default(PatternSlot).Should().Be(PatternSlot.Board(0));
+        default(Slot).Should().Be(Slot.Board(0));
     }
 
     // -----------------------------------------------------------------------
@@ -67,10 +67,10 @@ public class PatternSlotTests
     [Fact]
     public void ToString_RendersCanonicalTokenHead()
     {
-        PatternSlot.Board(6).ToString().Should().Be("6");
-        PatternSlot.Board(0).ToString().Should().Be("0");
-        PatternSlot.Board(25).ToString().Should().Be("25");
-        PatternSlot.PlayerOff.ToString().Should().Be("off");
-        PatternSlot.OpponentOff.ToString().Should().Be("opp-off");
+        Slot.Board(6).ToString().Should().Be("6");
+        Slot.Board(0).ToString().Should().Be("0");
+        Slot.Board(25).ToString().Should().Be("25");
+        Slot.PlayerOff.ToString().Should().Be("off");
+        Slot.OpponentOff.ToString().Should().Be("opp-off");
     }
 }

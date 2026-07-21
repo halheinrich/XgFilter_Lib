@@ -8,8 +8,8 @@ namespace XgFilter_Lib.Patterns;
 /// <summary>
 /// A sparse, per-slot constraint set over the on-roll-relative board — the
 /// general checker-range predicate that a position must satisfy. It is an
-/// immutable, validated bag of <see cref="PointRange"/> constraints; a
-/// <see cref="PatternSlot"/> not named by any range is unconstrained, and an
+/// immutable, validated bag of <see cref="SlotRange"/> constraints; a
+/// <see cref="Slot"/> not named by any range is unconstrained, and an
 /// empty pattern matches every board (vacuous truth).
 ///
 /// <para>
@@ -18,7 +18,7 @@ namespace XgFilter_Lib.Patterns;
 /// points, and <c>[25]</c> the on-roll player's bar; positive values are the
 /// on-roll player's checkers and negative the opponent's. The two borne-off
 /// slots are <em>derived</em> from that array (fifteen minus the side's
-/// on-board sum, bars included — see <see cref="PatternSlot"/>), so a pattern
+/// on-board sum, bars included — see <see cref="Slot"/>), so a pattern
 /// can constrain off counts with no extra data plumbed in.
 /// </para>
 ///
@@ -59,29 +59,29 @@ namespace XgFilter_Lib.Patterns;
 [JsonConverter(typeof(BoardPatternJsonConverter))]
 public sealed class BoardPattern
 {
-    private readonly PointRange[] _ranges;
+    private readonly SlotRange[] _ranges;
 
     /// <summary>The shared empty pattern, which matches every board.</summary>
-    public static BoardPattern Empty { get; } = new(Array.Empty<PointRange>());
+    public static BoardPattern Empty { get; } = new(Array.Empty<SlotRange>());
 
     /// <summary>
     /// Creates a validated pattern from <paramref name="ranges"/>. Each
-    /// <see cref="PointRange"/> is already self-valid by construction; this
+    /// <see cref="SlotRange"/> is already self-valid by construction; this
     /// constructor enforces the only cross-element invariant — no two ranges may
-    /// constrain the same <see cref="PointRange.Slot"/>.
+    /// constrain the same <see cref="SlotRange.Slot"/>.
     /// </summary>
     /// <param name="ranges">The per-slot constraints; order is not significant.</param>
     /// <exception cref="ArgumentNullException"><paramref name="ranges"/> is null.</exception>
     /// <exception cref="ArgumentException">
-    /// Two ranges share the same <see cref="PointRange.Slot"/>.
+    /// Two ranges share the same <see cref="SlotRange.Slot"/>.
     /// </exception>
-    public BoardPattern(IEnumerable<PointRange> ranges)
+    public BoardPattern(IEnumerable<SlotRange> ranges)
     {
         ArgumentNullException.ThrowIfNull(ranges);
 
         _ranges = ranges.ToArray();
 
-        var seen = new HashSet<PatternSlot>(_ranges.Length);
+        var seen = new HashSet<Slot>(_ranges.Length);
         foreach (var range in _ranges)
             if (!seen.Add(range.Slot))
                 throw new ArgumentException(
@@ -89,7 +89,7 @@ public sealed class BoardPattern
     }
 
     /// <summary>The constraints making up this pattern, in construction order.</summary>
-    public IReadOnlyList<PointRange> Ranges => _ranges;
+    public IReadOnlyList<SlotRange> Ranges => _ranges;
 
     /// <summary>
     /// True when the pattern carries no constraints, in which case
@@ -134,7 +134,7 @@ public sealed class BoardPattern
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// A token's index or bound is out of range — see
-    /// <see cref="PointRange(PatternSlot, int?, int?)"/>; a wrong-signed
+    /// <see cref="SlotRange(Slot, int?, int?)"/>; a wrong-signed
     /// borne-off bound lands here.
     /// </exception>
     /// <exception cref="ArgumentException">
@@ -144,7 +144,7 @@ public sealed class BoardPattern
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        var ranges = new List<PointRange>();
+        var ranges = new List<SlotRange>();
         foreach (var token in text.Split(
             (char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
@@ -212,9 +212,9 @@ public sealed class BoardPattern
     /// Parses one <c>[slot,min,max]</c> token. Throws
     /// <see cref="FormatException"/> on a structurally malformed token or an
     /// unrecognized slot head; bound and index validation is delegated to
-    /// <see cref="PointRange"/> / <see cref="PatternSlot"/>.
+    /// <see cref="SlotRange"/> / <see cref="Slot"/>.
     /// </summary>
-    private static PointRange ParseToken(string token)
+    private static SlotRange ParseToken(string token)
     {
         if (token.Length < 2 || token[0] != '[' || token[^1] != ']')
             throw new FormatException(
@@ -225,7 +225,7 @@ public sealed class BoardPattern
             throw new FormatException(
                 $"Malformed pattern token '{token}'. Expected three comma-separated fields.");
 
-        return new PointRange(
+        return new SlotRange(
             ParseSlot(fields[0], token),
             ParseField(fields[1], token),
             ParseField(fields[2], token));
@@ -234,11 +234,11 @@ public sealed class BoardPattern
     /// <summary>
     /// Parses a token's slot head: a board-array index, or a named borne-off
     /// slot (case-insensitive — the vocabulary lives on
-    /// <see cref="PatternSlot"/>). An out-of-range index is a range error from
-    /// <see cref="PatternSlot.Board"/>, not a format error; anything that is
+    /// <see cref="Slot"/>). An out-of-range index is a range error from
+    /// <see cref="Slot.Board"/>, not a format error; anything that is
     /// neither an integer nor a known name is a <see cref="FormatException"/>.
     /// </summary>
-    private static PatternSlot ParseSlot(string field, string token)
+    private static Slot ParseSlot(string field, string token)
     {
         field = field.Trim();
         if (field.Length == 0)
@@ -246,14 +246,14 @@ public sealed class BoardPattern
                 $"Malformed pattern token '{token}'. Slot is required.");
 
         if (int.TryParse(field, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int index))
-            return PatternSlot.Board(index);
+            return Slot.Board(index);
 
-        if (PatternSlot.TryParseName(field, out var slot))
+        if (Slot.TryParseName(field, out var slot))
             return slot;
 
         throw new FormatException(
             $"Malformed pattern token '{token}'. Slot '{field}' is neither a board index " +
-            $"nor a named slot ('{PatternSlot.PlayerOffName}', '{PatternSlot.OpponentOffName}').");
+            $"nor a named slot ('{Slot.PlayerOffName}', '{Slot.OpponentOffName}').");
     }
 
     /// <summary>

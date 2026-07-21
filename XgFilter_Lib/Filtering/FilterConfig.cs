@@ -21,7 +21,7 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="DiceRolls"/> means "no
 /// filter of this kind is active" — not "reject everything."
 /// A null or empty <see cref="PositionPattern"/> means the same for the
-/// per-point pattern filter. The depth facet is inactive — and so passes
+/// per-slot pattern filter. The depth facet is inactive — and so passes
 /// everything — only when <see cref="AnalysisLevels"/> is empty <em>and</em>
 /// both <see cref="IncludeRollouts"/> and <see cref="IncludeBookRollouts"/>
 /// are off; see <see cref="Build"/> for the derivation.
@@ -117,7 +117,7 @@ public sealed class FilterConfig
     public IList<DiceRoll> DiceRolls { get; set; } = new List<DiceRoll>();
 
     /// <summary>
-    /// A general per-point checker-range constraint on the on-roll board.
+    /// A general per-slot checker-range constraint on the on-roll board.
     /// Null or empty = no pattern filter. Serializes as its bracket-list string
     /// via the converter <see cref="BoardPattern"/> declares on itself (see
     /// <see cref="BoardPatternJsonConverter"/>). Composes via AND with every

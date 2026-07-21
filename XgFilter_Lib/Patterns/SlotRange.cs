@@ -1,26 +1,25 @@
 namespace XgFilter_Lib.Patterns;
 
 /// <summary>
-/// An inclusive signed-count constraint on a single <see cref="PatternSlot"/>,
+/// An inclusive signed-count constraint on a single <see cref="Slot"/>,
 /// the element of a <see cref="BoardPattern"/>. <see cref="Slot"/> names the
 /// location — a board-array index 0–25 (bars included) or one side's borne-off
 /// count; <see cref="Min"/>/<see cref="Max"/> are inclusive bounds on the
 /// on-roll-relative checker count there, where negative counts are the
 /// opponent's checkers and <see langword="null"/> means that side is
-/// unbounded. (The name predates the borne-off slots — every constrainable
-/// location was a board index; "point" now reads loosely as "location".)
+/// unbounded.
 ///
 /// <para>
-/// A <see cref="PointRange"/> is validated at construction and is therefore
+/// A <see cref="SlotRange"/> is validated at construction and is therefore
 /// never invalid once it exists — <see cref="BoardPattern"/> can rely on every
 /// element being well-formed and need only police the cross-element invariant
 /// (no duplicate <see cref="Slot"/>). Bounds follow the grammar-wide sign
 /// rule (positive = on-roll player, negative = opponent) and must lie within
 /// the slot's own value interval: <c>[-15, 15]</c> for board slots,
-/// <c>[0, 15]</c> for <see cref="PatternSlot.PlayerOff"/>, <c>[-15, 0]</c> for
-/// <see cref="PatternSlot.OpponentOff"/> — so a wrong-signed borne-off bound
+/// <c>[0, 15]</c> for <see cref="Slot.PlayerOff"/>, <c>[-15, 0]</c> for
+/// <see cref="Slot.OpponentOff"/> — so a wrong-signed borne-off bound
 /// is a construction error, not a constraint that silently never matches. The
-/// 15 ceiling is <see cref="PatternSlot.MaxCheckers"/>.
+/// 15 ceiling is <see cref="Slot.MaxCheckers"/>.
 /// </para>
 ///
 /// <para>
@@ -30,10 +29,10 @@ namespace XgFilter_Lib.Patterns;
 /// reference-typed backing list it wraps, not this small immutable element.
 /// </para>
 /// </summary>
-public readonly record struct PointRange
+public readonly record struct SlotRange
 {
     /// <summary>The slot this range constrains.</summary>
-    public PatternSlot Slot { get; }
+    public Slot Slot { get; }
 
     /// <summary>
     /// Inclusive lower bound on the signed checker count at <see cref="Slot"/>;
@@ -50,7 +49,7 @@ public readonly record struct PointRange
     /// <summary>
     /// Creates a validated constraint on board-array index
     /// <paramref name="index"/> — the convenience form of
-    /// <see cref="PointRange(PatternSlot, int?, int?)"/> for the common
+    /// <see cref="SlotRange(Slot, int?, int?)"/> for the common
     /// board-slot case.
     /// </summary>
     /// <param name="index">Board-array index, 0–25.</param>
@@ -58,14 +57,14 @@ public readonly record struct PointRange
     /// <param name="max">Inclusive upper bound, or <see langword="null"/>.</param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="index"/> is outside 0–25, or a bound's magnitude exceeds
-    /// <see cref="PatternSlot.MaxCheckers"/>.
+    /// <see cref="Slot.MaxCheckers"/>.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="min"/> is greater than <paramref name="max"/> (an
     /// empty range that could never match).
     /// </exception>
-    public PointRange(int index, int? min, int? max)
-        : this(PatternSlot.Board(index), min, max)
+    public SlotRange(int index, int? min, int? max)
+        : this(Slot.Board(index), min, max)
     {
     }
 
@@ -79,15 +78,15 @@ public readonly record struct PointRange
     /// <param name="max">Inclusive upper bound, or <see langword="null"/>.</param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// A bound lies outside the slot's value interval — beyond
-    /// ±<see cref="PatternSlot.MaxCheckers"/>, or wrong-signed for a borne-off
-    /// slot (<see cref="PatternSlot.PlayerOff"/> admits only <c>[0, 15]</c>,
-    /// <see cref="PatternSlot.OpponentOff"/> only <c>[-15, 0]</c>).
+    /// ±<see cref="Slot.MaxCheckers"/>, or wrong-signed for a borne-off
+    /// slot (<see cref="Slot.PlayerOff"/> admits only <c>[0, 15]</c>,
+    /// <see cref="Slot.OpponentOff"/> only <c>[-15, 0]</c>).
     /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="min"/> is greater than <paramref name="max"/> (an
     /// empty range that could never match).
     /// </exception>
-    public PointRange(PatternSlot slot, int? min, int? max)
+    public SlotRange(Slot slot, int? min, int? max)
     {
         if (min is { } lo && (lo < slot.MinValue || lo > slot.MaxValue))
             throw new ArgumentOutOfRangeException(
