@@ -165,7 +165,17 @@ type — no parallel hierarchies, no conversion at the filter boundary.
 * `Column` — CSV columns `ColumnSelector` can project. One member
   per column; declaration order is the default output order. Each
   label is the column's CSV-header text.
-* Every member of every enum in this namespace carries a UI-facing
+* `FilterFacet` — the facet vocabulary of `FilterConfig`: one member
+  per add/skip gate `Build()` recognizes (Players, DecisionType,
+  MatchScores, ErrorRange, MoveNumberRange, ContactTypes,
+  PositionTypes, PlayTypes, AnalysisDepth, DiceRolls,
+  PositionPattern), declared in `Build()`'s add order. The two-axis
+  depth inputs (levels + both toggles) are ONE facet. The UI-shelved
+  `PositionTypes` / `PlayTypes` stay in the vocabulary because they
+  remain `Build()`-reachable (old saved configs can carry them); each
+  member retires together with its facet. Labels match the
+  FilterPanel's visible section headings, so an "N hidden filters
+  active" signal names the sections the user finds on expanding.
   `[Description]` label. Consumers read it via
   `EnumLabel.ToLabel<TEnum>(value)`. Display text is owned by this
   library, not the UI layer. The helper throws `ArgumentException`
@@ -231,6 +241,22 @@ surface, and are reachable from the test project via
   null argument, the literal `null` token, or malformed JSON — the path by
   which old saved configs (carrying the retired `AnalysisDepthClasses`
   field) reset to an inactive depth facet on read.
+
+  Internally the per-facet add/skip gates live in a single private
+  `FacetRules` table — `(FilterFacet, activation predicate, filter
+  factory)` triples in add order — that both `Build()` and
+  `GetActiveFacets()` iterate, so materialization and the activity
+  query share one predicate per facet and cannot drift.
+  `GetActiveFacets()` returns the facets `Build()` would materialize
+  as an `IReadOnlySet<FilterFacet>` (backed by a `SortedSet`, so it
+  enumerates in declaration = add order); it judges **presence, not
+  validity** — a malformed `MatchScores` token or an undefined enum
+  value still reports its facet active, `Build()` stays the point
+  that throws, and `GetActiveFacets()` itself never throws. This is
+  the lib-side surface behind the FilterPanel's "N hidden filters
+  active" signal: the panel consults the config's own activation
+  verdicts rather than judging facet activity from its edit buffers
+  (the same consult-the-result ruling as `DecisionFilterSet.IsEmpty`).
 
 * **Depth facet semantics.** User-facing selection state is a set of checked
   levels (`AnalysisLevels`) plus two independent toggles (`IncludeRollouts`,
@@ -654,6 +680,12 @@ public enum Column
     Xgid, Error, MatchScore, MatchLength, Player, SourceFile,
     Game, MoveNumber, Roll, AnalysisDepth, Equity,
 }
+public enum FilterFacet          // declaration order == FilterConfig.Build()'s add order
+{
+    Players, DecisionType, MatchScores, ErrorRange, MoveNumberRange,
+    ContactTypes, PositionTypes, PlayTypes, AnalysisDepth, DiceRolls,
+    PositionPattern,
+}
 
 public static class EnumLabel
 {
@@ -701,6 +733,7 @@ public sealed class FilterConfig
     public BoardPattern?             PositionPattern      { get; set; }
 
     public DecisionFilterSet Build();
+    public IReadOnlySet<FilterFacet> GetActiveFacets();
 
     public string ToJson();
     public static FilterConfig FromJson(string json);
@@ -813,13 +846,23 @@ public sealed class BoardPattern
   `null` the filter returns `false` — unanalyzed `.xgp` positions are
   excluded, not admitted as "zero error". Changing that silently regresses
   CSV exports.
+* **Facet activation gates live only in `FilterConfig`'s `FacetRules`
+  table.** `Build()` and `GetActiveFacets()` both iterate the one private
+  table of `(facet, predicate, factory)` triples; that shared predicate is
+  what makes the activity query drift-proof. Adding a facet's add/skip
+  check as an ad-hoc `if` in `Build()` (or a parallel rule in the query,
+  or in a consumer) re-creates exactly the two-encodings hazard the table
+  exists to kill — a new facet means a new `FilterFacet` member plus a new
+  table row, nothing else.
 * **The depth facet's mode set is derived in `Build()`, not the panel.**
   `FilterConfig` stores raw user intent (`AnalysisLevels` + `IncludeRollouts`
   + `IncludeBookRollouts`); the mapping from those toggles to the effective
   `AnalysisMode` set — Rollouts→`Rollout`, Book rollouts→`BookRollout`,
   neither→`Evaluation`, plus the "none checked and neither toggle = inactive"
-  rule — lives **only** in `FilterConfig.Build()`. It is the single source of
-  truth. The XgFilter_Razor panel must bind the three raw inputs and let
+  rule — lives **only** in `FilterConfig` (the depth facet's private
+  `FacetRules` entry and its filter factory, both reached solely through
+  `Build()`). It is the single source of truth. The XgFilter_Razor panel
+  must bind the three raw inputs and let
   `Build()` derive the modes; re-encoding the derivation in the UI (e.g.
   pre-computing an `AnalysisMode` list and stuffing it into the config)
   duplicates the SSOT and will silently drift — for instance losing the

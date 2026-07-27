@@ -71,6 +71,28 @@ public class EnumLabelTests
     }
 
     [Fact]
+    public void FilterFacet_Players_HasExpectedLabel()
+    {
+        // FilterFacet labels match the FilterPanel's visible section headings,
+        // so the "hidden filters active" signal names the sections the user
+        // will find on expanding — pinned here for the facets whose heading
+        // differs from the member name.
+        FilterFacet.Players.ToLabel().Should().Be("Player names");
+    }
+
+    [Fact]
+    public void FilterFacet_MoveNumberRange_HasExpectedLabel()
+    {
+        FilterFacet.MoveNumberRange.ToLabel().Should().Be("Move number range");
+    }
+
+    [Fact]
+    public void FilterFacet_AnalysisDepth_HasExpectedLabel()
+    {
+        FilterFacet.AnalysisDepth.ToLabel().Should().Be("Analysis depth");
+    }
+
+    [Fact]
     public void Column_Xgid_HasExpectedLabel()
     {
         Column.Xgid.ToLabel().Should().Be("Xgid");
@@ -145,6 +167,13 @@ public class EnumLabelTests
     }
 
     [Fact]
+    public void EveryFilterFacet_HasNonEmptyLabel()
+    {
+        foreach (var value in Enum.GetValues<FilterFacet>())
+            value.ToLabel().Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
     public void EveryColumn_HasNonEmptyLabel()
     {
         foreach (var value in Enum.GetValues<Column>())
@@ -194,6 +223,13 @@ public class EnumLabelTests
     public void UnknownDecisionTypeOptionValue_Throws()
     {
         var act = () => ((DecisionTypeOption)999).ToLabel();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void UnknownFilterFacetValue_Throws()
+    {
+        var act = () => ((FilterFacet)999).ToLabel();
         act.Should().Throw<ArgumentException>();
     }
 

@@ -415,6 +415,163 @@ public class FilterConfigTests
     }
 
     // -----------------------------------------------------------------------
+    //  GetActiveFacets — facet-activity mirror of Build's add/skip gates.
+    //  Both consume the same private rule table, so these tests pin the
+    //  activation vocabulary the FilterPanel's "N hidden filters active"
+    //  signal consults; the Build matrix above pins the materialization.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void GetActiveFacets_DefaultConfig_ReturnsEmptySet()
+    {
+        var facets = new FilterConfig().GetActiveFacets();
+
+        facets.Should().BeEmpty();
+        facets.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public void GetActiveFacets_EachListFacet_ReportsExactlyThatFacet()
+    {
+        new FilterConfig { Players = { "Alice" } }
+            .GetActiveFacets().Should().Equal(FilterFacet.Players);
+        new FilterConfig { MatchScores = { "3a5a" } }
+            .GetActiveFacets().Should().Equal(FilterFacet.MatchScores);
+        new FilterConfig { ContactTypes = { ContactType.Race } }
+            .GetActiveFacets().Should().Equal(FilterFacet.ContactTypes);
+        new FilterConfig { PositionTypes = { PositionType.InnerBoard631 } }
+            .GetActiveFacets().Should().Equal(FilterFacet.PositionTypes);
+        new FilterConfig { PlayTypes = { PlayType.Make20Pt } }
+            .GetActiveFacets().Should().Equal(FilterFacet.PlayTypes);
+        new FilterConfig { DiceRolls = { new DiceRoll(3, 1) } }
+            .GetActiveFacets().Should().Equal(FilterFacet.DiceRolls);
+    }
+
+    [Fact]
+    public void GetActiveFacets_DecisionTypeNonBoth_ReportsDecisionType()
+    {
+        new FilterConfig { DecisionType = DecisionTypeOption.CheckerPlaysOnly }
+            .GetActiveFacets().Should().Equal(FilterFacet.DecisionType);
+        new FilterConfig { DecisionType = DecisionTypeOption.CubeOnly }
+            .GetActiveFacets().Should().Equal(FilterFacet.DecisionType);
+    }
+
+    [Fact]
+    public void GetActiveFacets_DecisionTypeBoth_IsInactive()
+    {
+        // Both is Build's no-op default; the facet must mirror the skipped add.
+        new FilterConfig { DecisionType = DecisionTypeOption.Both }
+            .GetActiveFacets().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetActiveFacets_EitherErrorBoundAlone_ReportsErrorRange()
+    {
+        new FilterConfig { ErrorMin = 0.05 }
+            .GetActiveFacets().Should().Equal(FilterFacet.ErrorRange);
+        new FilterConfig { ErrorMax = 0.50 }
+            .GetActiveFacets().Should().Equal(FilterFacet.ErrorRange);
+    }
+
+    [Fact]
+    public void GetActiveFacets_EitherMoveNumberBoundAlone_ReportsMoveNumberRange()
+    {
+        new FilterConfig { MoveNumberMin = 1 }
+            .GetActiveFacets().Should().Equal(FilterFacet.MoveNumberRange);
+        new FilterConfig { MoveNumberMax = 20 }
+            .GetActiveFacets().Should().Equal(FilterFacet.MoveNumberRange);
+    }
+
+    [Fact]
+    public void GetActiveFacets_DepthArms_EachInputAloneActivatesTheOneFacet()
+    {
+        // The three raw depth inputs are ONE facet: levels-only, either toggle
+        // alone, and a combined arm all report exactly AnalysisDepth — matching
+        // the Build derivation (facet inactive iff no level AND neither toggle).
+        new FilterConfig { AnalysisLevels = { AnalysisLevel.Ply4 } }
+            .GetActiveFacets().Should().Equal(FilterFacet.AnalysisDepth);
+        new FilterConfig { IncludeRollouts = true }
+            .GetActiveFacets().Should().Equal(FilterFacet.AnalysisDepth);
+        new FilterConfig { IncludeBookRollouts = true }
+            .GetActiveFacets().Should().Equal(FilterFacet.AnalysisDepth);
+        new FilterConfig { AnalysisLevels = { AnalysisLevel.Ply4 }, IncludeRollouts = true }
+            .GetActiveFacets().Should().Equal(FilterFacet.AnalysisDepth);
+    }
+
+    [Fact]
+    public void GetActiveFacets_PositionPattern_EmptyInactive_NonEmptyActive()
+    {
+        // Null and the empty pattern are both the inactive state — an empty
+        // pattern matches every board, and Build skips the add for both.
+        new FilterConfig { PositionPattern = null }
+            .GetActiveFacets().Should().BeEmpty();
+        new FilterConfig { PositionPattern = BoardPattern.Empty }
+            .GetActiveFacets().Should().BeEmpty();
+        new FilterConfig { PositionPattern = BoardPattern.Parse("[0,,-2]") }
+            .GetActiveFacets().Should().Equal(FilterFacet.PositionPattern);
+    }
+
+    [Fact]
+    public void GetActiveFacets_MultiFacetConfig_EnumeratesDistinctInDeclarationOrder()
+    {
+        // Set semantics plus the documented ordering guarantee: declaration
+        // order == Build's add order, regardless of assignment order here.
+        var facets = new FilterConfig
+        {
+            PositionPattern = BoardPattern.Parse("[0,,-2]"),
+            DiceRolls = { new DiceRoll(6, 6) },
+            IncludeBookRollouts = true,
+            ErrorMin = 0.05,
+            Players = { "Alice" },
+        }.GetActiveFacets();
+
+        facets.Should().Equal(
+            FilterFacet.Players,
+            FilterFacet.ErrorRange,
+            FilterFacet.AnalysisDepth,
+            FilterFacet.DiceRolls,
+            FilterFacet.PositionPattern);
+    }
+
+    [Fact]
+    public void GetActiveFacets_AgreesWithBuildEmptiness()
+    {
+        // The cross-surface consistency contract: no facets active iff the
+        // built set is empty (DecisionFilterSet.IsEmpty is the SSOT consumers
+        // consult for "no filters active").
+        var configs = new[]
+        {
+            new FilterConfig(),
+            new FilterConfig { PositionPattern = BoardPattern.Empty },
+            new FilterConfig { DecisionType = DecisionTypeOption.Both },
+            new FilterConfig { Players = { "Alice" } },
+            new FilterConfig { AnalysisLevels = { AnalysisLevel.Ply4 } },
+            new FilterConfig { IncludeRollouts = true },
+            new FilterConfig { IncludeBookRollouts = true },
+            new FilterConfig { ErrorMin = 0.05, DiceRolls = { new DiceRoll(3, 1) } },
+        };
+
+        foreach (var config in configs)
+        {
+            (config.GetActiveFacets().Count == 0).Should().Be(
+                config.Build().IsEmpty,
+                "GetActiveFacets and Build must agree on whether any facet is active");
+        }
+    }
+
+    [Fact]
+    public void GetActiveFacets_MalformedContent_StillReportsFacetActiveWithoutThrowing()
+    {
+        // Activity is presence, not validity: a garbage score token and an
+        // undefined enum value both count as active facets (they are filters
+        // the user has set, however broken); Build stays the point that throws.
+        new FilterConfig { MatchScores = { "garbage" } }
+            .GetActiveFacets().Should().Equal(FilterFacet.MatchScores);
+        new FilterConfig { DecisionType = (DecisionTypeOption)999 }
+            .GetActiveFacets().Should().Equal(FilterFacet.DecisionType);
+    }
+
+    // -----------------------------------------------------------------------
     //  Canonical JSON round-trip — lib-owned wire format the panel persists
     // -----------------------------------------------------------------------
 

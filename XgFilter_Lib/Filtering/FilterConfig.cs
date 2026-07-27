@@ -125,11 +125,111 @@ public sealed class FilterConfig
     /// </summary>
     public BoardPattern? PositionPattern { get; set; }
 
+    // -----------------------------------------------------------------------
+    //  Facet rules — the single source of truth for facet activation
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// One facet's rule pair: the activation predicate and the filter factory.
+    /// <paramref name="CreateFilter"/> is invoked only when
+    /// <paramref name="IsActive"/> holds, so a factory may rely on the
+    /// predicate's guarantees (e.g. a non-null pattern).
+    /// </summary>
+    private sealed record FacetRule(
+        FilterFacet Facet,
+        Func<FilterConfig, bool> IsActive,
+        Func<FilterConfig, IDecisionFilter> CreateFilter);
+
+    /// <summary>
+    /// The per-facet activation rules, in <see cref="Build"/>'s add order. This
+    /// table is the single source of truth for "which facets does this config
+    /// activate": <see cref="Build"/> materializes a filter for each active
+    /// facet and <see cref="GetActiveFacets"/> reports the same predicates'
+    /// verdicts, so the two surfaces cannot drift. Any new facet gate belongs
+    /// here — never as an ad-hoc check in either consumer.
+    /// </summary>
+    private static readonly FacetRule[] FacetRules =
+    [
+        new(FilterFacet.Players,
+            static c => c.Players.Count > 0,
+            static c => new PlayerFilter(c.Players)),
+
+        // The Both default is a no-op in DecisionTypeFilter; skipping the add
+        // keeps the set's filter list lean.
+        new(FilterFacet.DecisionType,
+            static c => c.DecisionType != DecisionTypeOption.Both,
+            static c => new DecisionTypeFilter(c.DecisionType)),
+
+        new(FilterFacet.MatchScores,
+            static c => c.MatchScores.Count > 0,
+            static c => new MatchScoreFilter(c.MatchScores)),
+
+        new(FilterFacet.ErrorRange,
+            static c => c.ErrorMin.HasValue || c.ErrorMax.HasValue,
+            static c => new ErrorRangeFilter(c.ErrorMin, c.ErrorMax)),
+
+        new(FilterFacet.MoveNumberRange,
+            static c => c.MoveNumberMin.HasValue || c.MoveNumberMax.HasValue,
+            static c => new MoveNumberFilter(c.MoveNumberMin, c.MoveNumberMax)),
+
+        new(FilterFacet.ContactTypes,
+            static c => c.ContactTypes.Count > 0,
+            static c => new ContactTypeFilter(c.ContactTypes)),
+
+        new(FilterFacet.PositionTypes,
+            static c => c.PositionTypes.Count > 0,
+            static c => new PositionTypeFilter(c.PositionTypes)),
+
+        new(FilterFacet.PlayTypes,
+            static c => c.PlayTypes.Count > 0,
+            static c => new PlayTypeFilter(c.PlayTypes)),
+
+        // Depth facet (two axes: modes × levels). Inactive iff no level checked
+        // AND neither toggle on — the "none selected = pass everything"
+        // convention. The predicate is the algebraic collapse of the factory's
+        // "any mode toggled or any level checked"; the mode-set derivation
+        // itself lives in CreateAnalysisDepthFilter.
+        new(FilterFacet.AnalysisDepth,
+            static c => c.AnalysisLevels.Count > 0 || c.IncludeRollouts || c.IncludeBookRollouts,
+            static c => c.CreateAnalysisDepthFilter()),
+
+        new(FilterFacet.DiceRolls,
+            static c => c.DiceRolls.Count > 0,
+            static c => new DiceRollFilter(c.DiceRolls)),
+
+        // Null and the empty pattern are both inactive: an empty pattern
+        // matches every board, so adding the filter would be a no-op AND step.
+        new(FilterFacet.PositionPattern,
+            static c => c.PositionPattern is { IsEmpty: false },
+            static c => new PositionPatternFilter(c.PositionPattern!)),
+    ];
+
+    /// <summary>
+    /// The depth facet's filter factory — the single source of truth for
+    /// turning raw user intent (checked levels plus the two mode toggles) into
+    /// the effective mode set. The panel supplies the three inputs verbatim and
+    /// must not re-derive the modes. Rollouts toggle → <see cref="AnalysisMode.Rollout"/>,
+    /// Book rollouts → <see cref="AnalysisMode.BookRollout"/>; neither toggle →
+    /// the <see cref="AnalysisMode.Evaluation"/> default. The level axis
+    /// defaults to "any" (an empty <see cref="AnalysisLevels"/>), which
+    /// <see cref="AnalysisDepthFilter"/> honours directly. Only called when the
+    /// facet is active, so the mode set is never empty.
+    /// </summary>
+    private AnalysisDepthFilter CreateAnalysisDepthFilter()
+    {
+        var modes = new List<AnalysisMode>();
+        if (IncludeRollouts) modes.Add(AnalysisMode.Rollout);
+        if (IncludeBookRollouts) modes.Add(AnalysisMode.BookRollout);
+        if (modes.Count == 0) modes.Add(AnalysisMode.Evaluation);
+        return new AnalysisDepthFilter(modes, AnalysisLevels);
+    }
+
     /// <summary>
     /// Materializes this configuration as a <see cref="DecisionFilterSet"/>.
     /// Each filter is added only when its corresponding configuration is
-    /// non-empty / non-default; see the type-level remarks for the
-    /// empty-list semantics.
+    /// non-empty / non-default — the per-facet gates live in the shared
+    /// <see cref="FacetRules"/> table, which <see cref="GetActiveFacets"/>
+    /// consults too; see the type-level remarks for the empty-list semantics.
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <see cref="MatchScores"/> contains a malformed token — see
@@ -144,56 +244,48 @@ public sealed class FilterConfig
     {
         var set = new DecisionFilterSet();
 
-        if (Players.Count > 0)
-            set.Add(new PlayerFilter(Players));
-
-        if (DecisionType != DecisionTypeOption.Both)
-            set.Add(new DecisionTypeFilter(DecisionType));
-
-        if (MatchScores.Count > 0)
-            set.Add(new MatchScoreFilter(MatchScores));
-
-        if (ErrorMin.HasValue || ErrorMax.HasValue)
-            set.Add(new ErrorRangeFilter(ErrorMin, ErrorMax));
-
-        if (MoveNumberMin.HasValue || MoveNumberMax.HasValue)
-            set.Add(new MoveNumberFilter(MoveNumberMin, MoveNumberMax));
-
-        if (ContactTypes.Count > 0)
-            set.Add(new ContactTypeFilter(ContactTypes));
-
-        if (PositionTypes.Count > 0)
-            set.Add(new PositionTypeFilter(PositionTypes));
-
-        if (PlayTypes.Count > 0)
-            set.Add(new PlayTypeFilter(PlayTypes));
-
-        // Depth facet (two axes: modes × levels). This block is the single
-        // source of truth for turning raw user intent — checked levels plus the
-        // two mode toggles — into the effective mode set. The panel supplies the
-        // three inputs verbatim and must not re-derive the modes here.
-        var modes = new List<AnalysisMode>();
-        if (IncludeRollouts) modes.Add(AnalysisMode.Rollout);
-        if (IncludeBookRollouts) modes.Add(AnalysisMode.BookRollout);
-
-        // Facet inactive iff no level checked AND neither toggle on — carries
-        // forward the "none selected = pass everything" convention, so the
-        // filter is simply not added. Otherwise Evaluation is the mode default
-        // when neither rollout toggle is on; the level axis defaults to "any"
-        // (an empty AnalysisLevels), which AnalysisDepthFilter honours directly.
-        if (AnalysisLevels.Count > 0 || modes.Count > 0)
+        foreach (var rule in FacetRules)
         {
-            if (modes.Count == 0) modes.Add(AnalysisMode.Evaluation);
-            set.Add(new AnalysisDepthFilter(modes, AnalysisLevels));
+            if (rule.IsActive(this))
+                set.Add(rule.CreateFilter(this));
         }
 
-        if (DiceRolls.Count > 0)
-            set.Add(new DiceRollFilter(DiceRolls));
-
-        if (PositionPattern is { IsEmpty: false })
-            set.Add(new PositionPatternFilter(PositionPattern));
-
         return set;
+    }
+
+    /// <summary>
+    /// The facets this configuration would activate — exactly those for which
+    /// <see cref="Build"/> would add a filter, judged by the same predicates
+    /// (the shared <see cref="FacetRules"/> table), so the two cannot drift.
+    /// Computed fresh from the current mutable state on each call; enumerates
+    /// in <see cref="FilterFacet"/> declaration order, which is
+    /// <see cref="Build"/>'s add order.
+    /// </summary>
+    /// <remarks>
+    /// Activity is presence, not validity: the predicates count entries and
+    /// check flags without validating contents, so a malformed
+    /// <see cref="MatchScores"/> token — or an undefined enum value such as a
+    /// corrupt <see cref="DecisionType"/> — still reports its facet active,
+    /// while <see cref="Build"/> remains the point that throws. That is the
+    /// posture a UI wants: garbage input is still an active filter to surface.
+    /// Consequently this method never throws.
+    /// </remarks>
+    /// <returns>
+    /// The active facets as a set — distinct membership, O(1)
+    /// <see cref="IReadOnlySet{T}.Contains"/>; empty for a default
+    /// configuration.
+    /// </returns>
+    public IReadOnlySet<FilterFacet> GetActiveFacets()
+    {
+        var active = new SortedSet<FilterFacet>();
+
+        foreach (var rule in FacetRules)
+        {
+            if (rule.IsActive(this))
+                active.Add(rule.Facet);
+        }
+
+        return active;
     }
 
     // -----------------------------------------------------------------------
