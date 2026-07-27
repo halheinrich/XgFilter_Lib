@@ -965,3 +965,12 @@ public sealed class BoardPattern
   `sourceFile` parameter; add a matching parameter to the diagram builder)
   when an Id-asserting test lands. Documented inline on both builders'
   XML doc.
+* **`DecisionFilterSet` immutability.** `Add()` currently mutates and returns
+  `this`; an immutable variant (returns a new set) would eliminate the class of
+  caller-mutation bugs paid down in BgQuiz_Blazor's filter-pipeline
+  encapsulation arc. Touches `FilterConfig.Build()` (currently relies on Add
+  returns being discardable — would silently produce empty sets under naive
+  immutability) and all tests; non-trivial. Worth its own encapsulation-pass
+  session.
+* **`EnumLabel` reflection caching.** Per-call reflection has no cache today;
+  relevant only at hot UI render paths. Move when perf work begins.
