@@ -533,7 +533,7 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   * **Equality** — deliberately **not** value-equality: the backing store
     is a reference-typed `IReadOnlyList`, so structural equality would be
     a footgun (the same reason `FilterConfig` declined it). Compare
-    structurally (FluentAssertions `BeEquivalentTo`) or via
+    structurally (AwesomeAssertions `BeEquivalentTo`) or via
     `ToBracketList`.
   * **Serialization** — the type carries `[JsonConverter(typeof(
     BoardPatternJsonConverter))]` on itself, so it round-trips as its
@@ -924,7 +924,7 @@ public sealed class BoardPattern
 * **`BoardPattern` has no value-equality.** Its backing store is a
   reference-typed list, so `==` / `Equals` are reference comparisons — two
   structurally identical patterns compare unequal. Compare via
-  `ToBracketList()` or a structural assertion (FluentAssertions
+  `ToBracketList()` or a structural assertion (AwesomeAssertions
   `BeEquivalentTo`), never `==`. This is deliberate; giving it a
   synthesized structural equality over a mutable-shaped member is the
   footgun `FilterConfig` also declined.

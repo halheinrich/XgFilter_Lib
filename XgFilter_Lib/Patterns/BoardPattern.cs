@@ -42,7 +42,7 @@ namespace XgFilter_Lib.Patterns;
 /// Its backing store is an <see cref="IReadOnlyList{T}"/>, and reference
 /// equality on the list would make two structurally identical patterns compare
 /// unequal — the same footgun <c>FilterConfig</c> declined. Tests should compare
-/// structurally (e.g. FluentAssertions <c>BeEquivalentTo</c>) or via
+/// structurally (e.g. AwesomeAssertions <c>BeEquivalentTo</c>) or via
 /// <see cref="ToBracketList"/>.
 /// </para>
 ///
