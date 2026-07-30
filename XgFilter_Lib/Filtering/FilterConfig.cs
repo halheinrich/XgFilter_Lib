@@ -22,9 +22,11 @@ namespace XgFilter_Lib.Filtering;
 /// filter of this kind is active" — not "reject everything."
 /// A null or empty <see cref="PositionPattern"/> means the same for the
 /// per-location pattern filter. The depth facet is inactive — and so passes
-/// everything — only when <see cref="AnalysisLevels"/> is empty <em>and</em>
-/// both <see cref="IncludeRollouts"/> and <see cref="IncludeBookRollouts"/>
-/// are off; see <see cref="Build"/> for the derivation.
+/// everything — iff all three of its mode toggles
+/// (<see cref="IncludeEvaluations"/>, <see cref="IncludeRollouts"/>,
+/// <see cref="IncludeBookRollouts"/>) are off; a level list whose toggle is
+/// off is inert and neither activates nor constrains anything. See
+/// <see cref="Build"/> for the derivation.
 /// <see cref="Build"/> simply skips adding the filter to the set in that
 /// case. <see cref="DecisionType"/>
 /// defaults to <see cref="DecisionTypeOption.Both"/>, which is a
@@ -78,31 +80,56 @@ public sealed class FilterConfig
     public IList<PlayType> PlayTypes { get; set; } = new List<PlayType>();
 
     /// <summary>
-    /// Checked evaluation levels for the depth facet (OR semantics). Empty = no
-    /// level constraint (every level admitted, including
-    /// <see cref="AnalysisLevel.Unknown"/>). This is raw user intent, one of the
-    /// three inputs to the depth facet alongside <see cref="IncludeRollouts"/>
-    /// and <see cref="IncludeBookRollouts"/>; <see cref="Build"/> owns the
-    /// derivation into a mode set — see there and <see cref="AnalysisDepthFilter"/>.
+    /// Whether the depth facet admits plain evaluations
+    /// (<see cref="AnalysisMode.Evaluation"/>), qualified by
+    /// <see cref="EvaluationLevels"/>. One of the three independent per-mode
+    /// toggles; the facet is a union across the enabled toggles — see
+    /// <see cref="Build"/> and <see cref="AnalysisDepthFilter"/>.
     /// </summary>
-    public IList<AnalysisLevel> AnalysisLevels { get; set; } = new List<AnalysisLevel>();
+    public bool IncludeEvaluations { get; set; }
+
+    /// <summary>
+    /// Checked levels qualifying <see cref="IncludeEvaluations"/> (OR
+    /// semantics) — the level of the evaluation itself. Empty = any level.
+    /// Inert while <see cref="IncludeEvaluations"/> is off: a level selection
+    /// qualifies only its own mode, never the other clauses.
+    /// </summary>
+    public IList<AnalysisLevel> EvaluationLevels { get; set; } = new List<AnalysisLevel>();
 
     /// <summary>
     /// Whether the depth facet admits full rollouts
-    /// (<see cref="AnalysisMode.Rollout"/>). One of the two independent mode
-    /// toggles; see <see cref="Build"/> for how the toggles and
-    /// <see cref="AnalysisLevels"/> compose.
+    /// (<see cref="AnalysisMode.Rollout"/>), qualified by
+    /// <see cref="RolloutLevels"/>. One of the three independent per-mode
+    /// toggles; see <see cref="Build"/>.
     /// </summary>
     public bool IncludeRollouts { get; set; }
 
     /// <summary>
+    /// Checked levels qualifying <see cref="IncludeRollouts"/> (OR semantics)
+    /// — the <em>inner</em> level of the rollout's games, not the level of a
+    /// direct evaluation (checker rollouts never carry Roller-family inner
+    /// levels). Empty = any inner level, the common selection. Inert while
+    /// <see cref="IncludeRollouts"/> is off.
+    /// </summary>
+    public IList<AnalysisLevel> RolloutLevels { get; set; } = new List<AnalysisLevel>();
+
+    /// <summary>
     /// Whether the depth facet admits opening-book hits
-    /// (<see cref="AnalysisMode.BookRollout"/>). Selecting this with no level
-    /// checked is the path by which an unenriched book hit
+    /// (<see cref="AnalysisMode.BookRollout"/>), qualified by
+    /// <see cref="BookRolloutLevels"/>. Selecting this with no level checked
+    /// is the path by which an unenriched book hit
     /// (<see cref="AnalysisMode.BookRollout"/> + <see cref="AnalysisLevel.Unknown"/>)
     /// is admitted — see <see cref="Build"/>.
     /// </summary>
     public bool IncludeBookRollouts { get; set; }
+
+    /// <summary>
+    /// Checked levels qualifying <see cref="IncludeBookRollouts"/> (OR
+    /// semantics) — the book entry's inner level. Empty = any level,
+    /// including the <see cref="AnalysisLevel.Unknown"/> an unenriched book
+    /// hit carries. Inert while <see cref="IncludeBookRollouts"/> is off.
+    /// </summary>
+    public IList<AnalysisLevel> BookRolloutLevels { get; set; } = new List<AnalysisLevel>();
 
     /// <summary>
     /// Dice rolls to admit (OR semantics). Empty = no dice filter. Each roll is
@@ -111,8 +138,8 @@ public sealed class FilterConfig
     /// Serializes as a string-token array (e.g. <c>["31","66"]</c>) via the
     /// converter <see cref="DiceRoll"/> declares on itself, so it needs no
     /// converter registered in <see cref="CanonicalOptions"/> — the same
-    /// self-describing case as <see cref="AnalysisLevels"/> and
-    /// <see cref="PositionPattern"/>.
+    /// self-describing case as the depth level lists (e.g.
+    /// <see cref="EvaluationLevels"/>) and <see cref="PositionPattern"/>.
     /// </summary>
     public IList<DiceRoll> DiceRolls { get; set; } = new List<DiceRoll>();
 
@@ -184,13 +211,12 @@ public sealed class FilterConfig
             static c => c.PlayTypes.Count > 0,
             static c => new PlayTypeFilter(c.PlayTypes)),
 
-        // Depth facet (two axes: modes × levels). Inactive iff no level checked
-        // AND neither toggle on — the "none selected = pass everything"
-        // convention. The predicate is the algebraic collapse of the factory's
-        // "any mode toggled or any level checked"; the mode-set derivation
-        // itself lives in CreateAnalysisDepthFilter.
+        // Depth facet (a union of per-mode clauses). Active iff any mode
+        // toggle is on; a level list whose toggle is off is inert, so it
+        // neither activates the facet nor constrains anything. The clause
+        // derivation itself lives in CreateAnalysisDepthFilter.
         new(FilterFacet.AnalysisDepth,
-            static c => c.AnalysisLevels.Count > 0 || c.IncludeRollouts || c.IncludeBookRollouts,
+            static c => c.IncludeEvaluations || c.IncludeRollouts || c.IncludeBookRollouts,
             static c => c.CreateAnalysisDepthFilter()),
 
         new(FilterFacet.DiceRolls,
@@ -206,22 +232,25 @@ public sealed class FilterConfig
 
     /// <summary>
     /// The depth facet's filter factory — the single source of truth for
-    /// turning raw user intent (checked levels plus the two mode toggles) into
-    /// the effective mode set. The panel supplies the three inputs verbatim and
-    /// must not re-derive the modes. Rollouts toggle → <see cref="AnalysisMode.Rollout"/>,
-    /// Book rollouts → <see cref="AnalysisMode.BookRollout"/>; neither toggle →
-    /// the <see cref="AnalysisMode.Evaluation"/> default. The level axis
-    /// defaults to "any" (an empty <see cref="AnalysisLevels"/>), which
-    /// <see cref="AnalysisDepthFilter"/> honours directly. Only called when the
-    /// facet is active, so the mode set is never empty.
+    /// turning raw user intent (three per-mode toggles, each with its own
+    /// level list) into the filter's clause union: one clause per enabled
+    /// toggle, carrying that mode's level list verbatim (empty = any level,
+    /// which <see cref="AnalysisDepthFilter"/> honours per clause). The panel
+    /// supplies the six inputs verbatim and must not re-derive the clauses.
+    /// A level list whose toggle is off contributes no clause — it is inert,
+    /// never validated, and constrains nothing. Only called when the facet is
+    /// active (some toggle on), so the clause union is never empty.
     /// </summary>
     private AnalysisDepthFilter CreateAnalysisDepthFilter()
     {
-        var modes = new List<AnalysisMode>();
-        if (IncludeRollouts) modes.Add(AnalysisMode.Rollout);
-        if (IncludeBookRollouts) modes.Add(AnalysisMode.BookRollout);
-        if (modes.Count == 0) modes.Add(AnalysisMode.Evaluation);
-        return new AnalysisDepthFilter(modes, AnalysisLevels);
+        var clauses = new List<AnalysisDepthFilter.Clause>();
+        if (IncludeEvaluations)
+            clauses.Add(new(AnalysisMode.Evaluation, EvaluationLevels));
+        if (IncludeRollouts)
+            clauses.Add(new(AnalysisMode.Rollout, RolloutLevels));
+        if (IncludeBookRollouts)
+            clauses.Add(new(AnalysisMode.BookRollout, BookRolloutLevels));
+        return new AnalysisDepthFilter(clauses);
     }
 
     /// <summary>
@@ -236,9 +265,11 @@ public sealed class FilterConfig
     /// <see cref="MatchScoreFilter"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>,
-    /// <see cref="PlayTypes"/>, or <see cref="AnalysisLevels"/> contains
-    /// an undefined enum value.
+    /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>, or
+    /// <see cref="PlayTypes"/> contains an undefined enum value — likewise
+    /// <see cref="EvaluationLevels"/> / <see cref="RolloutLevels"/> /
+    /// <see cref="BookRolloutLevels"/>, but only when the list's mode toggle
+    /// is on (an inert level list is never validated).
     /// </exception>
     public DecisionFilterSet Build()
     {
@@ -309,8 +340,9 @@ public sealed class FilterConfig
     /// <see cref="JsonSerializerOptions"/> a consumer might use across a wire.
     /// </para>
     /// <para>
-    /// <see cref="AnalysisLevels"/> and <see cref="DiceRolls"/> are the same
-    /// self-describing case as
+    /// The three depth level lists (<see cref="EvaluationLevels"/> /
+    /// <see cref="RolloutLevels"/> / <see cref="BookRolloutLevels"/>) and
+    /// <see cref="DiceRolls"/> are the same self-describing case as
     /// <see cref="PositionPattern"/>: <see cref="AnalysisLevel"/> carries its own
     /// type-level <see cref="JsonStringEnumConverter"/> (it is owned by
     /// <c>BgDataTypes_Lib</c>, not <c>XgFilter_Lib.Enums</c>) and
@@ -320,10 +352,10 @@ public sealed class FilterConfig
     /// <see cref="AnalysisLevel"/> as its declaration name,
     /// <see cref="DiceRoll"/> as its two-digit token (<c>"31"</c>). The shared
     /// <see cref="JsonStringEnumConverter"/> registered here is redundant for
-    /// <see cref="AnalysisLevels"/> (and does not touch <see cref="DiceRolls"/>)
-    /// but harmless. <see cref="IncludeRollouts"/> /
-    /// <see cref="IncludeBookRollouts"/> are plain booleans and need no
-    /// converter.
+    /// the level lists (and does not touch <see cref="DiceRolls"/>)
+    /// but harmless. <see cref="IncludeEvaluations"/> /
+    /// <see cref="IncludeRollouts"/> / <see cref="IncludeBookRollouts"/> are
+    /// plain booleans and need no converter.
     /// </para>
     /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
     /// is expensive to build and thread-safe once first used.

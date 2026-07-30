@@ -189,35 +189,57 @@ public class FilterConfigTests
     }
 
     // -----------------------------------------------------------------------
-    //  Depth facet — the two-axis semantics matrix. Build owns the derivation
-    //  of the effective mode set from raw intent (checked levels + the two
-    //  toggles); these tests pin every rule of that derivation through the
-    //  observable behaviour of the built set.
+    //  Depth facet — the clause-union semantics matrix. Build owns the
+    //  derivation of the clause union from raw intent (three per-mode toggles,
+    //  each with its own level list); these tests pin every rule of that
+    //  derivation through the observable behaviour of the built set.
     // -----------------------------------------------------------------------
 
     [Fact]
     public void Build_DepthFacetInactive_PassesEveryRow()
     {
-        // No level checked AND neither toggle on → facet inactive → filter not
-        // added, so even an Unknown-mode row (legacy data) passes.
+        // All three toggles off → facet inactive → filter not added, so even
+        // an Unknown-mode row (legacy data) passes.
         var set = new FilterConfig().Build();
         set.Matches(new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
             .Should().BeTrue();
     }
 
     [Fact]
-    public void Build_LevelsOnly_DefaultsToEvaluationMode()
+    public void Build_LevelsWithoutTheirToggle_AreInert()
     {
-        // Levels checked, neither toggle on → mode set defaults to {Evaluation}.
-        // A 4-ply evaluation passes; a 4-ply rollout is the same level but a
-        // mode the facet did not select.
+        // A level list qualifies only its own mode toggle; with every toggle
+        // off the facet stays inactive no matter which lists are populated —
+        // the filter is not added and every row passes.
         var set = new FilterConfig
         {
-            AnalysisLevels = { AnalysisLevel.Ply4 },
+            EvaluationLevels = { AnalysisLevel.Ply4 },
+            RolloutLevels = { AnalysisLevel.Ply3 },
+            BookRolloutLevels = { AnalysisLevel.XgRoller },
+        }.Build();
+
+        set.IsEmpty.Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply1).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void Build_EvaluationsToggleWithLevels_OnlyThoseEvaluationsPass()
+    {
+        // Evaluations on with 4-ply checked → one clause: Evaluation at Ply4.
+        // A 4-ply rollout is the same level but a mode the facet did not select.
+        var set = new FilterConfig
+        {
+            IncludeEvaluations = true,
+            EvaluationLevels = { AnalysisLevel.Ply4 },
         }.Build();
 
         set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
             .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3).ToDecisionRow())
+            .Should().BeFalse();
         set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
             .Should().BeFalse();
     }
@@ -225,7 +247,8 @@ public class FilterConfigTests
     [Fact]
     public void Build_RolloutsToggleOnly_AnyLevelRollout_Passes()
     {
-        // Rollouts on, no level checked → modes {Rollout}, level axis "any".
+        // Rollouts on, no rollout level checked → one clause: Rollout at any
+        // inner level.
         var set = new FilterConfig { IncludeRollouts = true }.Build();
 
         set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
@@ -237,26 +260,30 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void Build_Canonical_FourPlyChecked_RolloutsOn_OnlyFourPlyRolloutsPass()
+    public void Build_RolloutLevels_ConstrainOnlyRolloutRows()
     {
-        // The user's own canonical example: 4-ply checked + Rollouts on → only
-        // 4-ply rollouts pass; plain 4-ply evaluations do not.
+        // Rollout levels are the INNER level of the rollout's games; they bind
+        // the Rollout clause and nothing else. An unconstrained Evaluation
+        // clause alongside stays "any level".
         var set = new FilterConfig
         {
-            AnalysisLevels = { AnalysisLevel.Ply4 },
             IncludeRollouts = true,
+            RolloutLevels = { AnalysisLevel.Ply3 },
+            IncludeEvaluations = true,
         }.Build();
 
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3).ToDecisionRow())
             .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
             .Should().BeFalse();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply1).ToDecisionRow())
+            .Should().BeTrue();
     }
 
     [Fact]
-    public void Build_BothToggles_AdmitBothRolloutModes()
+    public void Build_BothRolloutToggles_AdmitBothRolloutModes()
     {
-        // Rollouts AND Book rollouts on → modes {Rollout, BookRollout}.
+        // Rollouts AND Book rollouts on → two clauses, each any-level.
         var set = new FilterConfig
         {
             IncludeRollouts = true,
@@ -275,8 +302,8 @@ public class FilterConfigTests
     public void Build_BookRolloutsToggle_NoLevel_AdmitsUnenrichedBookHit()
     {
         // An unenriched / V1 / eval-baseline book hit carries BookRollout mode
-        // and an Unknown level. With Book rollouts on and no level checked, the
-        // "any level" axis lets it through.
+        // and an Unknown level. With Book rollouts on and no book-rollout
+        // level checked, the clause's "any level" axis lets it through.
         var set = new FilterConfig { IncludeBookRollouts = true }.Build();
 
         set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
@@ -284,14 +311,15 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void Build_BookRolloutsToggle_LevelChecked_DropsUnknownLevelBookHit()
+    public void Build_BookRolloutLevelChecked_DropsUnknownLevelBookHit()
     {
-        // Once a concrete level is checked, an Unknown-level book hit no longer
-        // matches the level axis — only book hits enriched to that level pass.
+        // Once a concrete book-rollout level is checked, an Unknown-level book
+        // hit no longer matches that clause — only book hits enriched to the
+        // checked level pass.
         var set = new FilterConfig
         {
             IncludeBookRollouts = true,
-            AnalysisLevels = { AnalysisLevel.Ply4 },
+            BookRolloutLevels = { AnalysisLevel.Ply4 },
         }.Build();
 
         set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
@@ -308,6 +336,77 @@ public class FilterConfigTests
         var set = new FilterConfig { IncludeRollouts = true }.Build();
         set.Matches(new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Build_AcceptanceCase_AnyRolloutOrRollerPlusPlusEvaluation()
+    {
+        // The beta report's inexpressible selection, verbatim: Rollouts on
+        // with no levels + Evaluations at XG Roller++. Rollout rows pass at
+        // ANY inner level (checker rollouts never carry Roller-family inner
+        // levels, so the old shared level set matched no rollouts at all);
+        // Roller++ evaluation rows pass; other evaluations do not.
+        var config = new FilterConfig
+        {
+            IncludeRollouts = true,
+            IncludeEvaluations = true,
+            EvaluationLevels = { AnalysisLevel.XgRollerPlusPlus },
+        };
+        var set = config.Build();
+
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.XgRoller).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRollerPlusPlus).ToDecisionRow())
+            .Should().BeTrue();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRoller).ToDecisionRow())
+            .Should().BeFalse();
+        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Build_AcceptanceCase_AddingSelections_StrictlyGrowsTheMatchedSet()
+    {
+        // Union semantics: every further toggle or level can only admit MORE
+        // rows. Pinned on a mixed sample containing a row each addition newly
+        // admits, starting from the acceptance-case config.
+        var sample = new RowShape[]
+        {
+            new(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
+            new(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.XgRoller),
+            new(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRollerPlusPlus),
+            new(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRoller),
+            new(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
+            new(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown),
+            new(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown),
+        };
+
+        static int Matched(FilterConfig config, IEnumerable<RowShape> rows)
+        {
+            var set = config.Build();
+            return rows.Count(r => set.Matches(r.ToDecisionRow()));
+        }
+
+        var config = new FilterConfig
+        {
+            IncludeRollouts = true,
+            IncludeEvaluations = true,
+            EvaluationLevels = { AnalysisLevel.XgRollerPlusPlus },
+        };
+        var baseline = Matched(config, sample);
+
+        // A further level on an existing clause admits the XgRoller evaluation.
+        config.EvaluationLevels.Add(AnalysisLevel.XgRoller);
+        var withExtraLevel = Matched(config, sample);
+        withExtraLevel.Should().BeGreaterThan(baseline);
+
+        // A further toggle admits the book hit.
+        config.IncludeBookRollouts = true;
+        Matched(config, sample).Should().BeGreaterThan(withExtraLevel);
     }
 
     // -----------------------------------------------------------------------
@@ -407,11 +506,30 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void Build_UnknownAnalysisLevel_Throws()
+    public void Build_UnknownAnalysisLevel_WithItsToggleOn_Throws()
     {
-        var cfg = new FilterConfig { AnalysisLevels = { (AnalysisLevel)999 } };
+        var cfg = new FilterConfig
+        {
+            IncludeEvaluations = true,
+            EvaluationLevels = { (AnalysisLevel)999 },
+        };
         var act = () => cfg.Build();
         act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Build_UnknownAnalysisLevel_WithoutItsToggle_DoesNotThrow()
+    {
+        // An inert level list contributes no clause and is never validated —
+        // consistent with it constraining nothing. Another active toggle
+        // exercises the facet's factory to prove the inert list stays unread.
+        var cfg = new FilterConfig
+        {
+            IncludeRollouts = true,
+            EvaluationLevels = { (AnalysisLevel)999 },
+        };
+        var act = () => cfg.Build();
+        act.Should().NotThrow();
     }
 
     // -----------------------------------------------------------------------
@@ -483,19 +601,31 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void GetActiveFacets_DepthArms_EachInputAloneActivatesTheOneFacet()
+    public void GetActiveFacets_DepthArms_EachToggleAloneActivatesTheOneFacet()
     {
-        // The three raw depth inputs are ONE facet: levels-only, either toggle
-        // alone, and a combined arm all report exactly AnalysisDepth — matching
-        // the Build derivation (facet inactive iff no level AND neither toggle).
-        new FilterConfig { AnalysisLevels = { AnalysisLevel.Ply4 } }
+        // The three mode toggles are ONE facet: each toggle alone, and a
+        // combined arm, all report exactly AnalysisDepth — matching the Build
+        // derivation (facet active iff any toggle on).
+        new FilterConfig { IncludeEvaluations = true }
             .GetActiveFacets().Should().Equal(FilterFacet.AnalysisDepth);
         new FilterConfig { IncludeRollouts = true }
             .GetActiveFacets().Should().Equal(FilterFacet.AnalysisDepth);
         new FilterConfig { IncludeBookRollouts = true }
             .GetActiveFacets().Should().Equal(FilterFacet.AnalysisDepth);
-        new FilterConfig { AnalysisLevels = { AnalysisLevel.Ply4 }, IncludeRollouts = true }
+        new FilterConfig { IncludeEvaluations = true, EvaluationLevels = { AnalysisLevel.Ply4 }, IncludeRollouts = true }
             .GetActiveFacets().Should().Equal(FilterFacet.AnalysisDepth);
+    }
+
+    [Fact]
+    public void GetActiveFacets_DepthLevelsWithoutTheirToggle_AreInactive()
+    {
+        // Inert level lists mirror Build's skipped add: no toggle, no facet.
+        new FilterConfig
+        {
+            EvaluationLevels = { AnalysisLevel.Ply4 },
+            RolloutLevels = { AnalysisLevel.Ply3 },
+            BookRolloutLevels = { AnalysisLevel.XgRoller },
+        }.GetActiveFacets().Should().BeEmpty();
     }
 
     [Fact]
@@ -545,7 +675,8 @@ public class FilterConfigTests
             new FilterConfig { PositionPattern = BoardPattern.Empty },
             new FilterConfig { DecisionType = DecisionTypeOption.Both },
             new FilterConfig { Players = { "Alice" } },
-            new FilterConfig { AnalysisLevels = { AnalysisLevel.Ply4 } },
+            new FilterConfig { EvaluationLevels = { AnalysisLevel.Ply4 } },
+            new FilterConfig { IncludeEvaluations = true },
             new FilterConfig { IncludeRollouts = true },
             new FilterConfig { IncludeBookRollouts = true },
             new FilterConfig { ErrorMin = 0.05, DiceRolls = { new DiceRoll(3, 1) } },
@@ -594,9 +725,12 @@ public class FilterConfigTests
             ContactTypes = { ContactType.Race },
             PositionTypes = { PositionType.InnerBoard631 },
             PlayTypes = { PlayType.Make20Pt },
-            AnalysisLevels = { AnalysisLevel.Ply3, AnalysisLevel.XgRoller },
+            IncludeEvaluations = true,
+            EvaluationLevels = { AnalysisLevel.Ply3, AnalysisLevel.XgRoller },
             IncludeRollouts = true,
+            RolloutLevels = { AnalysisLevel.Ply4 },
             IncludeBookRollouts = true,
+            BookRolloutLevels = { AnalysisLevel.XgRollerPlus },
             DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
             PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
         };
@@ -644,14 +778,14 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void ToJson_AnalysisLevels_SerializeAsDeclarationNames()
+    public void ToJson_DepthLevels_SerializeAsDeclarationNames()
     {
         // AnalysisLevel carries its own type-level JsonStringEnumConverter (it is
         // owned by BgDataTypes_Lib), so it rides the wire as its declaration name
         // even though FilterConfig does not own the enum.
         var json = new FilterConfig
         {
-            AnalysisLevels = { AnalysisLevel.XgRoller },
+            EvaluationLevels = { AnalysisLevel.XgRoller },
         }.ToJson();
 
         json.Should().Contain("\"XgRoller\"",
@@ -661,17 +795,22 @@ public class FilterConfigTests
     [Fact]
     public void FromJson_MissingDepthMembers_RestoreToInactiveDefaults()
     {
-        // Legacy JSON written before the depth facet existed (or under the
-        // retired AnalysisDepthClasses field) omits the new members entirely;
-        // they must materialize as an empty level list and both toggles off —
-        // an inactive facet — not null. This is the beta-acceptable reset of
-        // old saved configs.
+        // Legacy JSON written before the per-mode pairs existed — under the
+        // retired flat AnalysisDepthClasses field or the retired shared
+        // AnalysisLevels list — carries none of the current members; the
+        // unrecognized fields are ignored and the pairs materialize as empty
+        // level lists with every toggle off (an inactive facet), not null.
+        // This is the accepted reset of old saved configs (Contact/Race
+        // precedent).
         var restored = FilterConfig.FromJson(
-            "{\"Players\":[\"Alice\"],\"AnalysisDepthClasses\":[\"Ply3\"]}");
+            "{\"Players\":[\"Alice\"],\"AnalysisDepthClasses\":[\"Ply3\"],\"AnalysisLevels\":[\"Ply4\"]}");
 
-        restored.AnalysisLevels.Should().NotBeNull().And.BeEmpty();
+        restored.IncludeEvaluations.Should().BeFalse();
+        restored.EvaluationLevels.Should().NotBeNull().And.BeEmpty();
         restored.IncludeRollouts.Should().BeFalse();
+        restored.RolloutLevels.Should().NotBeNull().And.BeEmpty();
         restored.IncludeBookRollouts.Should().BeFalse();
+        restored.BookRolloutLevels.Should().NotBeNull().And.BeEmpty();
     }
 
     [Fact]
@@ -757,9 +896,12 @@ public class FilterConfigTests
         restored.ContactTypes.Should().BeEmpty();
         restored.PositionTypes.Should().BeEmpty();
         restored.PlayTypes.Should().BeEmpty();
-        restored.AnalysisLevels.Should().BeEmpty();
+        restored.IncludeEvaluations.Should().BeFalse();
+        restored.EvaluationLevels.Should().BeEmpty();
         restored.IncludeRollouts.Should().BeFalse();
+        restored.RolloutLevels.Should().BeEmpty();
         restored.IncludeBookRollouts.Should().BeFalse();
+        restored.BookRolloutLevels.Should().BeEmpty();
         restored.DiceRolls.Should().BeEmpty();
     }
 

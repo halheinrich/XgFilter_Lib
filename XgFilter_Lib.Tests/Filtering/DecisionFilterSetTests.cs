@@ -83,12 +83,13 @@ public class DecisionFilterSetTests
     public void Matches_AnalysisDepthAndPlayer_ComposeWithAnd_BothSubstrates()
     {
         // Depth is an independent facet from player identity; a row must clear
-        // BOTH the depth include-set AND the player filter. A 3-ply row by
+        // BOTH the depth clause-union AND the player filter. A 3-ply row by
         // Alice passes; the same depth by Bob, and a rollout by Alice, are each
         // rejected by the AND.
         var set = new DecisionFilterSet()
             .Add(new PlayerFilter(["Alice"]))
-            .Add(new AnalysisDepthFilter([AnalysisMode.Evaluation], [AnalysisLevel.Ply3]));
+            .Add(new AnalysisDepthFilter(
+                [new AnalysisDepthFilter.Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply3])]));
 
         AssertSetMatchesBoth(set,
             new RowShape(Player: "Alice", AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),

@@ -72,12 +72,13 @@ public enum FilterFacet
     PlayTypes,
 
     /// <summary>
-    /// The two-axis analysis-depth facet — checked levels
-    /// (<see cref="FilterConfig.AnalysisLevels"/>) plus the
+    /// The analysis-depth facet — three per-mode toggles
+    /// (<see cref="FilterConfig.IncludeEvaluations"/> /
     /// <see cref="FilterConfig.IncludeRollouts"/> /
-    /// <see cref="FilterConfig.IncludeBookRollouts"/> mode toggles. One facet:
-    /// any of the three inputs activates it, and it materializes as a single
-    /// filter (see the derivation on <see cref="FilterConfig.Build"/>).
+    /// <see cref="FilterConfig.IncludeBookRollouts"/>), each qualified by its
+    /// own level list. One facet: any toggle activates it (an untoggled level
+    /// list is inert), and it materializes as a single filter — a union of
+    /// per-mode clauses (see the derivation on <see cref="FilterConfig.Build"/>).
     /// </summary>
     [Description("Analysis depth")]
     AnalysisDepth,

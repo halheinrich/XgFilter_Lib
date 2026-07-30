@@ -169,8 +169,8 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   per add/skip gate `Build()` recognizes (Players, DecisionType,
   MatchScores, ErrorRange, MoveNumberRange, ContactTypes,
   PositionTypes, PlayTypes, AnalysisDepth, DiceRolls,
-  PositionPattern), declared in `Build()`'s add order. The two-axis
-  depth inputs (levels + both toggles) are ONE facet. The UI-shelved
+  PositionPattern), declared in `Build()`'s add order. The depth
+  facet's three per-mode toggle+levels pairs are ONE facet. The UI-shelved
   `PositionTypes` / `PlayTypes` stay in the vocabulary because they
   remain `Build()`-reachable (old saved configs can carry them); each
   member retires together with its facet. Labels match the
@@ -218,9 +218,10 @@ surface, and are reachable from the test project via
   `PlayTypes` / `DiceRolls`, and a null-or-empty `PositionPattern`, each
   mean "no filter of this kind is active," not "reject everything";
   `Build()` skips the corresponding `Add()` in that case. The depth facet is the
-  one exception to the single-member pattern — it is inactive (skipped)
-  only when `AnalysisLevels` is empty **and** both `IncludeRollouts` and
-  `IncludeBookRollouts` are off (see **Depth facet semantics** below).
+  one exception to the single-member pattern — three per-mode pairs
+  (`IncludeEvaluations`+`EvaluationLevels`, `IncludeRollouts`+`RolloutLevels`,
+  `IncludeBookRollouts`+`BookRolloutLevels`); it is inactive (skipped) iff
+  all three toggles are off (see **Depth facet semantics** below).
   Likewise `DecisionType = Both` is a no-op and is skipped. Range filters
   (`ErrorRange`, `MoveNumber`) are added if either bound is set.
   Canonical JSON is single-sourced on the type via `ToJson()` /
@@ -229,18 +230,19 @@ surface, and are reachable from the test project via
   — so the enum-list members round-trip as `["InnerBoard631", ...]`
   name-arrays rather than ordinals (`ContactType` / `PositionType` /
   `PlayType` / `DecisionType` carry no type-level `[JsonConverter]`).
-  `AnalysisLevels`, `DiceRolls`, and `PositionPattern` are the
+  The three depth level lists, `DiceRolls`, and `PositionPattern` are the
   self-describing exceptions that need no converter registered here:
   `AnalysisLevel` (owned by `BgDataTypes_Lib`) carries its own type-level
   `JsonStringEnumConverter`, `DiceRoll` (also `BgDataTypes_Lib`) carries its
   own type-level `[JsonConverter]` serializing as the `"31"` two-digit token,
   and `BoardPattern` carries its own (see **Patterns** below), so all three
   serialize as their string form under these options and under any others —
-  `DiceRolls` thus rides the wire as a `["31","66"]` token array;
-  `IncludeRollouts` / `IncludeBookRollouts` are plain booleans. `TryFromJson` restores a fresh default config on a
-  null argument, the literal `null` token, or malformed JSON — the path by
-  which old saved configs (carrying the retired `AnalysisDepthClasses`
-  field) reset to an inactive depth facet on read.
+  `DiceRolls` thus rides the wire as a `["31","66"]` token array; the three
+  mode toggles are plain booleans. `TryFromJson` restores a fresh default
+  config on a null argument, the literal `null` token, or malformed JSON;
+  separately, retired field names (`AnalysisDepthClasses`, the shared
+  `AnalysisLevels` list) are simply ignored on read, so old saved configs
+  reset to an inactive depth facet — accepted, the Contact/Race precedent.
 
   Internally the per-facet add/skip gates live in a single private
   `FacetRules` table — `(FilterFacet, activation predicate, filter
@@ -258,25 +260,30 @@ surface, and are reachable from the test project via
   verdicts rather than judging facet activity from its edit buffers
   (the same consult-the-result ruling as `DecisionFilterSet.IsEmpty`).
 
-* **Depth facet semantics.** User-facing selection state is a set of checked
-  levels (`AnalysisLevels`) plus two independent toggles (`IncludeRollouts`,
-  `IncludeBookRollouts`) — raw intent the config stores verbatim. `Build()`
-  is the **single source of truth** for deriving the effective mode set from
-  that intent, and the derivation is:
+* **Depth facet semantics.** User-facing selection state is three per-mode
+  pairs — a toggle plus its own level list (`IncludeEvaluations` +
+  `EvaluationLevels`, `IncludeRollouts` + `RolloutLevels`,
+  `IncludeBookRollouts` + `BookRolloutLevels`) — raw intent the config stores
+  verbatim. `Build()` is the **single source of truth** for deriving the
+  filter's clause union from that intent, and the derivation is:
   * **Facet inactive** (whole facet passes everything, filter not added) iff
-    no level checked and neither toggle on.
-  * Otherwise the effective **mode set** = `{Rollout if toggled} ∪
-    {BookRollout if toggled}`, defaulting to `{Evaluation}` when neither
-    toggle is on; the effective **level set** = the checked levels, or *any
-    level* when none are checked (an empty set handed straight to the filter).
-    A row passes iff `AnalysisMode ∈ modes && AnalysisLevel ∈ levels`.
-  * Canonical example: 4-ply checked + Rollouts on → only 4-ply *rollouts*
-    pass; plain 4-ply evaluations do not. A book hit with an `Unknown` level
-    (unenriched, V1, or eval-baseline book entry) passes only via the
-    Book-rollouts toggle with no level checked (or `Unknown` explicitly in
-    the level set).
-  * `Unknown` mode (legacy/unstamped rows) is never selectable — no toggle or
-    level maps to it — so those rows pass only when the facet is inactive.
+    all three toggles are off. A level list whose toggle is off is **inert**:
+    it neither activates the facet nor constrains anything, and is never
+    validated.
+  * Otherwise the filter gets **one clause per enabled toggle**, carrying that
+    mode's level list verbatim (empty = *any level*). A row passes iff any
+    clause admits it: `clause.Mode == AnalysisMode && (clause levels empty ||
+    AnalysisLevel ∈ clause levels)` — a union of per-mode conjunctions, so a
+    level selection qualifies **only its own mode**.
+  * Canonical example (the beta report's, inexpressible under the old shared
+    level set): Rollouts on with no levels + Evaluations at XG Roller++ →
+    rollout rows pass at *any* inner level, and evaluation rows pass only at
+    Roller++. Adding any further toggle or level strictly grows the matched
+    set. A book hit with an `Unknown` level (unenriched, V1, or eval-baseline
+    book entry) passes only via the Book-rollouts toggle with no
+    book-rollout level checked (or `Unknown` explicitly in that list).
+  * `Unknown` mode (legacy/unstamped rows) is never selectable — no clause
+    can name it — so those rows pass only when the facet is inactive.
 * `PlayerFilter` — implements both interfaces. `Matches` admits rows where
   the on-roll player is in the include list; `ShouldSkipMatch` drops the
   whole file when neither player is in the list.
@@ -367,31 +374,34 @@ surface, and are reachable from the test project via
   analyzed candidate set). Empty type set → always false (empty OR).
   The enum→classifier correspondence is owned by the filter, not the
   caller. Unknown enum values are rejected at construction.
-* `AnalysisDepthFilter` — the depth facet over the **two-axis** analysis
-  taxonomy (`AnalysisMode` × `AnalysisLevel`) that replaced the retired flat
-  `AnalysisDepthClass`. Unlike the board-reading facets, depth is a scalar
-  pair the producer already stamped on each decision
+* `AnalysisDepthFilter` — the depth facet as a **union of per-mode clauses**
+  over the two-axis analysis taxonomy (`AnalysisMode` × `AnalysisLevel`) that
+  replaced the retired flat `AnalysisDepthClass`. Unlike the board-reading
+  facets, depth is a scalar pair the producer already stamped on each decision
   (`IDecisionFilterData.AnalysisMode` / `AnalysisLevel` — the cube analysis
   for cube rows, the best-by-equity candidate for checker rows), so this is
-  a direct two-axis membership test: no classifier dispatch, no board reads.
-  Constructed with `(modes, levels)`; a row passes iff
-  `AnalysisMode ∈ modes && (levels is empty || AnalysisLevel ∈ levels)`. The
-  two axes are deliberately **asymmetric**, mirroring the facet's selection
-  semantics (derived in `FilterConfig.Build` — see **Facet semantics** below):
-  the **mode** set must be non-empty (an active facet always resolves to at
-  least one mode, defaulting to `Evaluation`), so an empty mode set is
-  rejected at construction; the **level** set may be empty, meaning "any
-  level" — the unconstrained level axis is how an unenriched book hit
-  (`BookRollout` + `Unknown` level) is admitted. Mode `Unknown` is never
-  supplied (no selection produces it), so legacy/unstamped `Unknown`-mode
-  rows pass only when the whole facet is inactive and this filter is absent
-  from the set — the same drop-don't-pass posture the old facet had, now
-  naturally expressed by the mode set. Deliberately implements only
-  `Matches` — no `IMatchFilter` and no `ShouldAdvance*` overrides: depth is
-  not knowable from a match/game header and is not monotonic within a game
-  (a single game mixes book, N-ply, and rollout decisions), so there is no
-  sound early-exit. Undefined `AnalysisMode` / `AnalysisLevel` values are
-  rejected at construction.
+  a direct membership test: no classifier dispatch, no board reads.
+  Constructed with a non-empty set of `Clause`s (a nested validated record:
+  one `AnalysisMode` plus that mode's own level set); a row passes iff any
+  clause admits it — mode equality AND (clause levels empty || level ∈ clause
+  levels). Per-clause levels are the point: a level selection qualifies only
+  its own mode, so "(any rollout) OR (evaluation at Roller++)" is one filter,
+  and rollout rows are never constrained by evaluation levels (rollout rows'
+  levels are *inner* levels — checker rollouts never carry Roller-family
+  inner levels, which is why the old shared level set matched no rollouts).
+  An empty clause collection is rejected at construction (an inactive facet
+  is expressed by omitting the filter, never by an empty union); within a
+  clause the level set may be empty, meaning "any level" — how an unenriched
+  book hit (`BookRollout` + `Unknown` level) is admitted. `Clause` rejects
+  mode `Unknown` (no selection produces it), so legacy/unstamped
+  `Unknown`-mode rows pass only when the whole facet is inactive and this
+  filter is absent from the set — the same drop-don't-pass posture the old
+  designs had. Clauses on the same mode are legal and simply union.
+  Deliberately implements only `Matches` — no `IMatchFilter` and no
+  `ShouldAdvance*` overrides: depth is not knowable from a match/game header
+  and is not monotonic within a game (a single game mixes book, N-ply, and
+  rollout decisions), so there is no sound early-exit. Undefined
+  `AnalysisMode` / `AnalysisLevel` values are rejected at construction.
 * `DiceRollFilter` — include list of `DiceRoll`. Like the depth facet, the
   roll is a scalar the producer already stamped on each decision
   (`IDecisionFilterData.Dice`), so this is a direct set-membership test — no
@@ -726,9 +736,12 @@ public sealed class FilterConfig
     public IList<ContactType>        ContactTypes         { get; set; }
     public IList<PositionType>       PositionTypes        { get; set; }
     public IList<PlayType>           PlayTypes            { get; set; }
-    public IList<AnalysisLevel>      AnalysisLevels       { get; set; }
+    public bool                      IncludeEvaluations   { get; set; }
+    public IList<AnalysisLevel>      EvaluationLevels     { get; set; }
     public bool                      IncludeRollouts      { get; set; }
+    public IList<AnalysisLevel>      RolloutLevels        { get; set; }
     public bool                      IncludeBookRollouts  { get; set; }
+    public IList<AnalysisLevel>      BookRolloutLevels    { get; set; }
     public IList<DiceRoll>           DiceRolls            { get; set; }
     public BoardPattern?             PositionPattern      { get; set; }
 
@@ -854,29 +867,38 @@ public sealed class BoardPattern
   or in a consumer) re-creates exactly the two-encodings hazard the table
   exists to kill — a new facet means a new `FilterFacet` member plus a new
   table row, nothing else.
-* **The depth facet's mode set is derived in `Build()`, not the panel.**
-  `FilterConfig` stores raw user intent (`AnalysisLevels` + `IncludeRollouts`
-  + `IncludeBookRollouts`); the mapping from those toggles to the effective
-  `AnalysisMode` set — Rollouts→`Rollout`, Book rollouts→`BookRollout`,
-  neither→`Evaluation`, plus the "none checked and neither toggle = inactive"
+* **Depth levels qualify only their own mode.** Each level list binds
+  exclusively to its paired toggle's clause: `EvaluationLevels` never
+  constrains rollout rows, `RolloutLevels` never constrains evaluations, and
+  a level list whose toggle is off is **inert** (no activation, no
+  constraint, no validation). Rollout-family level lists select on the
+  rollout's **inner** level — and checker rollouts never carry Roller-family
+  inner levels, so offering Roller-family choices as "rollout levels" in a UI
+  (or copying one mode's levels onto another's clause) recreates the
+  match-nothing defect the clause union was introduced to fix.
+* **The depth facet's clause union is derived in `Build()`, not the panel.**
+  `FilterConfig` stores raw user intent (three per-mode toggle+levels pairs);
+  the mapping to `AnalysisDepthFilter` clauses — one clause per enabled
+  toggle carrying its own level list, plus the "all toggles off = inactive"
   rule — lives **only** in `FilterConfig` (the depth facet's private
   `FacetRules` entry and its filter factory, both reached solely through
   `Build()`). It is the single source of truth. The XgFilter_Razor panel
-  must bind the three raw inputs and let
-  `Build()` derive the modes; re-encoding the derivation in the UI (e.g.
-  pre-computing an `AnalysisMode` list and stuffing it into the config)
-  duplicates the SSOT and will silently drift — for instance losing the
-  `Evaluation` default or the inactive rule.
+  must bind the six raw inputs and let `Build()` derive the clauses;
+  re-encoding the derivation in the UI (e.g. pre-computing clauses or an
+  `AnalysisMode` list and stuffing it into the config) duplicates the SSOT
+  and will silently drift — for instance losing the inactive rule or the
+  inert-levels rule.
 * **The depth facet drops `Unknown`-mode rows whenever it is active.**
-  No selection produces mode `Unknown`, so any active depth facet excludes
-  legacy/unstamped rows (`AnalysisMode.Unknown`) — they pass only when the
-  facet is inactive and `AnalysisDepthFilter` is absent from the set. This is
-  the same drop-don't-pass posture `ErrorRangeFilter` applies to a null
-  `FilterError`. Separately, the **level** axis is unconstrained when
-  `AnalysisLevels` is empty (any level, including `Unknown`), so an unenriched
-  book hit rides through on the Book-rollouts toggle alone; checking any
-  concrete level then excludes those `Unknown`-level hits — intended, not a
-  bug.
+  No selection produces mode `Unknown` (`Clause` rejects it at
+  construction), so any active depth facet excludes legacy/unstamped rows
+  (`AnalysisMode.Unknown`) — they pass only when the facet is inactive and
+  `AnalysisDepthFilter` is absent from the set. This is the same
+  drop-don't-pass posture `ErrorRangeFilter` applies to a null
+  `FilterError`. Separately, a clause's level axis is unconstrained when its
+  list is empty (any level, including `Unknown`), so an unenriched book hit
+  rides through on the Book-rollouts toggle alone; checking any concrete
+  book-rollout level then excludes those `Unknown`-level hits — intended,
+  not a bug.
 * **`MatchScoreFilter` tokens are on-roll anchored; game headers are
   player-anchored.** `MaNa` means the *player on roll* needs M — `4a5a`
   and `5a4a` are different targets — but `XgGameInfo.Away1/Away2` are

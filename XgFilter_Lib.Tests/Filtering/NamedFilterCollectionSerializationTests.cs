@@ -22,8 +22,12 @@ public class NamedFilterCollectionSerializationTests
         ContactTypes = { ContactType.Contact },
         PositionTypes = { PositionType.InnerBoard631 },
         PlayTypes = { PlayType.Make20Pt },
-        AnalysisLevels = { AnalysisLevel.Ply4 },
+        IncludeEvaluations = true,
+        EvaluationLevels = { AnalysisLevel.Ply4 },
         IncludeRollouts = true,
+        RolloutLevels = { AnalysisLevel.Ply3 },
+        IncludeBookRollouts = true,
+        BookRolloutLevels = { AnalysisLevel.XgRoller },
         DiceRolls = { new DiceRoll(3, 1) },
         PositionPattern = BoardPattern.Parse("[off,1,] [opp-off,0,0]"),
     };
