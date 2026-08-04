@@ -219,10 +219,17 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
     /// <summary>
     /// Value equality over the constraint set: true when
     /// <paramref name="other"/> carries the same <see cref="CheckerRange"/>
-    /// constraints as this pattern, regardless of their order (see the
-    /// type-level remarks). Elements compare by their own
-    /// <see langword="record struct"/> value equality, so a numeric and a named
-    /// location never conflate.
+    /// constraints as this pattern, regardless of their order. Elements compare
+    /// by their own <see langword="record struct"/> value equality, so a numeric
+    /// and a named location never conflate.
+    /// <para>
+    /// Equality is semantic; the text form is faithful to how a pattern was
+    /// built. <see cref="ToBracketList"/> prints in construction order and
+    /// nothing normalizes it, so <em>two equal patterns may print different
+    /// bracket lists</em> — comparing patterns by their text is stricter than
+    /// this method, and reports a difference where there is none. Compare with
+    /// <see cref="Equals(BoardPattern)"/>.
+    /// </para>
     /// </summary>
     /// <param name="other">The pattern to compare against, or null.</param>
     public bool Equals(BoardPattern? other)
@@ -245,7 +252,8 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
     /// <summary>
     /// A hash consistent with <see cref="Equals(BoardPattern)"/>: the element
     /// hashes are combined with XOR, which is order-independent, so patterns
-    /// that differ only in constraint order hash alike.
+    /// that differ only in constraint order hash alike — including the two that
+    /// print different bracket lists.
     /// </summary>
     public override int GetHashCode()
     {
