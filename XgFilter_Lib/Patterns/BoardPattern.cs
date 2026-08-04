@@ -38,12 +38,20 @@ namespace XgFilter_Lib.Patterns;
 /// </para>
 ///
 /// <para>
-/// Equality: this type deliberately does <em>not</em> implement value-equality.
-/// Its backing store is an <see cref="IReadOnlyList{T}"/>, and reference
-/// equality on the list would make two structurally identical patterns compare
-/// unequal — the same footgun <c>FilterConfig</c> declined. Tests should compare
-/// structurally (e.g. AwesomeAssertions <c>BeEquivalentTo</c>) or via
-/// <see cref="ToBracketList"/>.
+/// Equality: value-based, over the constraint set. Two patterns are equal when
+/// they carry the same <see cref="CheckerRange"/> constraints in any order —
+/// order is not significant to the constructor either, and the
+/// no-duplicate-location invariant makes the constraints a genuine set rather
+/// than a bag. <see cref="GetHashCode"/> aggregates them order-independently to
+/// agree. Two patterns parsed from the same bracket list are therefore always
+/// equal; the converse holds only up to token order, since
+/// <see cref="ToBracketList"/> preserves construction order and two equal
+/// patterns may render permuted lists.
+/// No <c>==</c> / <c>!=</c> operators are declared: this is a reference type,
+/// and by the prevailing convention its operators keep reference semantics.
+/// Use <see cref="Equals(BoardPattern)"/> — or any hash-based or LINQ-based
+/// collection, which reach it through <see cref="IEquatable{T}"/> — for value
+/// comparison.
 /// </para>
 ///
 /// <para>
@@ -57,7 +65,7 @@ namespace XgFilter_Lib.Patterns;
 /// </para>
 /// </summary>
 [JsonConverter(typeof(BoardPatternJsonConverter))]
-public sealed class BoardPattern
+public sealed class BoardPattern : IEquatable<BoardPattern>
 {
     private readonly CheckerRange[] _ranges;
 
@@ -207,6 +215,46 @@ public sealed class BoardPattern
 
     /// <inheritdoc cref="ToBracketList"/>
     public override string ToString() => ToBracketList();
+
+    /// <summary>
+    /// Value equality over the constraint set: true when
+    /// <paramref name="other"/> carries the same <see cref="CheckerRange"/>
+    /// constraints as this pattern, regardless of their order (see the
+    /// type-level remarks). Elements compare by their own
+    /// <see langword="record struct"/> value equality, so a numeric and a named
+    /// location never conflate.
+    /// </summary>
+    /// <param name="other">The pattern to compare against, or null.</param>
+    public bool Equals(BoardPattern? other)
+    {
+        if (ReferenceEquals(this, other))
+            return true;
+
+        if (other is null || _ranges.Length != other._ranges.Length)
+            return false;
+
+        // No two ranges may share a location (the constructor's invariant), so
+        // the elements are distinct and a set comparison is exact — no multiset
+        // tally needed.
+        return _ranges.ToHashSet().SetEquals(other._ranges);
+    }
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj) => Equals(obj as BoardPattern);
+
+    /// <summary>
+    /// A hash consistent with <see cref="Equals(BoardPattern)"/>: the element
+    /// hashes are combined with XOR, which is order-independent, so patterns
+    /// that differ only in constraint order hash alike.
+    /// </summary>
+    public override int GetHashCode()
+    {
+        int aggregate = 0;
+        foreach (var range in _ranges)
+            aggregate ^= range.GetHashCode();
+
+        return HashCode.Combine(_ranges.Length, aggregate);
+    }
 
     /// <summary>
     /// Parses one <c>[location,min,max]</c> token. Throws

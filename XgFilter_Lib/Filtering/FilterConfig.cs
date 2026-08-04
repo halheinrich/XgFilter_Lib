@@ -38,8 +38,24 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="MoveNumberFilter"/>) are added if either bound is set;
 /// both-null pairs are skipped.
 /// </para>
+///
+/// <para>
+/// Equality: value-based over every member — a config's identity is its
+/// content, so two configs describing the same filtering are equal whoever
+/// built them. That is what lets a consumer tell "the user changed something"
+/// from "the user is back where they started" without re-materializing or
+/// serializing anything. See <see cref="Equals(FilterConfig)"/> for the
+/// per-member rules (the list members compare order-insensitively). No
+/// <c>==</c> / <c>!=</c> operators are declared: this is a mutable reference
+/// type, and by the prevailing convention its operators keep reference
+/// semantics — call <see cref="Equals(FilterConfig)"/> for value comparison.
+/// The standard caveat for a mutable type with value equality applies: an
+/// instance must not be mutated while it is in use as a key in a hash-based
+/// collection, since its hash would change underneath the collection. Nothing
+/// here does that today; this line is the guard against a consumer starting to.
+/// </para>
 /// </summary>
-public sealed class FilterConfig
+public sealed class FilterConfig : IEquatable<FilterConfig>
 {
     /// <summary>Player names whose decisions should pass; empty = no player filter.</summary>
     public IList<string> Players { get; set; } = new List<string>();
@@ -317,6 +333,179 @@ public sealed class FilterConfig
         }
 
         return active;
+    }
+
+    // -----------------------------------------------------------------------
+    //  Value equality — a config's identity is its content
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Value equality over every member of the configuration: the nine list
+    /// facets, the four range bounds, <see cref="DecisionType"/>, the three
+    /// depth-mode toggles, and <see cref="PositionPattern"/>. Two configs that
+    /// compare equal describe exactly the same filtering.
+    /// <para>
+    /// Per-member rules. The list members compare <em>order-insensitively</em>,
+    /// as multisets — selection order is not part of a config's meaning, so a
+    /// re-ordered selection is not a change. (One accepted consequence of
+    /// multiset rather than set semantics: a list holding the same entry twice
+    /// differs from one holding it once, though both build the same filter.
+    /// Duplicates are not reachable through a checkbox UI, and the direction of
+    /// the error — reporting a difference that materializes identically — is
+    /// the safe one for a consumer gating on "has anything changed?".) Strings
+    /// compare ordinally. A null list member compares equal to an empty one:
+    /// both mean "no filter of this kind," and equality stays total rather than
+    /// throwing on a config an explicit JSON <c>null</c> produced.
+    /// <see cref="PositionPattern"/> delegates to
+    /// <see cref="BoardPattern.Equals(BoardPattern)"/>, so null and
+    /// <see cref="BoardPattern.Empty"/> stay distinct — as they are everywhere
+    /// else on this type.
+    /// </para>
+    /// </summary>
+    /// <param name="other">The configuration to compare against, or null.</param>
+    public bool Equals(FilterConfig? other)
+    {
+        if (ReferenceEquals(this, other))
+            return true;
+
+        if (other is null)
+            return false;
+
+        return DecisionType == other.DecisionType
+            // Nullable<T>.Equals, not ==, so a NaN bound still equals itself
+            // and equality stays reflexive across clones.
+            && ErrorMin.Equals(other.ErrorMin)
+            && ErrorMax.Equals(other.ErrorMax)
+            && MoveNumberMin == other.MoveNumberMin
+            && MoveNumberMax == other.MoveNumberMax
+            && IncludeEvaluations == other.IncludeEvaluations
+            && IncludeRollouts == other.IncludeRollouts
+            && IncludeBookRollouts == other.IncludeBookRollouts
+            && object.Equals(PositionPattern, other.PositionPattern)
+            && SameContents(Players, other.Players)
+            && SameContents(MatchScores, other.MatchScores)
+            && SameContents(ContactTypes, other.ContactTypes)
+            && SameContents(PositionTypes, other.PositionTypes)
+            && SameContents(PlayTypes, other.PlayTypes)
+            && SameContents(EvaluationLevels, other.EvaluationLevels)
+            && SameContents(RolloutLevels, other.RolloutLevels)
+            && SameContents(BookRolloutLevels, other.BookRolloutLevels)
+            && SameContents(DiceRolls, other.DiceRolls);
+    }
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj) => Equals(obj as FilterConfig);
+
+    /// <summary>
+    /// A hash consistent with <see cref="Equals(FilterConfig)"/> — including
+    /// its order-insensitivity, so two configs whose selections are permutations
+    /// of each other hash identically. See the type-level remarks for the
+    /// mutation caveat this implies.
+    /// </summary>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+
+        hash.Add(DecisionType);
+        hash.Add(ErrorMin);
+        hash.Add(ErrorMax);
+        hash.Add(MoveNumberMin);
+        hash.Add(MoveNumberMax);
+        hash.Add(IncludeEvaluations);
+        hash.Add(IncludeRollouts);
+        hash.Add(IncludeBookRollouts);
+        hash.Add(PositionPattern);
+
+        hash.Add(ContentHash(Players));
+        hash.Add(ContentHash(MatchScores));
+        hash.Add(ContentHash(ContactTypes));
+        hash.Add(ContentHash(PositionTypes));
+        hash.Add(ContentHash(PlayTypes));
+        hash.Add(ContentHash(EvaluationLevels));
+        hash.Add(ContentHash(RolloutLevels));
+        hash.Add(ContentHash(BookRolloutLevels));
+        hash.Add(ContentHash(DiceRolls));
+
+        return hash.ToHashCode();
+    }
+
+    /// <summary>
+    /// Multiset comparison of two list facets — equal contents in any order.
+    /// Tallies occurrences rather than sorting, so it asks only for equality and
+    /// hashing of <typeparamref name="T"/> and serves the string, enum,
+    /// <see cref="DiceRoll"/>, and <see cref="AnalysisLevel"/> facets alike; the
+    /// default comparer is what makes the string facets ordinal. A null list is
+    /// treated as empty, so equality never throws on one.
+    /// </summary>
+    private static bool SameContents<T>(IList<T>? a, IList<T>? b)
+        where T : notnull
+    {
+        if (ReferenceEquals(a, b))
+            return true;
+
+        int count = a?.Count ?? 0;
+        if (count != (b?.Count ?? 0))
+            return false;
+
+        if (count == 0)
+            return true;
+
+        // Null entries are tallied apart, because a Dictionary rejects a null
+        // key. The notnull constraint is an annotation, not an enforcement: an
+        // explicit null element in deserialized JSON still lands here.
+        var remaining = new Dictionary<T, int>(count);
+        int nulls = 0;
+        foreach (var item in a!)
+        {
+            if (item is null)
+                nulls++;
+            else
+                remaining[item] = remaining.TryGetValue(item, out int n) ? n + 1 : 1;
+        }
+
+        foreach (var item in b!)
+        {
+            if (item is null)
+            {
+                if (--nulls < 0)
+                    return false;
+            }
+            else if (!remaining.TryGetValue(item, out int n))
+            {
+                return false;
+            }
+            else if (n == 1)
+            {
+                remaining.Remove(item);
+            }
+            else
+            {
+                remaining[item] = n - 1;
+            }
+        }
+
+        // Equal counts, and every entry of b consumed a distinct entry of a, so
+        // nothing of a can be left over.
+        return true;
+    }
+
+    /// <summary>
+    /// An order-independent content hash for one list facet, the hashing
+    /// counterpart of <see cref="SameContents{T}(IList{T}, IList{T})"/>. XOR is
+    /// what makes it order-independent; the count is folded in to separate lists
+    /// that would otherwise cancel out. Null and empty share a hash because
+    /// <see cref="SameContents{T}(IList{T}, IList{T})"/> calls them equal.
+    /// </summary>
+    private static int ContentHash<T>(IList<T>? items)
+    {
+        if (items is null || items.Count == 0)
+            return 0;
+
+        int aggregate = 0;
+        foreach (var item in items)
+            aggregate ^= item?.GetHashCode() ?? 0;
+
+        return HashCode.Combine(items.Count, aggregate);
     }
 
     // -----------------------------------------------------------------------

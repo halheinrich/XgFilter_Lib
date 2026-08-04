@@ -65,9 +65,10 @@ internal sealed class AnalysisDepthFilter : IDecisionFilter
     /// <remarks>
     /// Equality is not meaningful on this type (the level set is a reference
     /// member, so the synthesized record equality degrades to reference
-    /// comparison there) — the same no-value-equality posture as
-    /// <see cref="Patterns.BoardPattern"/>. Compare structurally if a test
-    /// ever needs to.
+    /// comparison there). Nothing compares clauses: a config's identity is
+    /// compared on the config itself, upstream of materialization — see
+    /// <see cref="FilterConfig.Equals(FilterConfig)"/>. Compare structurally if
+    /// a test ever needs to.
     /// </remarks>
     internal sealed record Clause
     {

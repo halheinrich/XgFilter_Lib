@@ -260,6 +260,27 @@ surface, and are reachable from the test project via
   verdicts rather than judging facet activity from its edit buffers
   (the same consult-the-result ruling as `DecisionFilterSet.IsEmpty`).
 
+  **Value equality** (`IEquatable<FilterConfig>`, `Equals` +
+  `GetHashCode`): a config's identity is its content, so two configs
+  describing the same filtering are equal whoever built them. Structural
+  over every member — the nine list facets, the four range bounds,
+  `DecisionType`, the three depth toggles, and `PositionPattern`. The
+  list facets compare **order-insensitively** (as multisets, tallied by
+  occurrence; the hash aggregates with XOR so a permuted selection hashes
+  alike), strings compare ordinally, and `PositionPattern` delegates to
+  `BoardPattern`'s own equality — `null` and `Empty` staying distinct, as
+  everywhere else on the type. A null list member counts as empty, so
+  equality is total and never throws on a config an explicit JSON `null`
+  produced. Two accepted edges, both erring toward *reporting* a
+  difference: duplicate entries make `{A,A} ≠ {A}` though both build the
+  same filter (unreachable through a checkbox UI), and comparison is of
+  intent, not of the materialized `DecisionFilterSet`. This is the
+  lib-side surface behind the FilterPanel's Apply gate (umbrella issue
+  #49): the panel compares its built config with the last-committed one
+  rather than re-materializing or serializing anything — a `ToJson()`
+  comparison was explicitly rejected. No `==` / `!=` operators; see the
+  pitfalls.
+
 * **Depth facet semantics.** User-facing selection state is three per-mode
   pairs — a toggle plus its own level list (`IncludeEvaluations` +
   `EvaluationLevels`, `IncludeRollouts` + `RolloutLevels`,
@@ -494,7 +515,9 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   (no throwing property). `default(CheckerLocation)` is `Board(0)`.
   Carries the domain constants `MaxBoardIndex` (25) and `MaxCheckers`
   (15) — location-domain facts, so they live on the location type.
-  Value-equality is what `BoardPattern` keys duplicate detection on.
+  Value-equality is what `BoardPattern` keys duplicate detection — and
+  its own equality — on, so a numeric and a named location never
+  conflate.
   `ToString` renders the canonical (lower-case) token head; name parsing
   is case-insensitive.
 * `CheckerRange` — a `readonly record struct`: an inclusive signed-count
@@ -509,8 +532,9 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   board-location case. `Contains` tests one signed count; internal
   `IsSatisfiedBy(board)` pairs it with `CheckerLocation.ValueOn`;
   `ToString` renders the `[location,min,max]` token (unbounded side →
-  empty field). A struct with value-equality by design — the small
-  immutable element, unlike the pattern that wraps it.
+  empty field). A struct with value-equality by design — which is what
+  `BoardPattern`'s own equality delegates to, element by element, and
+  what its duplicate-location check keys on.
 * `BoardPattern` — an immutable, validated bag of `CheckerRange`
   constraints over the on-roll-relative board (`[0]` opponent bar,
   `[1..24]` points, `[25]` on-roll bar; positive = on-roll player). A
@@ -540,11 +564,21 @@ reintroduction-ready alternative to the named `PositionType` machinery.
     / bound, including wrong-signed off bounds), and `ArgumentException`
     (`Min > Max`, duplicate location); `TryParse` absorbs all of those
     into `false`.
-  * **Equality** — deliberately **not** value-equality: the backing store
-    is a reference-typed `IReadOnlyList`, so structural equality would be
-    a footgun (the same reason `FilterConfig` declined it). Compare
-    structurally (AwesomeAssertions `BeEquivalentTo`) or via
-    `ToBracketList`.
+  * **Equality** — value-based over the constraint set, via
+    `IEquatable<BoardPattern>` (`Equals` + a consistent `GetHashCode`).
+    Two patterns are equal when they carry the same `CheckerRange`
+    constraints **in any order**: the constructor already treats order as
+    insignificant, and the no-duplicate-location invariant makes the
+    constraints a set, so the comparison is an exact set comparison and
+    the hash an order-independent (XOR) aggregate. Element comparison
+    delegates to `CheckerRange`'s record-struct value equality — no
+    second encoding of "same constraint" anywhere. Patterns parsed from
+    the same bracket list are therefore always equal; the converse holds
+    only up to token order, because `ToBracketList` preserves
+    construction order and two equal patterns may render permuted lists.
+    No `==` / `!=` operators: it is a reference type, and by the
+    prevailing convention its operators keep reference semantics — call
+    `Equals`.
   * **Serialization** — the type carries `[JsonConverter(typeof(
     BoardPatternJsonConverter))]` on itself, so it round-trips as its
     bracket-list string under *any* `JsonSerializerOptions`; a consumer
@@ -724,7 +758,7 @@ public sealed class DecisionFilterSet
     public bool ShouldAdvanceMatch(IDecisionFilterData data);
 }
 
-public sealed class FilterConfig
+public sealed class FilterConfig : IEquatable<FilterConfig>
 {
     public IList<string>             Players              { get; set; }
     public DecisionTypeOption        DecisionType         { get; set; }
@@ -751,6 +785,10 @@ public sealed class FilterConfig
     public string ToJson();
     public static FilterConfig FromJson(string json);
     public static bool TryFromJson(string? json, out FilterConfig config);
+
+    public bool Equals(FilterConfig? other);   // value equality over every
+    public override bool Equals(object? obj);  // member; list facets compare
+    public override int GetHashCode();         // as multisets. No == / !=.
 }
 ```
 
@@ -831,7 +869,7 @@ public readonly record struct CheckerRange
 }
 
 [JsonConverter(typeof(BoardPatternJsonConverter))]
-public sealed class BoardPattern
+public sealed class BoardPattern : IEquatable<BoardPattern>
 {
     public static BoardPattern Empty { get; }
 
@@ -845,7 +883,10 @@ public sealed class BoardPattern
     public static bool TryParse(string? text, out BoardPattern? pattern);
     public string ToBracketList();
     public override string ToString();   // == ToBracketList()
-    // Note: reference equality by design — compare structurally or via ToBracketList().
+
+    public bool Equals(BoardPattern? other);   // value equality over the
+    public override bool Equals(object? obj);  // constraint set, order-
+    public override int GetHashCode();         // insensitive. No == / !=.
 }
 ```
 
@@ -943,13 +984,33 @@ public sealed class BoardPattern
   are construction/parse **errors**, not empty ranges — a consumer must not
   "helpfully" flip signs before handing text to `Parse`; the sign rule is
   validated here, and `TryParse` already absorbs the rejection.
-* **`BoardPattern` has no value-equality.** Its backing store is a
-  reference-typed list, so `==` / `Equals` are reference comparisons — two
-  structurally identical patterns compare unequal. Compare via
-  `ToBracketList()` or a structural assertion (AwesomeAssertions
-  `BeEquivalentTo`), never `==`. This is deliberate; giving it a
-  synthesized structural equality over a mutable-shaped member is the
-  footgun `FilterConfig` also declined.
+* **`==` is *not* value comparison on `FilterConfig` or `BoardPattern`.**
+  Both implement `IEquatable<T>` with value semantics, but neither
+  declares `==` / `!=`, so the operators keep reference semantics by the
+  prevailing convention for reference types — `a == b` on two equal-by-
+  content configs is `false`. Call `Equals`. (Hash-based and LINQ
+  collections reach the right one through `IEquatable<T>`, so
+  `HashSet`/`Contains`/`Distinct` behave by value.)
+* **`FilterConfig` is mutable *and* value-equal.** That combination is
+  fine for its purpose — comparing a panel's built config with the
+  last-committed one — but an instance must not be mutated while it is
+  in use as a key in a hash-based collection, since its hash changes
+  underneath the collection. Nothing does that today; keep it that way.
+* **A new facet must be added to equality too.** `Equals` /
+  `GetHashCode` enumerate the members by hand — unlike the facet
+  activation gates, there is no rule table to single-source them on.
+  The guard is in the tests: `MemberMutators_CoverEveryPublicMember`
+  reflects over `FilterConfig`'s public members and fails until the new
+  one has a mutator, and `Equals_IsSensitiveToEveryMember` then fails
+  until `Equals` accounts for it. Both must stay green, and neither
+  should be "fixed" by relaxing the expectation.
+* **`BoardPattern` equality ignores token order; `ToBracketList` does
+  not.** Equality is over the constraint *set*, but the text form
+  preserves construction order — so two equal patterns can render
+  different bracket lists. Comparing patterns by their text
+  (`a.ToBracketList() == b.ToBracketList()`) is therefore *stricter*
+  than `Equals` and will report a spurious difference for a permuted
+  pattern. Use `Equals`.
 * **`BoardPattern`'s JSON converter must stay declared on the type.** The
   `[JsonConverter(typeof(BoardPatternJsonConverter))]` attribute on
   `BoardPattern` is what makes it round-trip under *any*

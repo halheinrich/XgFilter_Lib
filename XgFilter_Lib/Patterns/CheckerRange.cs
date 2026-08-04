@@ -24,9 +24,9 @@ namespace XgFilter_Lib.Patterns;
 ///
 /// <para>
 /// Declared a <see langword="readonly record struct"/> so it is immutable and
-/// carries structural value-equality for free — the equality footgun that
-/// makes <see cref="BoardPattern"/> decline value-equality is the mutable,
-/// reference-typed backing list it wraps, not this small immutable element.
+/// carries structural value-equality for free — which is what
+/// <see cref="BoardPattern"/>'s own equality delegates to, element by element,
+/// and what its duplicate-location check keys on.
 /// </para>
 /// </summary>
 public readonly record struct CheckerRange

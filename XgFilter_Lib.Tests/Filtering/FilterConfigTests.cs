@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
@@ -710,9 +711,9 @@ public class FilterConfigTests
     public void ToJson_PopulatedConfig_RoundTripsValueEqualThroughFromJson()
     {
         // Every field, including the enum-typed ones, must survive a
-        // ToJson -> FromJson round-trip unchanged. Structural comparison
-        // (BeEquivalentTo on the whole object) stands in for value equality,
-        // which FilterConfig deliberately does not implement.
+        // ToJson -> FromJson round-trip unchanged. Asserted twice over: the
+        // type's own value equality, and a structural comparison that is
+        // independent of it (so a bug in Equals cannot mask a wire regression).
         var original = new FilterConfig
         {
             Players = { "Alice", "Bob" },
@@ -737,6 +738,7 @@ public class FilterConfigTests
 
         var restored = FilterConfig.FromJson(original.ToJson());
 
+        restored.Should().Be(original);
         restored.Should().BeEquivalentTo(original);
     }
 
@@ -969,5 +971,272 @@ public class FilterConfigTests
 
         ok.Should().BeFalse();
         restored.Should().BeEquivalentTo(new FilterConfig());
+    }
+
+    // -----------------------------------------------------------------------
+    //  Value equality — a config's identity is its content. This is the
+    //  lib-side surface behind the FilterPanel's "nothing has changed, so
+    //  Apply stays disabled" gate: the panel compares its built config with
+    //  the last-committed one rather than re-materializing or serializing.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A config with every member set away from its default — the baseline the
+    /// member-sensitivity matrix perturbs one member at a time.
+    /// </summary>
+    private static FilterConfig Populated() => new()
+    {
+        Players = { "Alice", "Bob" },
+        DecisionType = DecisionTypeOption.CheckerPlaysOnly,
+        MatchScores = { "3a5a", "money" },
+        ErrorMin = 0.05,
+        ErrorMax = 0.50,
+        MoveNumberMin = 1,
+        MoveNumberMax = 20,
+        ContactTypes = { ContactType.Race },
+        PositionTypes = { PositionType.InnerBoard631 },
+        PlayTypes = { PlayType.Make20Pt },
+        IncludeEvaluations = true,
+        EvaluationLevels = { AnalysisLevel.Ply3, AnalysisLevel.XgRoller },
+        IncludeRollouts = true,
+        RolloutLevels = { AnalysisLevel.Ply4 },
+        IncludeBookRollouts = true,
+        BookRolloutLevels = { AnalysisLevel.XgRollerPlus },
+        DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
+        PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
+    };
+
+    /// <summary>
+    /// One mutation per public member of <see cref="FilterConfig"/>, each
+    /// changing that member of <see cref="Populated"/> and nothing else.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, Action<FilterConfig>> MemberMutators =
+        new Dictionary<string, Action<FilterConfig>>
+        {
+            [nameof(FilterConfig.Players)] = c => c.Players.Add("Carol"),
+            [nameof(FilterConfig.DecisionType)] = c => c.DecisionType = DecisionTypeOption.CubeOnly,
+            [nameof(FilterConfig.MatchScores)] = c => c.MatchScores.Remove("money"),
+            [nameof(FilterConfig.ErrorMin)] = c => c.ErrorMin = 0.10,
+            [nameof(FilterConfig.ErrorMax)] = c => c.ErrorMax = null,
+            [nameof(FilterConfig.MoveNumberMin)] = c => c.MoveNumberMin = 2,
+            [nameof(FilterConfig.MoveNumberMax)] = c => c.MoveNumberMax = null,
+            [nameof(FilterConfig.ContactTypes)] = c => c.ContactTypes.Add(ContactType.Contact),
+            [nameof(FilterConfig.PositionTypes)] = c => c.PositionTypes.Add(PositionType.VsTwoPlusUp),
+            [nameof(FilterConfig.PlayTypes)] = c => c.PlayTypes.Clear(),
+            [nameof(FilterConfig.IncludeEvaluations)] = c => c.IncludeEvaluations = false,
+            [nameof(FilterConfig.EvaluationLevels)] = c => c.EvaluationLevels.Add(AnalysisLevel.Ply2),
+            [nameof(FilterConfig.IncludeRollouts)] = c => c.IncludeRollouts = false,
+            [nameof(FilterConfig.RolloutLevels)] = c => c.RolloutLevels.Add(AnalysisLevel.Ply2),
+            [nameof(FilterConfig.IncludeBookRollouts)] = c => c.IncludeBookRollouts = false,
+            [nameof(FilterConfig.BookRolloutLevels)] = c => c.BookRolloutLevels.Clear(),
+            [nameof(FilterConfig.DiceRolls)] = c => c.DiceRolls.Add(new DiceRoll(5, 2)),
+            [nameof(FilterConfig.PositionPattern)] = c => c.PositionPattern = BoardPattern.Parse("[6,,0]"),
+        };
+
+    /// <summary>
+    /// The nine list facets, each as a pair of populating actions that add the
+    /// same entries in opposite orders.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<
+        string, (Action<FilterConfig> Forward, Action<FilterConfig> Reversed)> ListFacetPermutations =
+        new Dictionary<string, (Action<FilterConfig>, Action<FilterConfig>)>
+        {
+            [nameof(FilterConfig.Players)] =
+                (c => { c.Players.Add("Alice"); c.Players.Add("Bob"); },
+                 c => { c.Players.Add("Bob"); c.Players.Add("Alice"); }),
+            [nameof(FilterConfig.MatchScores)] =
+                (c => { c.MatchScores.Add("3a5a"); c.MatchScores.Add("money"); },
+                 c => { c.MatchScores.Add("money"); c.MatchScores.Add("3a5a"); }),
+            [nameof(FilterConfig.ContactTypes)] =
+                (c => { c.ContactTypes.Add(ContactType.Contact); c.ContactTypes.Add(ContactType.Race); },
+                 c => { c.ContactTypes.Add(ContactType.Race); c.ContactTypes.Add(ContactType.Contact); }),
+            [nameof(FilterConfig.PositionTypes)] =
+                (c => { c.PositionTypes.Add(PositionType.InnerBoard631); c.PositionTypes.Add(PositionType.VsTwoPlusUp); },
+                 c => { c.PositionTypes.Add(PositionType.VsTwoPlusUp); c.PositionTypes.Add(PositionType.InnerBoard631); }),
+            // PlayType has a single member today, so its "permutation" is the
+            // degenerate one-entry case — still worth listing, so the facet is
+            // covered the day a second member arrives.
+            [nameof(FilterConfig.PlayTypes)] =
+                (c => c.PlayTypes.Add(PlayType.Make20Pt),
+                 c => c.PlayTypes.Add(PlayType.Make20Pt)),
+            [nameof(FilterConfig.EvaluationLevels)] =
+                (c => { c.EvaluationLevels.Add(AnalysisLevel.Ply3); c.EvaluationLevels.Add(AnalysisLevel.XgRoller); },
+                 c => { c.EvaluationLevels.Add(AnalysisLevel.XgRoller); c.EvaluationLevels.Add(AnalysisLevel.Ply3); }),
+            [nameof(FilterConfig.RolloutLevels)] =
+                (c => { c.RolloutLevels.Add(AnalysisLevel.Ply2); c.RolloutLevels.Add(AnalysisLevel.Ply4); },
+                 c => { c.RolloutLevels.Add(AnalysisLevel.Ply4); c.RolloutLevels.Add(AnalysisLevel.Ply2); }),
+            [nameof(FilterConfig.BookRolloutLevels)] =
+                (c => { c.BookRolloutLevels.Add(AnalysisLevel.Unknown); c.BookRolloutLevels.Add(AnalysisLevel.XgRollerPlus); },
+                 c => { c.BookRolloutLevels.Add(AnalysisLevel.XgRollerPlus); c.BookRolloutLevels.Add(AnalysisLevel.Unknown); }),
+            [nameof(FilterConfig.DiceRolls)] =
+                (c => { c.DiceRolls.Add(new DiceRoll(3, 1)); c.DiceRolls.Add(new DiceRoll(6, 6)); },
+                 c => { c.DiceRolls.Add(new DiceRoll(6, 6)); c.DiceRolls.Add(new DiceRoll(3, 1)); }),
+        };
+
+    [Fact]
+    public void Equals_TwoDefaultConfigs_AreEqual()
+    {
+        var a = new FilterConfig();
+        var b = new FilterConfig();
+
+        a.Should().Be(b);
+        a.GetHashCode().Should().Be(b.GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_IsReflexiveAndSymmetric()
+    {
+        var config = Populated();
+        var twin = Populated();
+
+        config.Equals(config).Should().BeTrue();
+        config.Should().Be(twin);
+        twin.Should().Be(config);
+        config.GetHashCode().Should().Be(twin.GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_NullOrOtherType_IsFalse()
+    {
+        // A fresh receiver per assertion: comparing a reference to null teaches
+        // the compiler's flow analysis that it might be null, which would flag
+        // every later use of a shared local.
+        Populated().Equals((FilterConfig?)null).Should().BeFalse();
+        Populated().Equals((object?)null).Should().BeFalse();
+        Populated().Equals(Populated().ToJson()).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Equals_PopulatedVsDefault_IsFalse()
+    {
+        Populated().Should().NotBe(new FilterConfig());
+    }
+
+    [Fact]
+    public void Equals_IsSensitiveToEveryMember()
+    {
+        // The member-sensitivity matrix: changing any one member, and nothing
+        // else, must break equality. This is what catches a facet that was
+        // added to the config but forgotten in Equals — when a future facet
+        // makes this fail, the fix is to extend Equals/GetHashCode, not the
+        // expectation.
+        foreach (var (member, mutate) in MemberMutators)
+        {
+            var baseline = Populated();
+            var altered = Populated();
+            mutate(altered);
+
+            altered.Should().NotBe(baseline,
+                "changing {0} alone must make the config compare unequal", member);
+        }
+    }
+
+    [Fact]
+    public void MemberMutators_CoverEveryPublicMember()
+    {
+        // The guard that keeps the matrix above honest: a new member on
+        // FilterConfig fails here until it is given a mutator, and the mutator
+        // then fails Equals_IsSensitiveToEveryMember until equality learns
+        // about the member. Neither test alone closes that gap.
+        var members = typeof(FilterConfig)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.Name);
+
+        MemberMutators.Keys.Should().BeEquivalentTo(members);
+    }
+
+    [Fact]
+    public void Equals_ListFacets_AreOrderInsensitive_AndHashAgrees()
+    {
+        // Selection order is not part of a config's meaning, so a re-ordered
+        // selection is not a change. The hash must agree, or a permuted-but-
+        // equal config would go missing from a hash-based lookup.
+        foreach (var (facet, (forward, reversed)) in ListFacetPermutations)
+        {
+            var a = new FilterConfig();
+            var b = new FilterConfig();
+            forward(a);
+            reversed(b);
+
+            a.Should().Be(b, "{0} must compare order-insensitively", facet);
+            a.GetHashCode().Should().Be(b.GetHashCode(),
+                "{0}'s hash must agree with its order-insensitive equality", facet);
+        }
+    }
+
+    [Fact]
+    public void Equals_AllListFacetsPermutedTogether_IsStillEqual()
+    {
+        var forward = new FilterConfig();
+        var reversed = new FilterConfig();
+
+        foreach (var (_, (addForward, addReversed)) in ListFacetPermutations)
+        {
+            addForward(forward);
+            addReversed(reversed);
+        }
+
+        forward.Should().Be(reversed);
+        forward.GetHashCode().Should().Be(reversed.GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_DuplicateEntries_CompareAsMultiset()
+    {
+        // Documented, accepted edge: the list facets compare as multisets, so a
+        // doubled entry differs from a single one even though Build() produces
+        // the same filter from both. Duplicates are unreachable through the
+        // panel's checkbox UI, and the error direction — reporting a difference
+        // that materializes identically — is the safe one for a dirty-state
+        // gate. Pinned here so a change to it is a deliberate one.
+        var doubled = new FilterConfig { Players = { "Alice", "Alice" } };
+        var single = new FilterConfig { Players = { "Alice" } };
+
+        doubled.Should().NotBe(single);
+    }
+
+    [Fact]
+    public void Equals_NullListMember_MatchesEmptyAndDoesNotThrow()
+    {
+        // An explicit JSON null lands as a null list member. Equality treats it
+        // as the empty list it means and stays total — Equals must never throw.
+        var withNullList = FilterConfig.FromJson("""{"Players":null}""");
+
+        withNullList.Should().Be(new FilterConfig());
+        withNullList.GetHashCode().Should().Be(new FilterConfig().GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_PositionPattern_DelegatesToBoardPatternEquality()
+    {
+        var a = new FilterConfig { PositionPattern = BoardPattern.Parse("[6,,0] [5,2,]") };
+        var b = new FilterConfig { PositionPattern = BoardPattern.Parse("[5,2,] [6,,0]") };
+
+        a.Should().Be(b);
+        a.GetHashCode().Should().Be(b.GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_PositionPatternNullVsEmpty_AreDistinct()
+    {
+        // Null and the empty pattern are both inactive facets, but they remain
+        // distinct values everywhere else on this type; equality follows suit
+        // rather than inventing a third rule.
+        var none = new FilterConfig { PositionPattern = null };
+        var empty = new FilterConfig { PositionPattern = BoardPattern.Empty };
+
+        none.Should().NotBe(empty);
+    }
+
+    [Fact]
+    public void Equals_ConfigsBuiltDifferentWays_AreEqual()
+    {
+        // The consumer's actual question: a config restored from storage and
+        // one rebuilt from panel state describe the same filtering, so the
+        // Apply gate must see them as equal.
+        var restored = FilterConfig.FromJson(Populated().ToJson());
+
+        restored.Should().Be(Populated());
+        restored.GetHashCode().Should().Be(Populated().GetHashCode());
     }
 }

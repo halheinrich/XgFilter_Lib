@@ -330,4 +330,120 @@ public class BoardPatternTests
         var act = () => BoardPattern.Parse(null!);
         act.Should().Throw<ArgumentNullException>();
     }
+
+    // -----------------------------------------------------------------------
+    //  Equality — value-based over the constraint set, order-insensitive.
+    //  A pattern's identity is the set of constraints it imposes, so these
+    //  pin both directions: equivalent patterns compare equal (whatever
+    //  their token order), and any difference in a constraint breaks it.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Equals_IsReflexive()
+    {
+        var pattern = BoardPattern.Parse("[6,,0] [5,2,] [off,1,]");
+
+        pattern.Equals(pattern).Should().BeTrue();
+        pattern.GetHashCode().Should().Be(pattern.GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_SameBracketList_ParsesToEqualPatterns()
+    {
+        const string text = "[0,,-1] [6,2,] [off,1,15] [opp-off,-15,-2]";
+
+        var a = BoardPattern.Parse(text);
+        var b = BoardPattern.Parse(text);
+
+        a.Should().Be(b);
+        b.Should().Be(a);                                   // symmetric
+        a.GetHashCode().Should().Be(b.GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_RoundTripThroughBracketList_YieldsEqualPattern()
+    {
+        var original = BoardPattern.Parse("[6,,0] [5,2,] [opp-off,,-2]");
+        var reparsed = BoardPattern.Parse(original.ToBracketList());
+
+        reparsed.Should().Be(original);
+        reparsed.GetHashCode().Should().Be(original.GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_PermutedConstraints_AreEqualAndHashAlike()
+    {
+        // Token order carries no meaning — the constructor already documents
+        // it as insignificant — so equality ignores it, and the hash must
+        // agree or a permuted pattern would go missing from a hash set.
+        var a = BoardPattern.Parse("[6,,0] [5,2,] [off,1,]");
+        var b = BoardPattern.Parse("[off,1,] [6,,0] [5,2,]");
+
+        a.Should().Be(b);
+        a.GetHashCode().Should().Be(b.GetHashCode());
+
+        // ...even though the two render different bracket lists. That gap
+        // between equality and the text form is the accepted consequence of
+        // ToBracketList preserving construction order.
+        a.ToBracketList().Should().NotBe(b.ToBracketList());
+    }
+
+    [Fact]
+    public void Equals_DifferentBound_IsFalse()
+    {
+        BoardPattern.Parse("[6,2,]").Should().NotBe(BoardPattern.Parse("[6,3,]"));
+        BoardPattern.Parse("[6,2,]").Should().NotBe(BoardPattern.Parse("[6,2,4]"));
+    }
+
+    [Fact]
+    public void Equals_DifferentLocation_IsFalse()
+    {
+        BoardPattern.Parse("[6,2,]").Should().NotBe(BoardPattern.Parse("[5,2,]"));
+
+        // A named location never conflates with a board index that happens to
+        // carry the same bounds — CheckerLocation's value equality spans both.
+        BoardPattern.Parse("[off,1,]").Should().NotBe(BoardPattern.Parse("[1,1,]"));
+        BoardPattern.Parse("[off,,]").Should().NotBe(BoardPattern.Parse("[opp-off,,]"));
+    }
+
+    [Fact]
+    public void Equals_ProperSubsetOfConstraints_IsFalse()
+    {
+        BoardPattern.Parse("[6,2,] [5,2,]").Should().NotBe(BoardPattern.Parse("[6,2,]"));
+    }
+
+    [Fact]
+    public void Equals_EmptyPatterns_AreEqual()
+    {
+        BoardPattern.Parse("").Should().Be(BoardPattern.Empty);
+        BoardPattern.Empty.GetHashCode().Should().Be(BoardPattern.Parse("   ").GetHashCode());
+
+        BoardPattern.Empty.Should().NotBe(BoardPattern.Parse("[6,2,]"));
+    }
+
+    [Fact]
+    public void Equals_NullOrOtherType_IsFalse()
+    {
+        // A fresh receiver per assertion: comparing a reference to null teaches
+        // the compiler's flow analysis that it might be null, which would flag
+        // every later use of a shared local.
+        BoardPattern.Parse("[6,2,]").Equals((BoardPattern?)null).Should().BeFalse();
+        BoardPattern.Parse("[6,2,]").Equals((object?)null).Should().BeFalse();
+        BoardPattern.Parse("[6,2,]").Equals("[6,2,]").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Equals_ReachedThroughHashBasedCollections()
+    {
+        // The point of pairing IEquatable with a consistent hash: equivalent
+        // patterns collapse in a set and are found by lookup.
+        var set = new HashSet<BoardPattern>
+        {
+            BoardPattern.Parse("[6,,0] [5,2,]"),
+            BoardPattern.Parse("[5,2,] [6,,0]"),
+        };
+
+        set.Should().ContainSingle();
+        set.Contains(BoardPattern.Parse("[6,,0] [5,2,]")).Should().BeTrue();
+    }
 }
