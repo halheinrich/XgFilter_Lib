@@ -533,6 +533,46 @@ public class FilterConfigTests
         act.Should().NotThrow();
     }
 
+    [Theory]
+    [InlineData(-0.05, null)]
+    [InlineData(null, -0.05)]
+    [InlineData(-0.05, -0.01)]
+    [InlineData(double.NaN, null)]
+    [InlineData(null, double.NaN)]
+    public void Build_InadmissibleErrorBound_Throws(double? min, double? max)
+    {
+        // Filter error is a magnitude, so Build refuses rather than
+        // materializing a bound that is either a no-op or admits nothing.
+        var cfg = new FilterConfig { ErrorMin = min, ErrorMax = max };
+        var act = () => cfg.Build();
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Build_ErrorMinExceedsMax_Throws()
+    {
+        var cfg = new FilterConfig { ErrorMin = 0.20, ErrorMax = 0.05 };
+        var act = () => cfg.Build();
+
+        act.Should().Throw<ArgumentException>().WithMessage("*empty error range*");
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(0.0, null)]
+    [InlineData(null, 0.0)]
+    [InlineData(0.0, 0.0)]
+    [InlineData(0.05, 0.05)]
+    [InlineData(0.05, 0.20)]
+    public void Build_AdmissibleErrorBounds_DoesNotThrow(double? min, double? max)
+    {
+        var cfg = new FilterConfig { ErrorMin = min, ErrorMax = max };
+        var act = () => cfg.Build();
+
+        act.Should().NotThrow();
+    }
+
     // -----------------------------------------------------------------------
     //  GetActiveFacets — facet-activity mirror of Build's add/skip gates.
     //  Both consume the same private rule table, so these tests pin the
@@ -701,6 +741,203 @@ public class FilterConfigTests
             .GetActiveFacets().Should().Equal(FilterFacet.MatchScores);
         new FilterConfig { DecisionType = (DecisionTypeOption)999 }
             .GetActiveFacets().Should().Equal(FilterFacet.DecisionType);
+    }
+
+    // -----------------------------------------------------------------------
+    //  GetInvalidFields — the validity counterpart to GetActiveFacets, and the
+    //  query a panel gates its commit action on. The rules live on the filters
+    //  (ErrorRangeFilterTests pins them); these tests pin the reporting: which
+    //  field gets blamed, that it never throws, and that it agrees with Build.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void GetInvalidFields_DefaultConfig_ReturnsEmptySet()
+    {
+        var fields = new FilterConfig().GetInvalidFields();
+
+        fields.Should().BeEmpty();
+        fields.Contains(FilterField.ErrorMin).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(null, null)]   // both absent: the rule constrains values, never presence
+    [InlineData(0.0, null)]    // one-sided, at the admissible edge
+    [InlineData(null, 0.0)]
+    [InlineData(0.0, 0.0)]     // the exact-zero-error filter
+    [InlineData(0.05, 0.05)]   // equal bounds: inclusive, so an exact-value filter
+    [InlineData(0.05, 0.20)]
+    [InlineData(0.05, null)]
+    [InlineData(null, 0.20)]
+    public void GetInvalidFields_AdmissibleErrorBounds_ReturnsEmptySet(double? min, double? max)
+    {
+        new FilterConfig { ErrorMin = min, ErrorMax = max }
+            .GetInvalidFields().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(-0.05, null)]
+    [InlineData(-0.05, 0.20)]
+    [InlineData(double.NaN, null)]
+    [InlineData(double.NaN, 0.20)]
+    [InlineData(double.NegativeInfinity, null)]
+    public void GetInvalidFields_InadmissibleMinAlone_BlamesOnlyErrorMin(double? min, double? max)
+    {
+        new FilterConfig { ErrorMin = min, ErrorMax = max }
+            .GetInvalidFields().Should().Equal(FilterField.ErrorMin);
+    }
+
+    [Theory]
+    [InlineData(null, -0.05)]
+    [InlineData(0.0, -0.05)]     // the min is also "above" the max, but only because the max is bad
+    [InlineData(0.20, -0.05)]
+    [InlineData(null, double.NaN)]
+    [InlineData(0.05, double.NaN)]
+    [InlineData(null, double.NegativeInfinity)]
+    public void GetInvalidFields_InadmissibleMaxAlone_BlamesOnlyErrorMax(double? min, double? max)
+    {
+        // A valid min alongside an invalid max must not be marked: a consumer
+        // reds the boxes this names, and reding a field the user got right is
+        // its own bug. An inadmissible max drags the pair out of order as a
+        // side effect, and that consequence must not leak into the blame.
+        new FilterConfig { ErrorMin = min, ErrorMax = max }
+            .GetInvalidFields().Should().Equal(FilterField.ErrorMax);
+    }
+
+    [Fact]
+    public void GetInvalidFields_BothBoundsNegative_BlamesBoth()
+    {
+        new FilterConfig { ErrorMin = -0.20, ErrorMax = -0.05 }
+            .GetInvalidFields().Should().Equal(FilterField.ErrorMin, FilterField.ErrorMax);
+    }
+
+    [Fact]
+    public void GetInvalidFields_MinExceedsMax_BlamesBothOnlyWhenBothAreAdmissible()
+    {
+        // Neither bound is wrong on its own — the pair is — so both are named
+        // and the user chooses which end to move.
+        new FilterConfig { ErrorMin = 0.20, ErrorMax = 0.05 }
+            .GetInvalidFields().Should().Equal(FilterField.ErrorMin, FilterField.ErrorMax);
+    }
+
+    [Fact]
+    public void GetInvalidFields_EnumeratesInFilterFieldDeclarationOrder()
+    {
+        new FilterConfig { ErrorMin = 0.20, ErrorMax = 0.05 }
+            .GetInvalidFields().Should().ContainInOrder(FilterField.ErrorMin, FilterField.ErrorMax);
+    }
+
+    [Fact]
+    public void GetInvalidFields_InvalidBounds_StillReportTheFacetActive()
+    {
+        // The two queries answer different questions and must not be conflated:
+        // an invalid bound is still a filter the user set, so it stays active
+        // (and countable in the panel's hidden-filters signal) while being
+        // named here.
+        var cfg = new FilterConfig { ErrorMin = -0.05 };
+
+        cfg.GetActiveFacets().Should().Equal(FilterFacet.ErrorRange);
+        cfg.GetInvalidFields().Should().Equal(FilterField.ErrorMin);
+    }
+
+    [Fact]
+    public void GetInvalidFields_ContentInvalidElsewhere_StaysEmpty()
+    {
+        // The documented converse: an empty result is not a promise that Build
+        // succeeds. Facets with no rule row still carry content Build validates,
+        // and they join this query as their rules are stated (match scores, #23).
+        var cfg = new FilterConfig { MatchScores = { "garbage" } };
+
+        cfg.GetInvalidFields().Should().BeEmpty();
+        var act = () => cfg.Build();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void GetInvalidFields_NeverThrows_OnWhollyCorruptConfig()
+    {
+        var cfg = new FilterConfig
+        {
+            ErrorMin = double.NaN,
+            ErrorMax = -1.0,
+            MatchScores = { "garbage" },
+            DecisionType = (DecisionTypeOption)999,
+            ContactTypes = { (ContactType)999 },
+        };
+        var act = () => cfg.GetInvalidFields();
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void GetInvalidFields_AgreesWithBuild_OnEveryErrorBoundCombination()
+    {
+        // The two surfaces consult the same predicates on ErrorRangeFilter, so
+        // "named here" and "rejected by Build" must coincide for this facet.
+        // Swept rather than enumerated so a future bound rule cannot quietly
+        // hold on one surface only.
+        double?[] candidates =
+        [
+            null, 0.0, 0.05, 0.20, -0.05, double.NaN,
+            double.PositiveInfinity, double.NegativeInfinity,
+        ];
+
+        foreach (var min in candidates)
+        {
+            foreach (var max in candidates)
+            {
+                var cfg = new FilterConfig { ErrorMin = min, ErrorMax = max };
+                var named = cfg.GetInvalidFields().Count > 0;
+                var rejected = Record.Exception(() => cfg.Build()) is not null;
+
+                rejected.Should().Be(
+                    named,
+                    "GetInvalidFields and Build must agree for ErrorMin={0}, ErrorMax={1}",
+                    min,
+                    max);
+            }
+        }
+    }
+
+    [Fact]
+    public void FromJson_LegacyNegativeBounds_LoadAndAreReportedRatherThanRejected()
+    {
+        // The reason validity is a query and not a gate on assignment: a
+        // document written before the rule existed must still round-trip, so
+        // the consumer can show the offending value back to the user instead of
+        // losing it to a failed restore.
+        var restored = FilterConfig.FromJson("""{"ErrorMin":-0.5,"ErrorMax":-0.1}""");
+
+        restored.ErrorMin.Should().Be(-0.5);
+        restored.ErrorMax.Should().Be(-0.1);
+        restored.GetInvalidFields()
+                .Should().Equal(FilterField.ErrorMin, FilterField.ErrorMax);
+    }
+
+    [Fact]
+    public void TryFromJson_LegacyNegativeBounds_SucceedsRatherThanFallingBackToDefault()
+    {
+        var ok = FilterConfig.TryFromJson("""{"ErrorMin":-0.5}""", out var restored);
+
+        ok.Should().BeTrue("a rule stated after the document was written must not corrupt the restore");
+        restored.ErrorMin.Should().Be(-0.5);
+        restored.GetInvalidFields().Should().Equal(FilterField.ErrorMin);
+    }
+
+    [Fact]
+    public void Setters_InadmissibleBounds_DoNotThrow()
+    {
+        // Stated explicitly because it is a contract, not an omission: the
+        // setters are wire-facing and must accept whatever a stored document or
+        // a half-typed field holds.
+        var act = () =>
+        {
+            var cfg = new FilterConfig();
+            cfg.ErrorMin = -1.0;
+            cfg.ErrorMax = double.NaN;
+            return cfg;
+        };
+
+        act.Should().NotThrow();
     }
 
     // -----------------------------------------------------------------------

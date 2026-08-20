@@ -40,6 +40,16 @@ namespace XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
+/// Validity is separate from activity, and is a query rather than a gate on
+/// assignment. Every setter accepts whatever it is given — a stored document
+/// written before a rule existed must still load, so that a consumer can show
+/// the offending value and let the user fix it — and
+/// <see cref="GetInvalidFields"/> is where the rules are asked about. See it
+/// for the posture and <see cref="Build"/> for what happens to a configuration
+/// that was built anyway.
+/// </para>
+///
+/// <para>
 /// Equality: value-based over every member — a config's identity is its
 /// content, so two configs describing the same filtering are equal whoever
 /// built them. That is what lets a consumer tell "the user changed something"
@@ -69,10 +79,20 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// </summary>
     public IList<string> MatchScores { get; set; } = new List<string>();
 
-    /// <summary>Inclusive lower bound on filter-error; null = open lower bound.</summary>
+    /// <summary>
+    /// Inclusive lower bound on filter-error; null = open lower bound. Must be
+    /// zero or greater, and must not exceed <see cref="ErrorMax"/> when both
+    /// are present — the setter does not enforce that, <see cref="GetInvalidFields"/>
+    /// reports it, and <see cref="Build"/> rejects it.
+    /// </summary>
     public double? ErrorMin { get; set; }
 
-    /// <summary>Inclusive upper bound on filter-error; null = open upper bound.</summary>
+    /// <summary>
+    /// Inclusive upper bound on filter-error; null = open upper bound. Must be
+    /// zero or greater, and must not fall below <see cref="ErrorMin"/> when both
+    /// are present — the setter does not enforce that, <see cref="GetInvalidFields"/>
+    /// reports it, and <see cref="Build"/> rejects it.
+    /// </summary>
     public double? ErrorMax { get; set; }
 
     /// <summary>Inclusive lower bound on move number; null = open lower bound.</summary>
@@ -207,6 +227,10 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
             static c => c.MatchScores.Count > 0,
             static c => new MatchScoreFilter(c.MatchScores)),
 
+        // Presence-based like every other row: a bound that violates the
+        // facet's non-negative/ordered rule still activates the facet (it is a
+        // filter the user set, however broken). The factory is where that rule
+        // bites — see GetInvalidFields for asking before building.
         new(FilterFacet.ErrorRange,
             static c => c.ErrorMin.HasValue || c.ErrorMax.HasValue,
             static c => new ErrorRangeFilter(c.ErrorMin, c.ErrorMax)),
@@ -275,17 +299,30 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// non-empty / non-default — the per-facet gates live in the shared
     /// <see cref="FacetRules"/> table, which <see cref="GetActiveFacets"/>
     /// consults too; see the type-level remarks for the empty-list semantics.
+    /// <para>
+    /// Build is the point that rejects an invalid configuration, rather than
+    /// materializing a filter nobody could have meant. A consumer that wants to
+    /// ask first — to gate its own commit action and mark the offending input —
+    /// asks <see cref="GetInvalidFields"/>; one that builds regardless gets an
+    /// exception, never a silently empty result set. The rules themselves live
+    /// on the filters, so the two paths cannot disagree.
+    /// </para>
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <see cref="MatchScores"/> contains a malformed token — see
-    /// <see cref="MatchScoreFilter"/>.
+    /// <see cref="MatchScoreFilter"/>; or <see cref="ErrorMin"/> exceeds
+    /// <see cref="ErrorMax"/> with both present — see
+    /// <see cref="ErrorRangeFilter.AreBoundsOrdered"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>, or
     /// <see cref="PlayTypes"/> contains an undefined enum value — likewise
     /// <see cref="EvaluationLevels"/> / <see cref="RolloutLevels"/> /
     /// <see cref="BookRolloutLevels"/>, but only when the list's mode toggle
-    /// is on (an inert level list is never validated).
+    /// is on (an inert level list is never validated). Also when
+    /// <see cref="ErrorMin"/> or <see cref="ErrorMax"/> is negative or
+    /// <see cref="double.NaN"/> — see
+    /// <see cref="ErrorRangeFilter.IsBoundNonNegative"/>.
     /// </exception>
     public DecisionFilterSet Build()
     {
@@ -315,7 +352,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// corrupt <see cref="DecisionType"/> — still reports its facet active,
     /// while <see cref="Build"/> remains the point that throws. That is the
     /// posture a UI wants: garbage input is still an active filter to surface.
-    /// Consequently this method never throws.
+    /// Consequently this method never throws. <see cref="GetInvalidFields"/> is
+    /// the companion query for the other axis — which values are wrong, as
+    /// opposed to which facets are set.
     /// </remarks>
     /// <returns>
     /// The active facets as a set — distinct membership, O(1)
@@ -333,6 +372,119 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
         }
 
         return active;
+    }
+
+    // -----------------------------------------------------------------------
+    //  Field rules — the single source of truth for per-field validity
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// One field's validity rule: the field it can blame and the predicate that
+    /// decides whether to. The predicate reports <em>violation</em>, so a rule
+    /// that never fires leaves its field out of
+    /// <see cref="GetInvalidFields"/>'s result.
+    /// </summary>
+    private sealed record FieldRule(
+        FilterField Field,
+        Func<FilterConfig, bool> IsViolated);
+
+    /// <summary>
+    /// The per-field validity rules, in <see cref="FilterField"/> declaration
+    /// order. This table is the routing layer, not the rules: each predicate
+    /// delegates to the owning filter, which is where a facet's semantics
+    /// actually live, so the answer <see cref="GetInvalidFields"/> gives and the
+    /// answer <see cref="Build"/> enforces are the same answer asked twice.
+    ///
+    /// <para>
+    /// The table is sparse by design — only facets whose values can be filled
+    /// in wrongly appear. A checkbox list has no rule to state (its failure mode
+    /// is an undefined enum value, which no UI can produce and
+    /// <see cref="Build"/> already rejects), so it contributes no row and its
+    /// members are absent from <see cref="FilterField"/> entirely.
+    /// </para>
+    ///
+    /// <para>
+    /// The error facet contributes two rows for one rule pair, because a
+    /// consumer marks inputs, not facets. Both rows consult the ordering rule
+    /// via <see cref="ErrorBoundsMisordered"/>: <c>min &gt; max</c> is a fault
+    /// of the pair, with neither bound wrong on its own, so it blames both and
+    /// leaves the user to decide which end to move.
+    /// </para>
+    /// </summary>
+    private static readonly FieldRule[] FieldRules =
+    [
+        new(FilterField.ErrorMin,
+            static c => !ErrorRangeFilter.IsBoundNonNegative(c.ErrorMin)
+                     || ErrorBoundsMisordered(c)),
+
+        new(FilterField.ErrorMax,
+            static c => !ErrorRangeFilter.IsBoundNonNegative(c.ErrorMax)
+                     || ErrorBoundsMisordered(c)),
+    ];
+
+    /// <summary>
+    /// Whether the error bounds break the ordering rule <em>blameably</em>:
+    /// both individually admissible, and still out of order. The admissibility
+    /// precondition is what keeps the blame honest — a bound already at fault
+    /// for its own value drags the pair out of order as a side effect (a
+    /// negative max is below any admissible min), and reporting that would red
+    /// the field the user got right. Where the precondition fails the offending
+    /// bound is already named by its own rule, so nothing goes unreported.
+    /// </summary>
+    private static bool ErrorBoundsMisordered(FilterConfig config) =>
+        ErrorRangeFilter.IsBoundNonNegative(config.ErrorMin)
+        && ErrorRangeFilter.IsBoundNonNegative(config.ErrorMax)
+        && !ErrorRangeFilter.AreBoundsOrdered(config.ErrorMin, config.ErrorMax);
+
+    /// <summary>
+    /// The fields whose current values violate their facet's rule — the
+    /// validity counterpart to <see cref="GetActiveFacets"/>, judged by the
+    /// shared <see cref="FieldRules"/> table and computed fresh from the current
+    /// mutable state on each call. Empty for a valid configuration, including a
+    /// default one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the query a consumer gates on. It is deliberately not a gate on
+    /// assignment: the setters accept anything, so a document persisted before a
+    /// rule existed still loads, and a half-typed value can sit in the
+    /// configuration long enough to be shown back to the user. The consumer
+    /// marks the fields named here, disables its commit action while any are
+    /// named, and words the explanation itself — the same division of labour as
+    /// <see cref="Patterns.BoardPattern.TryParse"/>, where the lib rules on the
+    /// input and the consumer says so in its own voice. No message is offered
+    /// here for that reason.
+    /// </para>
+    /// <para>
+    /// Validity is orthogonal to activity: an inactive facet is never invalid
+    /// (its rules constrain values, never presence), but an active one may be
+    /// either. A field named here is one <see cref="Build"/> would throw on.
+    /// The converse does not hold — an empty result is not a promise that
+    /// <see cref="Build"/> succeeds, since the facets with no row in
+    /// <see cref="FieldRules"/> still carry content <see cref="Build"/>
+    /// validates (a malformed <see cref="MatchScores"/> token, an undefined enum
+    /// value). Those join this query as their rules are stated.
+    /// </para>
+    /// <para>
+    /// Never throws: judging a value is not using it.
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// The invalid fields as a set — distinct membership, O(1)
+    /// <see cref="IReadOnlySet{T}.Contains"/>, enumerating in
+    /// <see cref="FilterField"/> declaration order.
+    /// </returns>
+    public IReadOnlySet<FilterField> GetInvalidFields()
+    {
+        var invalid = new SortedSet<FilterField>();
+
+        foreach (var rule in FieldRules)
+        {
+            if (rule.IsViolated(this))
+                invalid.Add(rule.Field);
+        }
+
+        return invalid;
     }
 
     // -----------------------------------------------------------------------
