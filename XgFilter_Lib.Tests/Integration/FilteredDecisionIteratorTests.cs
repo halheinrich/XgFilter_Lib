@@ -529,8 +529,8 @@ public class FilteredDecisionIteratorTests
         try
         {
             // Materialise a synthetic illegal-play file via the library's own
-            // JSON round-trip ($type-discriminated SaveRecordConverter) so it
-            // flows through the real file-read path rather than bypassing it.
+            // JSON round-trip (XgFileReader.ToJson) so it flows through the
+            // real file-read path rather than bypassing it.
             var json = XgFileReader.ToJson(BuildFileWithIllegalPlay());
             File.WriteAllText(Path.Combine(tempDir, "illegal.json"), json);
 
@@ -638,60 +638,26 @@ public class FilteredDecisionIteratorTests
     //  round-tripped through JSON so it reaches the iterator via a real read.
     // -----------------------------------------------------------------------
 
-    private static XgFile BuildFileWithIllegalPlay() =>
-        new XgFile
-        {
-            Records =
-            {
-                new MatchHeaderRecord { EntryType = RecordType.HeaderMatch, MatchLength = 7, Player1 = "P1", Player2 = "P2" },
-                new GameHeaderRecord
-                {
-                    EntryType = RecordType.HeaderGame,
-                    InitialPosition = new PositionEngine { Points = StandardOpening() },
-                },
-                MakeMove([23, 22, -1, -1, -1, -1, -1, -1], dice: [3, 1]),
-                MakeMove([-100, 10, 10, 7, 6, 7, 6, 7],    dice: [5, 2]),  // illegal-play marker
-                MakeMove([23, 22, -1, -1, -1, -1, -1, -1], dice: [3, 1]),
-            },
-        };
-
-    private static MoveRecord MakeMove(sbyte[] moves, int[] dice)
+    private static XgFile BuildFileWithIllegalPlay()
     {
-        var pos = new PositionEngine { Points = OneCheckerOn24() };
-        return new MoveRecord
-        {
-            EntryType = RecordType.Move,
-            InitialPosition = pos,
-            FinalPosition = pos,            // unused on the skip path
-            ActivePlayer = 1,
-            Dice = dice,
-            CubeValue = 0,
-            MoveError = -1000.0,            // unanalysed-error sentinel
-            Analysis = new BestMoveAnalysis
-            {
-                MoveCount = 1,
-                Evals = [new EvalResult { Equity = 0.0f }],
-                Moves = [moves],
-                EvalLevels = [new EvalLevel { Level = 1 }],
-                PositionsPlayed = [pos],
-            },
-            RolloutIndices = new int[32].Select(_ => -1).ToArray(),
-        };
+        var builder = XgFileBuilder.ForMatch(7, "P1", "P2");
+        builder.AddGame()
+            .Play(XgPlayer.Player1, new DiceRoll(3, 1), MakeFivePoint)
+            .IllegalPlay(XgPlayer.Player2, new DiceRoll(5, 2))
+            .Play(XgPlayer.Player2, new DiceRoll(3, 1), MakeFivePoint);
+        return builder.Build();
     }
 
-    private static sbyte[] OneCheckerOn24()
+    /// <summary>8/5 6/5 — the classic 3-1, legal for either side from the opening.</summary>
+    private static Play MakeFivePoint
     {
-        var pts = new sbyte[26];
-        pts[24] = 1;
-        return pts;
-    }
-
-    private static sbyte[] StandardOpening()
-    {
-        var pts = new sbyte[26];
-        pts[6]  = -5; pts[8]  = -3; pts[13] =  5; pts[24] = -2;
-        pts[19] =  5; pts[17] =  3; pts[12] = -5; pts[1]  =  2;
-        return pts;
+        get
+        {
+            var play = new Play();
+            play.Add(new Move(8, 5));
+            play.Add(new Move(6, 5));
+            return play;
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -1,3 +1,4 @@
+using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
 using Microsoft.Extensions.Logging;
@@ -39,33 +40,28 @@ public class MatchScoreFilterIntegrationTests
         new(fileName, new MemoryStream(XgFileWriter.ToBytes(file)));
 
     /// <summary>
+    /// The analysed-cube equities every fixture here uses. Match-score
+    /// filtering never reads them — what the fixtures need is an <i>analysed</i>
+    /// cube pane, which is what an evaluation depth carries — so one shared set
+    /// keeps the fixtures about scores.
+    /// </summary>
+    private static readonly XgCubeEquities Equities = new(NoDouble: 0.30, DoubleTake: 0.45, DoubleDrop: 1.0);
+
+    /// <summary>
     /// A 5-point match with one game at score (Score1=0, Score2=1) — player 1
     /// is 5-away, player 2 is 4-away — carrying one analysed cube decision per
     /// player, player 1's first. On-roll tuples: player 1's decision is (5,4)
-    /// ("5a4a"), player 2's is (4,5) ("4a5a").
+    /// ("5a4a"), player 2's is (4,5) ("4a5a"). Neither player doubles, so both
+    /// decisions stand in the same game at the same score.
     /// </summary>
-    private static XgFile BuildTwoOrientationMatch() => new()
+    private static XgFile BuildTwoOrientationMatch()
     {
-        Records =
-        {
-            new MatchHeaderRecord
-            {
-                EntryType = RecordType.HeaderMatch,
-                MatchLength = 5,
-                Player1 = "P1",
-                Player2 = "P2",
-            },
-            new GameHeaderRecord
-            {
-                EntryType = RecordType.HeaderGame,
-                Score1 = 0,   // player 1: 5-away
-                Score2 = 1,   // player 2: 4-away
-                GameNumber = 1,
-            },
-            AnalysedCube(activePlayer: 1),
-            AnalysedCube(activePlayer: -1),
-        },
-    };
+        var builder = XgFileBuilder.ForMatch(5, "P1", "P2");
+        builder.AddGame(score1: 0, score2: 1)
+            .CubeDecision(XgPlayer.Player1, Equities, doublerAction: CubeAction.NoDouble)
+            .CubeDecision(XgPlayer.Player2, Equities, doublerAction: CubeAction.NoDouble);
+        return builder.Build();
+    }
 
     /// <summary>
     /// The .xgp shape of the corpus bug (Move1_0001.xgp): a position file
@@ -73,40 +69,13 @@ public class MatchScoreFilterIntegrationTests
     /// 4-away) score; the single analysed decision belongs to player 2, so
     /// its on-roll tuple is (4,5) — "4a5a".
     /// </summary>
-    private static XgFile BuildPlayer2OnRollPosition() => new()
+    private static XgFile BuildPlayer2OnRollPosition()
     {
-        Records =
-        {
-            new MatchHeaderRecord
-            {
-                EntryType = RecordType.HeaderMatch,
-                MatchLength = 5,
-                Player1 = "P1",
-                Player2 = "P2",
-            },
-            new GameHeaderRecord
-            {
-                EntryType = RecordType.HeaderGame,
-                Score1 = 0,
-                Score2 = 1,
-                GameNumber = 1,
-            },
-            AnalysedCube(activePlayer: -1),
-        },
-    };
-
-    /// <summary>
-    /// Minimal analysed cube decision (<c>Analysis.Level &gt; 0</c> is the
-    /// producer's analysed-cube test). The board content is irrelevant to
-    /// match-score filtering; defaults suffice.
-    /// </summary>
-    private static CubeRecord AnalysedCube(int activePlayer) => new()
-    {
-        EntryType = RecordType.Cube,
-        ActivePlayer = activePlayer,
-        CubeValue = 0,
-        Analysis = new DoubleActionAnalysis { Level = 1 },
-    };
+        var builder = XgFileBuilder.ForMatch(5, "P1", "P2");
+        builder.AddGame(score1: 0, score2: 1)
+            .CubeDecision(XgPlayer.Player2, Equities, doublerAction: CubeAction.NoDouble);
+        return builder.Build();
+    }
 
     // -----------------------------------------------------------------------
     //  .xg match files — both players' decisions in one game

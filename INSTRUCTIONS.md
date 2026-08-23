@@ -25,7 +25,10 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
 * **ConvertXgToJson_Lib** — `XgDecisionIterator`, `XgIteratorCallbacks`,
   `XgMatchInfo`, `XgGameInfo`, `XgFileReader`, `Models.XgFile`. Used by
   `FilteredDecisionIterator` to walk `.xg` files and drive early-exit
-  via callback registration on the producer.
+  via callback registration on the producer. Tests additionally use
+  `XgFileBuilder` / `XgGameBuilder` — the producer's one public path to an
+  in-memory `XgFile` — to synthesize integration fixtures; the XG record
+  model behind it is internal to the producer and cannot be hand-built.
 
 ## Directory tree
 
