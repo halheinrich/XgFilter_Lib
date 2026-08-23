@@ -30,110 +30,53 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
   in-memory `XgFile` — to synthesize integration fixtures; the XG record
   model behind it is internal to the producer and cannot be hand-built.
 
-## Directory tree
+## Layout
 
-```
-Directory.Build.props
-Directory.Packages.props
-XgFilter_Lib.slnx
-XgFilter_Lib/
-  XgFilter_Lib.csproj
-  FilteredDecisionIterator.cs
-  XgFileStream.cs
-  Enums/
-    Column.cs
-    ContactType.cs
-    DecisionTypeOption.cs
-    EnumLabel.cs
-    PlayType.cs
-    PositionType.cs
-  Filtering/
-    IDecisionFilter.cs
-    IMatchFilter.cs
-    DecisionFilterSet.cs
-    FilterConfig.cs
-    PlayerFilter.cs
-    DecisionTypeFilter.cs
-    MatchScoreFilter.cs
-    ErrorRangeFilter.cs
-    MoveNumberFilter.cs
-    ContactTypeFilter.cs
-    PositionTypeFilter.cs
-    PositionPatternFilter.cs
-    PlayTypeFilter.cs
-    AnalysisDepthFilter.cs
-  Classification/
-    IPositionClassifier.cs
-    IPlayTypeClassifier.cs
-    RaceClassifier.cs
-    ContactClassifier.cs
-    InnerBoard631Classifier.cs
-    InnerBoard54321Classifier.cs
-    VsTwoPlusUpClassifier.cs
-    Holding1386Vs20Classifier.cs
-    Make20PtClassifier.cs
-  Patterns/
-    BoardPattern.cs
-    BoardPatternJsonConverter.cs
-    CheckerLocation.cs
-    CheckerRange.cs
-  Projection/
-    ColumnSelector.cs
-XgFilter_Lib.Tests/
-  XgFilter_Lib.Tests.csproj
-  GlobalUsings.cs
-  Helpers/
-    BgDecisionDataBuilder.cs
-    BoardBuilder.cs
-    DecisionFilterAsserts.cs
-    DecisionFilterAssertsTests.cs
-    DecisionRowBuilder.cs
-    RowShape.cs
-    RowShapeTests.cs
-  Enums/
-    EnumLabelTests.cs
-  Classification/
-    RaceClassifierTests.cs
-    ContactClassifierTests.cs
-    InnerBoard631ClassifierTests.cs
-    InnerBoard54321ClassifierTests.cs
-    VsTwoPlusUpClassifierTests.cs
-    Holding1386Vs20ClassifierTests.cs
-    Make20PtClassifierTests.cs
-  Filtering/
-    PlayerFilterTests.cs
-    DecisionTypeFilterTests.cs
-    ErrorRangeFilterTests.cs
-    MatchScoreFilterTests.cs
-    MoveNumberFilterTests.cs
-    ContactTypeFilterTests.cs
-    PositionTypeFilterTests.cs
-    PositionPatternFilterTests.cs
-    PlayTypeFilterTests.cs
-    AnalysisDepthFilterTests.cs
-    DecisionFilterSetTests.cs
-    FilterConfigTests.cs
-  Patterns/
-    BoardPatternTests.cs
-    BoardPatternOracleTests.cs
-    BoardPatternWireSafetyTests.cs
-    CheckerLocationTests.cs
-    CheckerRangeTests.cs
-  Projection/
-    ColumnSelectorTests.cs
-  Integration/
-    FilteredDecisionIteratorTests.cs
-    FilteredDecisionIteratorIdTests.cs
-    MatchScoreFilterIntegrationTests.cs
-    BoardPatternCorpusOracleTests.cs
-```
+Two projects of its own, governed by repo-root `Directory.Build.props` (TFM,
+nullable, `TreatWarningsAsErrors`, XML doc generation) and
+`Directory.Packages.props` (Central Package Management — no inline `Version=`
+anywhere). What is repo-wide policy versus a per-project decision is settled by
+the boundary comment in `Directory.Build.props` itself; `LangVersion`,
+`InternalsVisibleTo`, and the test project's doc-file opt-out are csproj-local
+under that rule. `XgFilter_Lib.slnx` additionally carries the
+`BgDataTypes_Lib` and `ConvertXgToJson_Lib` project files, so the dependency
+chain builds from this solution rather than from packages.
 
-`Directory.Packages.props` at the repo root opts the solution into Central
-Package Management: package versions are pinned there and the two csprojs carry
-versionless `<PackageReference>`s. `Directory.Build.props` carries the
-repo-wide build policy (target framework, nullable, warnings-as-errors,
-doc-file generation); per-project decisions stay in each csproj — see the
-boundary-rule comment in the file.
+**`XgFilter_Lib/`** — the library. Five areas plus two top-level types:
+
+- **`Enums/`** — the vocabulary consumers name. The filterable categories
+  (`ContactType`, `PositionType`, `PlayType`), `DecisionTypeOption`, the
+  projectable `Column` set, and two reflection vocabularies over
+  `FilterConfig`: `FilterFacet` (complete — one member per add/skip gate) and
+  `FilterField` (deliberately partial — one member per individually-blameable
+  field). `EnumLabel` reads the `[Description]` labels, keeping display text
+  owned by the library that defines the enum rather than by a UI layer.
+- **`Filtering/`** — the intent surface and the machinery behind it.
+  `FilterConfig` is the serializable DTO a consumer fills; its `Build()`
+  materializes a `DecisionFilterSet` from the eleven `internal` filter classes,
+  which implement the `IDecisionFilter` / `IMatchFilter` seams.
+  `NamedFilterCollection`, with its type-bundled `internal` converter, is the
+  versioned saved-filters document a consumer persists.
+- **`Classification/`** — the `internal` predicates the category filters
+  dispatch to: `IPositionClassifier` / `IPlayTypeClassifier` plus one
+  hand-written implementation per enum member. Board-reading only, never
+  XGID-parsing.
+- **`Patterns/`** — the declarative counterpart to those named classifiers:
+  `BoardPattern` over `CheckerRange` over `CheckerLocation`, plus the converter
+  that carries the bracket-list text form onto the wire.
+- **`Projection/`** — `ColumnSelector`, the `Column`-driven CSV projection.
+- **Top level** — `FilteredDecisionIterator`, the integration point that walks
+  XG and JSON sources through a filter set, and `XgFileStream`, the named
+  stream its directory-free entries take.
+
+**`XgFilter_Lib.Tests/`** — xUnit, mirroring the library's folders with one
+test class per type, plus two folders the library has no counterpart for:
+`Helpers/` (the `BgDecisionDataBuilder` / `DecisionRowBuilder` fixture
+builders, `BoardBuilder`, the shared `DecisionFilterAsserts`, and the
+`FakeGameInfo` / `FakeMatchInfo` headers) and `Integration/` (end-to-end
+iterator runs and the corpus oracles). Reaches the library's `internal`
+surface via `InternalsVisibleTo` and the umbrella corpus at `..\..\TestData`
+via a `Link` item — see the TestData pitfall.
 
 ## Architecture
 
@@ -179,7 +122,10 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   member retires together with its facet. Labels match the
   FilterPanel's visible section headings, so an "N hidden filters
   active" signal names the sections the user finds on expanding.
-  `[Description]` label. Consumers read it via
+* Every member of every enum in this namespace carries a UI-facing
+  `[Description]` label — `FilterField` excepted, deliberately: its members
+  name a consumer's own input, whose caption this library never renders (the
+  reasoning is on the enum). Consumers read it via
   `EnumLabel.ToLabel<TEnum>(value)`. Display text is owned by this
   library, not the UI layer. The helper throws `ArgumentException`
   on undeclared values and on declared members without a
@@ -278,11 +224,11 @@ surface, and are reachable from the test project via
   difference: duplicate entries make `{A,A} ≠ {A}` though both build the
   same filter (unreachable through a checkbox UI), and comparison is of
   intent, not of the materialized `DecisionFilterSet`. This is the
-  lib-side surface behind the FilterPanel's Apply gate (umbrella issue
-  #49): the panel compares its built config with the last-committed one
-  rather than re-materializing or serializing anything — a `ToJson()`
-  comparison was explicitly rejected. No `==` / `!=` operators; see the
-  pitfalls.
+  lib-side surface behind the FilterPanel's Apply gate
+  (halheinrich/backgammon#49): the panel compares its built config with
+  the last-committed one rather than re-materializing or serializing
+  anything — a `ToJson()` comparison was explicitly rejected. No `==` /
+  `!=` operators; see the pitfalls.
 
 * **Depth facet semantics.** User-facing selection state is three per-mode
   pairs — a toggle plus its own level list (`IncludeEvaluations` +
