@@ -26,6 +26,7 @@ internal static class DecisionRowBuilder
         int onRollNeeds = 3,
         int opponentNeeds = 5,
         bool isCrawford = false,
+        bool? isJacoby = null,
         int matchLength = 7,
         string player = "Player1",
         string sourceFile = "TestMatch.xg",
@@ -49,6 +50,7 @@ internal static class DecisionRowBuilder
             OnRollNeeds = onRollNeeds,
             OpponentNeeds = opponentNeeds,
             IsCrawford = isCrawford,
+            IsJacoby = isJacoby,
             MatchLength = matchLength,
             Player = player,
             SourceFile = sourceFile,
@@ -78,6 +80,7 @@ internal static class DecisionRowBuilder
         int onRollNeeds = 3,
         int opponentNeeds = 5,
         bool isCrawford = false,
+        bool? isJacoby = null,
         int matchLength = 7,
         int moveNumber = 1,
         bool isStandardStart = true,
@@ -86,6 +89,7 @@ internal static class DecisionRowBuilder
     {
         return Build(player: player, error: error, onRollNeeds: onRollNeeds,
                      opponentNeeds: opponentNeeds, isCrawford: isCrawford,
+                     isJacoby: isJacoby,
                      matchLength: matchLength, moveNumber: moveNumber,
                      isStandardStart: isStandardStart, roll: 0,
                      mode: mode, level: level);

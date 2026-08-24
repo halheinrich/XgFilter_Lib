@@ -1,14 +1,13 @@
-using System.Text.RegularExpressions;
 using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Passes rows where <see cref="DecisionRow.MatchScore"/> matches any entry in the include list.
-/// Examples: "5a5a", "3a1aC", "money".
-/// Comparison is case-insensitive: the <c>a</c> away-separators, the
-/// trailing <c>C</c> Crawford suffix, and the <c>money</c> token all match
-/// in either case (see <see cref="ParseScore"/> for the score-token grammar).
+/// Passes rows where <see cref="DecisionRow.MatchScore"/> matches any entry in
+/// the include list. Examples: "5a5a", "3a1aC", "moneyJ", "moneyNJ". The token
+/// grammar — spellings, casing, and what makes a token valid — lives once on
+/// <see cref="MatchScoreToken"/>; this filter parses through it and states no
+/// rule of its own.
 ///
 /// <para>
 /// Score tokens are <b>on-roll anchored</b>: <c>MaNa</c> means the player on
@@ -20,37 +19,93 @@ namespace XgFilter_Lib.Filtering;
 /// roll within a game, so <see cref="ShouldSkipGame"/> admits either
 /// orientation and leaves the per-decision verdict to <see cref="Matches"/>).
 /// </para>
+///
+/// <para>
+/// <b>Money sessions and the Jacoby rule.</b> The two money tokens are
+/// separate targets, each admitting money records under one rule:
+/// <see cref="MatchScoreToken.MoneyWithJacoby"/> admits
+/// <c>IsMoneyGame &amp;&amp; IsJacoby == true</c>,
+/// <see cref="MatchScoreToken.MoneyWithoutJacoby"/> admits
+/// <c>IsMoneyGame &amp;&amp; IsJacoby == false</c>, and listing both admits
+/// money under either rule. A money record whose Jacoby fact is unknown
+/// (<see cref="IDecisionFilterData.IsJacoby"/> null) matches <b>neither</b> —
+/// an unknown rule is never guessed into a side. Match scores are untouched by
+/// the money tokens, and the money tokens are untouched by any match score.
+/// </para>
+///
+/// <para>
+/// The header-level gates cannot see the Jacoby fact —
+/// <see cref="IMatchInfo"/> and <see cref="IGameInfo"/> carry no such member,
+/// by their stated "members are added on demand" minimalism — so at header
+/// scope a money session is admissible iff <em>either</em> money token is
+/// listed (see <see cref="IncludesAnyMoneyToken"/>). That is still the exact
+/// projection onto the information those headers carry: a header cannot
+/// distinguish the two rules, both rules occur under it, and
+/// <see cref="Matches"/> remains the per-decision arbiter — the same shape as
+/// the orientation projection above.
+/// </para>
 /// </summary>
-internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
+internal sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
 {
-    private readonly List<(int Away1, int Away2, bool IsCrawford)> _tuples;
-    private readonly bool _includesMoney;
+    private readonly List<(int Away1, int Away2, bool IsCrawford)> _tuples = [];
+    private readonly bool _includesMoneyWithJacoby;
+    private readonly bool _includesMoneyWithoutJacoby;
 
     /// <summary>
     /// Creates a filter passing rows whose match score appears in
     /// <paramref name="scores"/>. Tokens are like <c>"3a5a"</c>,
-    /// <c>"1a5aC"</c>, or <c>"money"</c>; comparison is case-insensitive.
-    /// <c>MaNa</c> is on-roll anchored — M is what the player on roll needs,
-    /// N what the opponent needs — so <c>"4a5a"</c> and <c>"5a4a"</c> are
-    /// distinct entries. Throws <see cref="ArgumentException"/> on any
-    /// malformed token, on away scores below 1, and on Crawford tokens no
-    /// real game can carry (see <see cref="ParseScore"/>).
+    /// <c>"1a5aC"</c>, <c>"moneyJ"</c>, or <c>"moneyNJ"</c>; the grammar
+    /// (including its case and whitespace rules) is
+    /// <see cref="MatchScoreToken"/>'s. <c>MaNa</c> is on-roll anchored — M is
+    /// what the player on roll needs, N what the opponent needs — so
+    /// <c>"4a5a"</c> and <c>"5a4a"</c> are distinct entries.
     /// </summary>
+    /// <param name="scores">The include list of score tokens.</param>
+    /// <exception cref="ArgumentException">
+    /// Any entry is a token <see cref="MatchScoreToken.GetFault"/> would
+    /// fault — malformed, an impossible score, or the retired
+    /// <see cref="MatchScoreToken.RetiredMoney"/> token. Rejecting rather than
+    /// dropping is what makes <see cref="FilterConfig.Build"/> the point that
+    /// refuses a configuration nobody could have meant; a consumer that wants
+    /// to ask before building asks
+    /// <see cref="FilterConfig.GetInvalidFields"/>.
+    /// </exception>
     public MatchScoreFilter(IEnumerable<string> scores)
     {
-        var list = scores.ToList();
-        _includesMoney = list.Any(s => s.Equals("money", StringComparison.OrdinalIgnoreCase));
-        _tuples = list
-            .Where(s => !s.Equals("money", StringComparison.OrdinalIgnoreCase))
-            .Select(ParseScore)
-            .ToList();
+        foreach (string token in scores)
+        {
+            // Dispatch order matches MatchScoreToken.GetFault's: the money
+            // tokens are recognized first (they are not scores), and
+            // everything else — the retired bare money token included — goes
+            // to ParseScore, which is the throw.
+            if (MatchScoreToken.IsMoneyWithJacobyToken(token))
+                _includesMoneyWithJacoby = true;
+            else if (MatchScoreToken.IsMoneyWithoutJacobyToken(token))
+                _includesMoneyWithoutJacoby = true;
+            else
+                _tuples.Add(MatchScoreToken.ParseScore(token));
+        }
     }
+
+    /// <summary>
+    /// Whether either money token is listed — what a gate that cannot see the
+    /// Jacoby fact is entitled to ask. Stated once here so the two header
+    /// gates cannot drift apart on it.
+    /// </summary>
+    private bool IncludesAnyMoneyToken =>
+        _includesMoneyWithJacoby || _includesMoneyWithoutJacoby;
 
     /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data)
     {
+        // The ruled conjunctions, spelled as IDecisionFilterData.IsJacoby
+        // states them. `== true` / `== false` are load-bearing against the
+        // tri-state: the near-miss spellings `!= false` / `!= true` would
+        // admit an unknown-rule money record into one side, and an unknown
+        // rule is never guessed.
         if (data.IsMoneyGame)
-            return _includesMoney;
+            return (_includesMoneyWithJacoby && data.IsJacoby == true)
+                || (_includesMoneyWithoutJacoby && data.IsJacoby == false);
 
         return _tuples.Any(t =>
             t.Away1 == data.OnRollNeeds &&
@@ -60,18 +115,19 @@ internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
 
     /// <summary>
     /// Skip the match if:
-    /// - money session but filter contains no money target, or
-    /// - match session but filter contains only money, or
+    /// - money session but filter lists neither money token, or
+    /// - match session but filter lists only money tokens, or
     /// - no target tuple is a score any game of a match this length can
     ///   carry (see <see cref="CanOccurAtLength"/>).
-    /// Match headers carry no orientation, and the length bound is
-    /// orientation-free, so this projection is exact for either orientation.
+    /// Match headers carry neither orientation nor the Jacoby fact, and the
+    /// length bound is orientation-free, so this projection is exact for
+    /// either orientation and either rule.
     /// </summary>
     public bool ShouldSkipMatch(IMatchInfo match)
     {
         bool isMoney = match.IsMoneyGame;
 
-        if (isMoney && !_includesMoney) return true;
+        if (isMoney && !IncludesAnyMoneyToken) return true;
         if (!isMoney && _tuples.Count == 0) return true;
 
         if (!isMoney)
@@ -119,13 +175,15 @@ internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
     /// (Away2, Away1). The exact projection onto game-level information is
     /// therefore: skip iff no tuple matches in either orientation, Crawford
     /// flag exact. <see cref="Matches"/> remains the per-decision arbiter
-    /// of orientation.
+    /// of orientation. A money game is admissible iff either money token is
+    /// listed — the header carries no Jacoby fact, so the rule verdict is
+    /// likewise <see cref="Matches"/>'s.
     /// </summary>
     public bool ShouldSkipGame(IGameInfo game)
     {
         bool isMoney = game.Away1 == 0 && game.Away2 == 0 && !game.IsCrawfordGame;
 
-        if (isMoney) return !_includesMoney;
+        if (isMoney) return !IncludesAnyMoneyToken;
 
         return !_tuples.Any(t =>
             MatchesGameScore(t, game.Away1, game.Away2, game.IsCrawfordGame));
@@ -219,67 +277,4 @@ internal sealed partial class MatchScoreFilter : IDecisionFilter, IMatchFilter
         bool fits2 = t.Away2 <= ca && t.Away1 <= cb;
         return (fits1 || fits2) && t.Away1 + t.Away2 < ca + cb;
     }
-
-    /// <summary>
-    /// Parses a score token like "3a5a" or "1a5aC" into its tuple form and
-    /// validates it against scores a real match game can carry: both sides
-    /// at least 1-away, and a Crawford token with exactly one side 1-away
-    /// and the other 2-away or more ("1a1aC" is rejected — a (1,1) game is
-    /// always post-Crawford; "3a5aC" is rejected — Crawford requires a side
-    /// at 1-away).
-    ///
-    /// <para>
-    /// The accepted format is the case-insensitive grammar
-    /// <c>^(\d+)[aA](\d+)[aA]([cC])?$</c> — an away count, the <c>a</c>
-    /// separator, a second away count and its <c>a</c>, and an optional
-    /// trailing <c>C</c> Crawford flag. The token is trimmed first so
-    /// incidental surrounding whitespace from non-UI callers (CLI args,
-    /// hand-built configs) is tolerated; embedded whitespace and any extra
-    /// or repeated separators are rejected. A sign, decimal point, or any
-    /// non-digit in an away field is a format error.
-    /// </para>
-    ///
-    /// <para>
-    /// Throws <see cref="ArgumentException"/> on any malformed or impossible
-    /// input — silent drop would let UI typos slip through as "filter does
-    /// nothing," which is the kind of failure that bites at runtime without
-    /// a clear cause.
-    /// </para>
-    /// </summary>
-    private static (int Away1, int Away2, bool IsCrawford) ParseScore(string s)
-    {
-        var match = ScoreTokenRegex().Match(s.Trim());
-        if (!match.Success
-            || !int.TryParse(match.Groups[1].Value, out int a1)
-            || !int.TryParse(match.Groups[2].Value, out int a2))
-            throw new ArgumentException(
-                $"Invalid match score: '{s}'. Expected format like '3a5a', '1a5aC', or 'money'.",
-                nameof(s));
-
-        bool isCrawford = match.Groups[3].Success;
-
-        if (a1 < 1 || a2 < 1)
-            throw new ArgumentException(
-                $"Invalid match score: '{s}'. Away scores must be at least 1 — " +
-                "a player needing 0 or fewer points has already won the match.",
-                nameof(s));
-
-        if (isCrawford && (Math.Min(a1, a2) != 1 || Math.Max(a1, a2) < 2))
-            throw new ArgumentException(
-                $"Invalid match score: '{s}'. A Crawford game has exactly one side " +
-                "1-away and the other 2-away or more; a (1,1) game is always post-Crawford.",
-                nameof(s));
-
-        return (a1, a2, isCrawford);
-    }
-
-    /// <summary>
-    /// The case-insensitive score-token grammar: an away count, the <c>a</c>
-    /// separator, a second away count and its <c>a</c>, and an optional
-    /// trailing <c>C</c> Crawford flag. Anchored, so it rejects any leading,
-    /// trailing, embedded, or repeated slop the previous
-    /// <c>Split('a', RemoveEmptyEntries)</c> silently swallowed.
-    /// </summary>
-    [GeneratedRegex(@"^(\d+)[aA](\d+)[aA]([cC])?$")]
-    private static partial Regex ScoreTokenRegex();
 }

@@ -292,11 +292,13 @@ public class DecisionFilterSetTests
     [Fact]
     public void ShouldSkipMatch_MoneyPredicate_AnswersThroughDimOnPlainIMatchInfo()
     {
-        // money-only filter: skips a match session, admits a money session.
+        // money-token-only filter: skips a match session, admits a money
+        // session (a header carries no Jacoby fact, so either money token
+        // admits it and Matches rules per decision).
         // The verdict turns on IMatchInfo.IsMoneyGame — a default interface
         // member the fake never restates — so this only compiles and passes
         // because the input is interface-typed.
-        var set = new DecisionFilterSet().Add(new MatchScoreFilter(["money"]));
+        var set = new DecisionFilterSet().Add(new MatchScoreFilter(["moneyJ"]));
 
         IMatchInfo money = new FakeMatchInfo { MatchLength = 0 };
         IMatchInfo match = new FakeMatchInfo { MatchLength = 7 };

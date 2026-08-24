@@ -75,7 +75,11 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
 
     /// <summary>
     /// Match-score tokens to admit (e.g. <c>"3a5a"</c>, <c>"1a5aC"</c>,
-    /// <c>"money"</c>). Empty = no score filter.
+    /// <c>"moneyJ"</c>, <c>"moneyNJ"</c>). Empty = no score filter. The
+    /// grammar — spellings, casing, and validity — is
+    /// <see cref="MatchScoreToken"/>'s; the setter accepts whatever it is
+    /// given, <see cref="GetInvalidFields"/> reports a faulted entry, and
+    /// <see cref="Build"/> rejects it.
     /// </summary>
     public IList<string> MatchScores { get; set; } = new List<string>();
 
@@ -309,8 +313,10 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// </para>
     /// </summary>
     /// <exception cref="ArgumentException">
-    /// <see cref="MatchScores"/> contains a malformed token — see
-    /// <see cref="MatchScoreFilter"/>; or <see cref="ErrorMin"/> exceeds
+    /// <see cref="MatchScores"/> contains a token the score grammar faults —
+    /// malformed, an impossible score, or the retired
+    /// <see cref="MatchScoreToken.RetiredMoney"/> token; see
+    /// <see cref="MatchScoreToken.GetFault"/>; or <see cref="ErrorMin"/> exceeds
     /// <see cref="ErrorMax"/> with both present — see
     /// <see cref="ErrorRangeFilter.AreBoundsOrdered"/>.
     /// </exception>
@@ -400,7 +406,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// in wrongly appear. A checkbox list has no rule to state (its failure mode
     /// is an undefined enum value, which no UI can produce and
     /// <see cref="Build"/> already rejects), so it contributes no row and its
-    /// members are absent from <see cref="FilterField"/> entirely.
+    /// members are absent from <see cref="FilterField"/> entirely. The two
+    /// facets that <em>are</em> filled in by hand — free text for the score
+    /// tokens, free numbers for the error bounds — are the two that appear.
     /// </para>
     ///
     /// <para>
@@ -413,6 +421,18 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// </summary>
     private static readonly FieldRule[] FieldRules =
     [
+        // One row for the whole list: the field names "some entry here is
+        // wrong", and the per-entry detail a consumer needs to mark and
+        // explain the offending token — including whether it is retired
+        // vocabulary rather than merely misspelled — comes from asking
+        // MatchScoreToken.GetFault directly, token by token. A null entry
+        // (reachable through an explicit JSON null) faults like any other
+        // non-token, so this query and Build agree on it too.
+        new(FilterField.MatchScores,
+            static c => c.MatchScores is not null
+                     && c.MatchScores.Any(
+                            static t => MatchScoreToken.GetFault(t) != MatchScoreTokenFault.None)),
+
         new(FilterField.ErrorMin,
             static c => !ErrorRangeFilter.IsBoundNonNegative(c.ErrorMin)
                      || ErrorBoundsMisordered(c)),
@@ -462,8 +482,18 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// The converse does not hold — an empty result is not a promise that
     /// <see cref="Build"/> succeeds, since the facets with no row in
     /// <see cref="FieldRules"/> still carry content <see cref="Build"/>
-    /// validates (a malformed <see cref="MatchScores"/> token, an undefined enum
-    /// value). Those join this query as their rules are stated.
+    /// validates (an undefined enum value in a checkbox list). Those join this
+    /// query as their rules are stated; <see cref="MatchScores"/> joined with
+    /// the score-token grammar's (halheinrich/backgammon#121).
+    /// </para>
+    /// <para>
+    /// The verdict is a set of fields and nothing more — no message, and for
+    /// <see cref="FilterField.MatchScores"/> no indication of <em>which</em>
+    /// entry or <em>why</em>. That is deliberate, and the reason
+    /// <see cref="MatchScoreToken.GetFault"/> is public: a consumer that only
+    /// gates its commit action reads this set, and one that marks the
+    /// offending token and explains it — a retired spelling reads differently
+    /// from a typo — asks the grammar per token. Both read the same rule.
     /// </para>
     /// <para>
     /// Never throws: judging a value is not using it.

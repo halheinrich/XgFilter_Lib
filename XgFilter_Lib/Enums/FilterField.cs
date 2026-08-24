@@ -30,6 +30,22 @@ namespace XgFilter_Lib.Enums;
 public enum FilterField
 {
     /// <summary>
+    /// The match-score token list (<see cref="FilterConfig.MatchScores"/>) of
+    /// the <see cref="FilterFacet.MatchScores"/> facet — named when any entry
+    /// is a token <see cref="MatchScoreToken.GetFault"/> faults.
+    /// <para>
+    /// The one field of this vocabulary whose facet holds a <em>list</em>, so
+    /// naming it says "some entry here is wrong" rather than "this box is
+    /// wrong". A consumer that marks the individual entry — and that needs to
+    /// tell a retired token from a malformed one, which this set cannot carry
+    /// — asks <see cref="MatchScoreToken.GetFault"/> per token; the two
+    /// answers cannot disagree, since this field's rule is that query swept
+    /// over the list.
+    /// </para>
+    /// </summary>
+    MatchScores,
+
+    /// <summary>
     /// The lower error bound (<see cref="FilterConfig.ErrorMin"/>) of the
     /// <see cref="FilterFacet.ErrorRange"/> facet.
     /// </summary>

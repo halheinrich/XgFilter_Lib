@@ -822,8 +822,9 @@ public class FilterConfigTests
     [Fact]
     public void GetInvalidFields_EnumeratesInFilterFieldDeclarationOrder()
     {
-        new FilterConfig { ErrorMin = 0.20, ErrorMax = 0.05 }
-            .GetInvalidFields().Should().ContainInOrder(FilterField.ErrorMin, FilterField.ErrorMax);
+        new FilterConfig { MatchScores = { "garbage" }, ErrorMin = 0.20, ErrorMax = 0.05 }
+            .GetInvalidFields().Should().ContainInOrder(
+                FilterField.MatchScores, FilterField.ErrorMin, FilterField.ErrorMax);
     }
 
     [Fact]
@@ -843,13 +844,15 @@ public class FilterConfigTests
     public void GetInvalidFields_ContentInvalidElsewhere_StaysEmpty()
     {
         // The documented converse: an empty result is not a promise that Build
-        // succeeds. Facets with no rule row still carry content Build validates,
-        // and they join this query as their rules are stated (match scores, #23).
-        var cfg = new FilterConfig { MatchScores = { "garbage" } };
+        // succeeds. Facets with no rule row still carry content Build validates
+        // — a checkbox list's undefined enum value is the remaining case, now
+        // that match scores have joined the table
+        // (halheinrich/backgammon#121).
+        var cfg = new FilterConfig { ContactTypes = { (ContactType)999 } };
 
         cfg.GetInvalidFields().Should().BeEmpty();
         var act = () => cfg.Build();
-        act.Should().Throw<ArgumentException>();
+        act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]
@@ -955,7 +958,7 @@ public class FilterConfigTests
         {
             Players = { "Alice", "Bob" },
             DecisionType = DecisionTypeOption.CheckerPlaysOnly,
-            MatchScores = { "3a5a", "money" },
+            MatchScores = { "3a5a", "moneyJ" },
             ErrorMin = 0.05,
             ErrorMax = 0.50,
             MoveNumberMin = 1,
@@ -1225,7 +1228,7 @@ public class FilterConfigTests
     {
         Players = { "Alice", "Bob" },
         DecisionType = DecisionTypeOption.CheckerPlaysOnly,
-        MatchScores = { "3a5a", "money" },
+        MatchScores = { "3a5a", "moneyJ" },
         ErrorMin = 0.05,
         ErrorMax = 0.50,
         MoveNumberMin = 1,
@@ -1252,7 +1255,7 @@ public class FilterConfigTests
         {
             [nameof(FilterConfig.Players)] = c => c.Players.Add("Carol"),
             [nameof(FilterConfig.DecisionType)] = c => c.DecisionType = DecisionTypeOption.CubeOnly,
-            [nameof(FilterConfig.MatchScores)] = c => c.MatchScores.Remove("money"),
+            [nameof(FilterConfig.MatchScores)] = c => c.MatchScores.Remove("moneyJ"),
             [nameof(FilterConfig.ErrorMin)] = c => c.ErrorMin = 0.10,
             [nameof(FilterConfig.ErrorMax)] = c => c.ErrorMax = null,
             [nameof(FilterConfig.MoveNumberMin)] = c => c.MoveNumberMin = 2,
@@ -1282,8 +1285,8 @@ public class FilterConfigTests
                 (c => { c.Players.Add("Alice"); c.Players.Add("Bob"); },
                  c => { c.Players.Add("Bob"); c.Players.Add("Alice"); }),
             [nameof(FilterConfig.MatchScores)] =
-                (c => { c.MatchScores.Add("3a5a"); c.MatchScores.Add("money"); },
-                 c => { c.MatchScores.Add("money"); c.MatchScores.Add("3a5a"); }),
+                (c => { c.MatchScores.Add("3a5a"); c.MatchScores.Add("moneyJ"); },
+                 c => { c.MatchScores.Add("moneyJ"); c.MatchScores.Add("3a5a"); }),
             [nameof(FilterConfig.ContactTypes)] =
                 (c => { c.ContactTypes.Add(ContactType.Contact); c.ContactTypes.Add(ContactType.Race); },
                  c => { c.ContactTypes.Add(ContactType.Race); c.ContactTypes.Add(ContactType.Contact); }),
@@ -1475,5 +1478,225 @@ public class FilterConfigTests
 
         restored.Should().Be(Populated());
         restored.GetHashCode().Should().Be(Populated().GetHashCode());
+    }
+
+    // -----------------------------------------------------------------------
+    //  GetInvalidFields — the match-score field rule (halheinrich/backgammon#121,
+    //  the shape #39 booked for #23: one FilterField member, one FieldRules
+    //  row delegating to the facet's own grammar). The grammar's rules are
+    //  pinned in MatchScoreTokenTests; these pin the reporting.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("3a5a")]
+    [InlineData("1a5aC")]
+    [InlineData("moneyJ")]
+    [InlineData("moneyNJ")]
+    public void GetInvalidFields_AcceptedScoreTokens_ReturnEmptySet(string token)
+    {
+        new FilterConfig { MatchScores = { token } }
+            .GetInvalidFields().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("garbage")]
+    [InlineData("0a5a")]
+    [InlineData("3a5aC")]
+    [InlineData("money")]
+    public void GetInvalidFields_FaultedScoreToken_BlamesOnlyMatchScores(string token)
+    {
+        new FilterConfig { MatchScores = { token } }
+            .GetInvalidFields().Should().Equal(FilterField.MatchScores);
+    }
+
+    [Fact]
+    public void GetInvalidFields_OneFaultedTokenAmongValidOnes_StillBlamesTheField()
+    {
+        // The field says "some entry here is wrong" — one bad token in a list
+        // of good ones is enough, exactly as Build treats it.
+        new FilterConfig { MatchScores = { "3a5a", "money", "moneyNJ" } }
+            .GetInvalidFields().Should().Equal(FilterField.MatchScores);
+    }
+
+    [Fact]
+    public void GetInvalidFields_RetiredScoreToken_StillReportsTheFacetActive()
+    {
+        // Activity is presence, validity is content: a retired token is still
+        // a filter the user set, so it stays countable in the panel's
+        // hidden-filters signal while being named here.
+        var cfg = new FilterConfig { MatchScores = { "money" } };
+
+        cfg.GetActiveFacets().Should().Equal(FilterFacet.MatchScores);
+        cfg.GetInvalidFields().Should().Equal(FilterField.MatchScores);
+    }
+
+    [Fact]
+    public void GetInvalidFields_NullScoreToken_IsReportedRatherThanThrowing()
+    {
+        // An explicit JSON null reaches the list as a null entry; the query
+        // must judge it, not throw on it.
+        var restored = FilterConfig.FromJson("""{"MatchScores":["3a5a",null]}""");
+
+        restored.GetInvalidFields().Should().Equal(FilterField.MatchScores);
+        var act = () => restored.Build();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void GetInvalidFields_AgreesWithBuild_OnEveryScoreTokenCandidate()
+    {
+        // The two surfaces route through MatchScoreToken.GetFault, so "named
+        // here" and "rejected by Build" must coincide for every token. Swept
+        // rather than enumerated so a future grammar rule cannot quietly hold
+        // on one surface only.
+        string[] candidates =
+        [
+            "3a5a", "1a5aC", "1a1a", "1a2aC", "4A5A", " 4a5a ",
+            "moneyJ", "moneyNJ", "MONEYNJ", " moneyj ",
+            "money", "MONEY", " money ",
+            "garbage", "", "   ", "0a5a", "5a0a", "3a5aC", "1a1aC",
+            "4 a 5a", "3a5a5a", "moneyX", "9999999999a5a",
+        ];
+
+        foreach (string token in candidates)
+        {
+            var cfg = new FilterConfig { MatchScores = { token } };
+            bool named = cfg.GetInvalidFields().Contains(FilterField.MatchScores);
+            bool rejected = Record.Exception(() => cfg.Build()) is not null;
+
+            rejected.Should().Be(
+                named,
+                "GetInvalidFields and Build must agree for MatchScores token '{0}'",
+                token);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    //  The retired money token, end to end through the config surface
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("money")]
+    [InlineData("MONEY")]
+    [InlineData(" money ")]
+    public void Build_RetiredMoneyToken_Throws(string retired)
+    {
+        var cfg = new FilterConfig { MatchScores = { retired } };
+        var act = () => cfg.Build();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void RetiredMoneyToken_CarriesTheRetiredFaultAndItsReplacements()
+    {
+        // The typed fact a consumer reads to word its own explanation: the
+        // fault distinguishes retired vocabulary from a typo, and the
+        // replacements travel as values. No sentence crosses the API, so
+        // nothing here pins one.
+        var cfg = new FilterConfig { MatchScores = { "3a5a", "money" } };
+
+        cfg.GetInvalidFields().Should().Equal(FilterField.MatchScores);
+
+        var faults = cfg.MatchScores
+            .Select(t => (Token: t, Fault: MatchScoreToken.GetFault(t)))
+            .Where(x => x.Fault != MatchScoreTokenFault.None)
+            .ToList();
+
+        faults.Should().ContainSingle();
+        faults[0].Token.Should().Be(MatchScoreToken.RetiredMoney);
+        faults[0].Fault.Should().Be(MatchScoreTokenFault.Retired);
+        MatchScoreToken.RetiredMoneyReplacements.Should().Equal(
+            MatchScoreToken.MoneyWithJacoby, MatchScoreToken.MoneyWithoutJacoby);
+    }
+
+    [Fact]
+    public void RetiredMoneyToken_IsDistinguishableFromAMalformedToken()
+    {
+        // The distinction the fault vocabulary exists to carry: both are
+        // named by the same field, and only the grammar tells them apart.
+        MatchScoreToken.GetFault("money").Should().Be(MatchScoreTokenFault.Retired);
+        MatchScoreToken.GetFault("garbage").Should().Be(MatchScoreTokenFault.Malformed);
+
+        new FilterConfig { MatchScores = { "money" } }
+            .GetInvalidFields().Should().Equal(FilterField.MatchScores);
+        new FilterConfig { MatchScores = { "garbage" } }
+            .GetInvalidFields().Should().Equal(FilterField.MatchScores);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The saved-filter path. A document written before the split carries the
+    //  retired token; it must LOAD intact (validity is a query, not a gate on
+    //  assignment — the #39 posture, so the offending value can be shown back
+    //  to the user) and then surface the same typed verdict at apply. Never a
+    //  silent drop, never a silent no-match.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void FromJson_RetiredMoneyToken_LoadsIntactAndIsReportedRatherThanRejected()
+    {
+        var restored = FilterConfig.FromJson("""{"MatchScores":["3a5a","money"]}""");
+
+        restored.MatchScores.Should().Equal("3a5a", "money");
+        restored.GetInvalidFields().Should().Equal(FilterField.MatchScores);
+        MatchScoreToken.GetFault(restored.MatchScores[1])
+            .Should().Be(MatchScoreTokenFault.Retired);
+    }
+
+    [Fact]
+    public void TryFromJson_RetiredMoneyToken_SucceedsRatherThanFallingBackToDefault()
+    {
+        // The tolerant restore must not treat a token retired after the
+        // document was written as corruption: losing the whole config would
+        // hide the very thing the user has to fix.
+        var ok = FilterConfig.TryFromJson("""{"MatchScores":["money"]}""", out var restored);
+
+        ok.Should().BeTrue();
+        restored.MatchScores.Should().Equal("money");
+        restored.GetInvalidFields().Should().Equal(FilterField.MatchScores);
+    }
+
+    [Fact]
+    public void SavedDocument_RetiredMoneyToken_SurvivesRoundTripAndIsInvalidAtApply()
+    {
+        // The full saved-filter path: a NamedFilterCollection entry snapshots
+        // its config through ToJson/FromJson, so this exercises the storage
+        // round-trip the consumer actually uses. The token survives it (the
+        // document is not silently rewritten), the retrieved config names the
+        // field, the grammar names the fault, and Build refuses.
+        var saved = NamedFilterCollection.Empty
+            .With("Money sessions", new FilterConfig { MatchScores = { "money" } });
+
+        var reloaded = NamedFilterCollection.FromJson(saved.ToJson());
+        var config = reloaded.GetConfig("Money sessions");
+
+        config.MatchScores.Should().Equal("money");
+        config.GetActiveFacets().Should().Equal(FilterFacet.MatchScores);
+        config.GetInvalidFields().Should().Equal(FilterField.MatchScores);
+        MatchScoreToken.GetFault(config.MatchScores[0])
+            .Should().Be(MatchScoreTokenFault.Retired);
+
+        var act = () => config.Build();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void SavedDocument_RetiredMoneyToken_NeverSilentlyMatchesNothing()
+    {
+        // The failure mode the loud verdict replaces: before the retirement
+        // had a rule row, a stored "money" would pass a consumer's validity
+        // gate and then either throw unguarded at Build or — had the token
+        // simply stopped matching — silently return an empty result set. Both
+        // surfaces must refuse it instead, and no DecisionFilterSet may exist
+        // that was built from it.
+        var config = NamedFilterCollection.Empty
+            .With("Legacy", new FilterConfig { MatchScores = { "money" } })
+            .GetConfig("Legacy");
+
+        config.GetInvalidFields().Should().NotBeEmpty(
+            "a consumer gating on GetInvalidFields must refuse to apply this");
+
+        var act = () => config.Build();
+        act.Should().Throw<ArgumentException>(
+            "and a consumer that builds regardless must fail loud, never return an empty set");
     }
 }

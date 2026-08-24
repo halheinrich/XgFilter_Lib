@@ -1,3 +1,4 @@
+using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
 
@@ -12,7 +13,7 @@ public class MatchScoreFilterTests
     [Fact]
     public void Matches_WhenScoreInList_ReturnsTrue()
     {
-        var filter = new MatchScoreFilter(["1a5aC", "money"]);
+        var filter = new MatchScoreFilter(["1a5aC", "moneyJ"]);
         AssertMatchesBoth(
             filter,
             new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
@@ -30,23 +31,14 @@ public class MatchScoreFilterTests
     }
 
     [Fact]
-    public void Matches_MoneyGame()
-    {
-        var filter = new MatchScoreFilter(["money"]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(MatchLength: 0, OnRollNeeds: 0, OpponentNeeds: 0, IsCrawford: false),
-            expected: true);
-    }
-
-    [Fact]
     public void Matches_MoneyNotInList_ReturnsFalse()
     {
+        // A match-score-only filter admits no money record, whatever its rule.
         var filter = new MatchScoreFilter(["3a5a"]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(MatchLength: 0, OnRollNeeds: 0, OpponentNeeds: 0, IsCrawford: false),
-            expected: false);
+        foreach (bool? rule in new bool?[] { true, false, null })
+        {
+            AssertMatchesBoth(filter, MoneyRow(rule), expected: false);
+        }
     }
 
     [Fact]
@@ -111,7 +103,7 @@ public class MatchScoreFilterTests
     [Fact]
     public void ShouldSkipMatch_MoneySession_FilterIncludesMoney_ReturnsFalse()
     {
-        var filter = new MatchScoreFilter(["money"]);
+        var filter = new MatchScoreFilter(["moneyJ"]);
         var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
 
         filter.ShouldSkipMatch(match).Should().BeFalse();
@@ -120,7 +112,7 @@ public class MatchScoreFilterTests
     [Fact]
     public void ShouldSkipMatch_MatchSession_FilterIsMoneyOnly_ReturnsTrue()
     {
-        var filter = new MatchScoreFilter(["money"]);
+        var filter = new MatchScoreFilter(["moneyJ", "moneyNJ"]);
         var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
 
         filter.ShouldSkipMatch(match).Should().BeTrue();
@@ -242,7 +234,7 @@ public class MatchScoreFilterTests
     [Fact]
     public void ShouldSkipGame_MoneyGame_FilterIncludesMoney_ReturnsFalse()
     {
-        var filter = new MatchScoreFilter(["money"]);
+        var filter = new MatchScoreFilter(["moneyJ"]);
         var game = new FakeGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
 
         filter.ShouldSkipGame(game).Should().BeFalse();
@@ -325,7 +317,7 @@ public class MatchScoreFilterTests
     [Fact]
     public void ShouldAdvanceMatch_MoneyRow_ReturnsFalse()
     {
-        var filter = new MatchScoreFilter(["money"]);
+        var filter = new MatchScoreFilter(["moneyJ"]);
         AssertShouldAdvanceMatchBoth(
             filter,
             new RowShape(MatchLength: 0, OnRollNeeds: 0, OpponentNeeds: 0, IsCrawford: false),
@@ -491,7 +483,7 @@ public class MatchScoreFilterTests
     [Fact]
     public void ShouldAdvanceMatch_MoneyFilterWithMatchRow_ReturnsTrue()
     {
-        var filter = new MatchScoreFilter(["money"]);
+        var filter = new MatchScoreFilter(["moneyJ", "moneyNJ"]);
         AssertShouldAdvanceMatchBoth(
             filter,
             new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
@@ -587,7 +579,7 @@ public class MatchScoreFilterTests
         // One bad entry contaminates the whole list — silent drop of the
         // invalid one would leave the consumer with a filter that quietly
         // ignores their typo instead of telling them about it.
-        var act = () => new MatchScoreFilter(["3a5a", "garbage", "money"]);
+        var act = () => new MatchScoreFilter(["3a5a", "garbage", "moneyJ"]);
         act.Should().Throw<ArgumentException>().WithMessage("*garbage*");
     }
 
@@ -626,8 +618,12 @@ public class MatchScoreFilterTests
     [InlineData("1a5Ac")]    // mixed-case separator + lowercase Crawford suffix
     [InlineData("1A5aC")]    // mixed-case separator + uppercase Crawford suffix
     [InlineData(" 4a5a ")]   // surrounding whitespace is trimmed before parsing
-    [InlineData("money")]
-    [InlineData("MONEY")]
+    [InlineData("moneyJ")]
+    [InlineData("moneyNJ")]
+    [InlineData("MONEYJ")]    // the money tokens follow the grammar's casing rule
+    [InlineData("moneynj")]
+    [InlineData("MoNeYnJ")]
+    [InlineData(" moneyNJ ")] // ...and its trimming rule
     public void Constructor_ValidTokens_DoNotThrow(string good)
     {
         var act = () => new MatchScoreFilter([good]);
@@ -670,5 +666,208 @@ public class MatchScoreFilterTests
             filter,
             new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: false),
             expected: false);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The money tokens: moneyJ / moneyNJ (halheinrich/backgammon#121)
+    //
+    //  The record classes a score filter must tell apart — a moneyJ record, a
+    //  moneyNJ record, an unknown-rule money record, and a match record (with
+    //  its Crawford variant) — swept against every money-token selection. The
+    //  table below is the whole contract in one place: moneyJ admits
+    //  IsMoneyGame && IsJacoby == true, moneyNJ admits IsMoneyGame &&
+    //  IsJacoby == false, an unknown rule is admitted by neither, and no
+    //  money token ever admits a match record.
+    // -----------------------------------------------------------------------
+
+    /// <summary>A money row carrying <paramref name="isJacoby"/> as its rule.</summary>
+    private static RowShape MoneyRow(bool? isJacoby) => new(
+        MatchLength: 0, OnRollNeeds: 0, OpponentNeeds: 0,
+        IsCrawford: false, IsJacoby: isJacoby);
+
+    public static TheoryData<string[], bool?, bool> MoneyTokenMatrix() => new()
+    {
+        // moneyJ alone: the Jacoby record only.
+        { ["moneyJ"],            true,  true  },
+        { ["moneyJ"],            false, false },
+        { ["moneyJ"],            null,  false },
+
+        // moneyNJ alone: the no-Jacoby record only.
+        { ["moneyNJ"],           true,  false },
+        { ["moneyNJ"],           false, true  },
+        { ["moneyNJ"],           null,  false },
+
+        // Both listed — "money under either rule", which is what the old bare
+        // token used to mean. Still not the unknown-rule record.
+        { ["moneyJ", "moneyNJ"], true,  true  },
+        { ["moneyJ", "moneyNJ"], false, true  },
+        { ["moneyJ", "moneyNJ"], null,  false },
+    };
+
+    [Theory]
+    [MemberData(nameof(MoneyTokenMatrix))]
+    public void Matches_MoneyRecords_AdmittedByRuleBearingTokenOnly(
+        string[] tokens, bool? isJacoby, bool expected)
+    {
+        var filter = new MatchScoreFilter(tokens);
+        AssertMatchesBoth(filter, MoneyRow(isJacoby), expected);
+    }
+
+    [Theory]
+    [InlineData("moneyJ")]
+    [InlineData("moneyNJ")]
+    public void Matches_MoneyToken_NeverAdmitsAMatchRecord(string token)
+    {
+        // Match scores are untouched by the money tokens, and vice versa:
+        // neither token admits a match row at any score, Crawford or not.
+        var filter = new MatchScoreFilter([token]);
+        AssertMatchesBoth(
+            filter,
+            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
+            expected: false);
+        AssertMatchesBoth(
+            filter,
+            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
+            expected: false);
+    }
+
+    [Theory]
+    [InlineData("moneyJ", true)]
+    [InlineData("moneyNJ", false)]
+    public void Matches_MoneyToken_IsIndifferentToCubeAndPlayRows(string token, bool rule)
+    {
+        // The score facet reads only the score axis; the decision-type axis is
+        // DecisionTypeFilter's, composed by AND at the set. A money record's
+        // verdict is therefore the same for a cube decision and a checker
+        // play — the existing per-facet independence, restated for the new
+        // tokens so a future money-only special case cannot quietly break it.
+        var filter = new MatchScoreFilter([token]);
+
+        AssertMatchesBoth(filter, MoneyRow(rule) with { IsCube = false }, expected: true);
+        AssertMatchesBoth(filter, MoneyRow(rule) with { IsCube = true }, expected: true);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The near-miss pins. IDecisionFilterData.IsJacoby names `!= false` and
+    //  `!= true` as the spellings that silently admit an unknown-rule record
+    //  into one side. These are the tests that fail if Matches is ever written
+    //  that way — and nothing else in the matrix above would.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Matches_UnknownRuleMoneyRecord_AdmittedByNeitherToken()
+    {
+        // `_includesMoneyWithJacoby && IsJacoby != false` would pass this
+        // record; the `== true` spelling is what rejects it.
+        AssertMatchesBoth(new MatchScoreFilter(["moneyJ"]), MoneyRow(null), expected: false);
+
+        // ...and the mirror: `!= true` would pass it here.
+        AssertMatchesBoth(new MatchScoreFilter(["moneyNJ"]), MoneyRow(null), expected: false);
+
+        // Not even both tokens together admit it. An unknown rule is never
+        // guessed into a side (halheinrich/backgammon#142 — the illegal state
+        // is upstream's to prevent; the filter simply never admits it).
+        AssertMatchesBoth(
+            new MatchScoreFilter(["moneyJ", "moneyNJ"]), MoneyRow(null), expected: false);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Header gates: IMatchInfo / IGameInfo carry no Jacoby fact, so a money
+    //  header is admissible iff EITHER money token is listed. Exact for the
+    //  information those headers carry; Matches stays the rule arbiter.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("moneyJ")]
+    [InlineData("moneyNJ")]
+    public void ShouldSkipMatch_MoneySession_EitherMoneyToken_ReturnsFalse(string token)
+    {
+        var filter = new MatchScoreFilter([token]);
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
+
+        filter.ShouldSkipMatch(match).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("moneyJ")]
+    [InlineData("moneyNJ")]
+    public void ShouldSkipGame_MoneyGame_EitherMoneyToken_ReturnsFalse(string token)
+    {
+        var filter = new MatchScoreFilter([token]);
+        var game = new FakeGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
+
+        filter.ShouldSkipGame(game).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldSkipMatch_MatchSession_SingleMoneyToken_ReturnsTrue()
+    {
+        // A money-token-only filter carries no tuples, so no match session can
+        // satisfy it — unchanged by the token split.
+        var filter = new MatchScoreFilter(["moneyNJ"]);
+        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
+
+        filter.ShouldSkipMatch(match).Should().BeTrue();
+    }
+
+    // -----------------------------------------------------------------------
+    //  The retirement of the bare money token
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("money")]
+    [InlineData("MONEY")]
+    [InlineData("Money")]
+    public void Constructor_RetiredMoneyToken_Throws(string retired)
+    {
+        // Never a silent no-match and never a silent reinterpretation as one
+        // of the two rule-bearing tokens: the retired spelling is rejected the
+        // way any other unusable token is, so no filter is ever built from it
+        // and no money row of any rule can ride through on it.
+        var act = () => new MatchScoreFilter([retired]);
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Constructor_RetiredMoneyToken_SurroundingWhitespaceStillThrows()
+    {
+        // The grammar trims before judging, so a stored token that picked up
+        // whitespace is still recognized as the retired one — it does not slip
+        // out to the format rejection and lose its specific verdict.
+        var act = () => new MatchScoreFilter([" money "]);
+        act.Should().Throw<ArgumentException>();
+
+        MatchScoreToken.GetFault(" money ").Should().Be(MatchScoreTokenFault.Retired);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Grammar / filter agreement: the constructor throws on exactly the
+    //  tokens MatchScoreToken.GetFault faults, so GetInvalidFields and Build
+    //  cannot disagree about any token.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("3a5a")]
+    [InlineData("1a5aC")]
+    [InlineData("1a1a")]
+    [InlineData("moneyJ")]
+    [InlineData("moneyNJ")]
+    [InlineData(" MONEYNJ ")]
+    [InlineData("money")]
+    [InlineData("MONEY")]
+    [InlineData("garbage")]
+    [InlineData("")]
+    [InlineData("0a5a")]
+    [InlineData("3a5aC")]
+    [InlineData("1a1aC")]
+    [InlineData("4 a 5a")]
+    public void Constructor_ThrowsExactlyWhenGetFaultFaults(string token)
+    {
+        var act = () => new MatchScoreFilter([token]);
+
+        if (MatchScoreToken.GetFault(token) == MatchScoreTokenFault.None)
+            act.Should().NotThrow();
+        else
+            act.Should().Throw<ArgumentException>();
     }
 }

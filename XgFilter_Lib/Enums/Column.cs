@@ -19,7 +19,14 @@ public enum Column
     [Description("Error")]
     Error,
 
-    /// <summary>The match score at the decision (e.g. <c>"3a5a"</c>, <c>"1a5aC"</c>, <c>"money"</c>).</summary>
+    /// <summary>
+    /// The match score at the decision (e.g. <c>"3a5a"</c>, <c>"1a5aC"</c>,
+    /// <c>"moneyJ"</c>, <c>"moneyNJ"</c>) — the producer's rendering, which
+    /// <see cref="BgDataTypes_Lib.DecisionRow.MatchScore"/> owns. A money row
+    /// whose Jacoby rule was never stamped renders as the bare <c>"money"</c>,
+    /// which states what is known; as a <em>filter</em> token that spelling is
+    /// retired (see <see cref="Filtering.MatchScoreToken.RetiredMoney"/>).
+    /// </summary>
     [Description("MatchScore")]
     MatchScore,
 

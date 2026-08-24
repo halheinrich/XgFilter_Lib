@@ -13,7 +13,7 @@ public class NamedFilterCollectionTests
     {
         Players = { "Alice", "Bob" },
         DecisionType = DecisionTypeOption.CheckerPlaysOnly,
-        MatchScores = { "3a5a", "money" },
+        MatchScores = { "3a5a", "moneyJ" },
         ErrorMin = 0.05,
         ErrorMax = 0.5,
         MoveNumberMin = 2,

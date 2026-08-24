@@ -26,6 +26,7 @@ internal static class BgDecisionDataBuilder
         int onRollNeeds = 3,
         int opponentNeeds = 5,
         bool isCrawford = false,
+        bool? isJacoby = null,
         int matchLength = 7,
         int moveNumber = 1,
         bool isStandardStart = true,
@@ -76,6 +77,7 @@ internal static class BgDecisionDataBuilder
                 OnRollNeeds = onRollNeeds,
                 OpponentNeeds = opponentNeeds,
                 IsCrawford = isCrawford,
+                IsJacoby = isJacoby,
                 Mop = board ?? new int[26],
             },
             Outcome = new PlayOutcomeData

@@ -56,7 +56,10 @@ chain builds from this solution rather than from packages.
   materializes a `DecisionFilterSet` from the eleven `internal` filter classes,
   which implement the `IDecisionFilter` / `IMatchFilter` seams.
   `NamedFilterCollection`, with its type-bundled `internal` converter, is the
-  versioned saved-filters document a consumer persists.
+  versioned saved-filters document a consumer persists. `MatchScoreToken` is
+  the one public *grammar* here — the score-token vocabulary and its wordless
+  verdict — standing to `MatchScoreFilter` as `BoardPattern` stands to
+  `PositionPatternFilter`.
 - **`Classification/`** — the `internal` predicates the category filters
   dispatch to: `IPositionClassifier` / `IPlayTypeClassifier` plus one
   hand-written implementation per enum member. Board-reading only, never
@@ -122,10 +125,18 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   member retires together with its facet. Labels match the
   FilterPanel's visible section headings, so an "N hidden filters
   active" signal names the sections the user finds on expanding.
+* `MatchScoreTokenFault` — the typed verdict `MatchScoreToken.GetFault`
+  returns on one `MatchScores` entry: `None`, `Malformed`, `Retired`. Two
+  faults, not one per parse rule, because the only distinction that changes
+  what a consumer *says* is retired-vocabulary versus wrong-shape: a retired
+  token gets its replacements named, everything else gets retyped. Carries no
+  text — see **The score-token grammar** below.
 * Every member of every enum in this namespace carries a UI-facing
-  `[Description]` label — `FilterField` excepted, deliberately: its members
-  name a consumer's own input, whose caption this library never renders (the
-  reasoning is on the enum). Consumers read it via
+  `[Description]` label — `FilterField` and `MatchScoreTokenFault` excepted,
+  deliberately. `FilterField`'s members name a consumer's own input, whose
+  caption this library never renders, and `MatchScoreTokenFault`'s name a
+  verdict the consumer words in its own voice (the reasoning is on each
+  enum). Consumers read it via
   `EnumLabel.ToLabel<TEnum>(value)`. Display text is owned by this
   library, not the UI layer. The helper throws `ArgumentException`
   on undeclared values and on declared members without a
@@ -209,6 +220,32 @@ surface, and are reachable from the test project via
   verdicts rather than judging facet activity from its edit buffers
   (the same consult-the-result ruling as `DecisionFilterSet.IsEmpty`).
 
+  **Validity** is the other axis, and the mirror of the above: a private
+  `FieldRules` table of `(FilterField, violation predicate)` pairs, each
+  predicate **delegating to the facet that owns the semantic**, feeds
+  `GetInvalidFields()` — an `IReadOnlySet<FilterField>` naming the fields
+  whose values `Build()` would throw on. The table is sparse by design; the
+  two facets a user fills in by hand are the two with rows: the error
+  bounds (via `ErrorRangeFilter.IsBoundNonNegative` / `.AreBoundsOrdered`,
+  halheinrich/backgammon#39) and the match-score tokens (via
+  `MatchScoreToken.GetFault`, halheinrich/backgammon#121 — the "one enum
+  member, one row" join #39 booked for this facet). A checkbox list has no
+  rule to state, so it contributes none. Like `GetActiveFacets()` it never
+  throws and is computed fresh from mutable state, and it is deliberately
+  **not** a gate on assignment: setters accept anything, so a saved document
+  written before a rule existed still loads and the offending value can be
+  shown back to the user rather than lost to a failed restore. Validity is
+  orthogonal to activity — a retired score token still reports its facet
+  active while being named here.
+
+  The verdict carries **no message**, for either facet. The lib rules on the
+  input and the consumer says so in its own voice (the same division as
+  `BoardPattern.TryParse`). Where a consumer needs more than "this field is
+  wrong" — which entry, and whether it is retired vocabulary rather than a
+  typo — it asks `MatchScoreToken.GetFault` per token and reads the typed
+  fault plus `RetiredMoneyReplacements`; facts and values cross the API,
+  never prose. Both surfaces read the same rule, so they cannot disagree.
+
   **Value equality** (`IEquatable<FilterConfig>`, `Equals` +
   `GetHashCode`): a config's identity is its content, so two configs
   describing the same filtering are equal whoever built them. Structural
@@ -264,14 +301,11 @@ surface, and are reachable from the test project via
   and the opponent needs N, so `"4a5a"` and `"5a4a"` are distinct
   targets (include both orientations to admit a score regardless of who
   is on roll). Targets are stored as `(Away1, Away2, IsCrawford)`
-  tuples; the `"money"` token is tracked separately as a
-  `_includesMoney` bool, not as a `(0, 0, false)` tuple, and bypasses
-  score parsing. Only `NaNa[C]`-form tokens go through `ParseScore`,
-  which fail-louds with `ArgumentException` (offending token in the
-  message) on malformed tokens **and** on impossible scores: away
-  scores below 1 (`0a5a`), and Crawford tokens without exactly one side
-  1-away and the other ≥ 2 (`3a5aC`, `1a1aC` — a (1,1) game is always
-  post-Crawford). Downstream gates rely on these constructor
+  tuples; the two money tokens are tracked separately as a bool each,
+  not as `(0, 0, false)` tuples, and bypass score parsing. Everything
+  else goes through `MatchScoreToken.ParseScore` — the grammar and its
+  fail-loud behaviour live there, not here (see **The score-token
+  grammar** below). Downstream gates rely on the resulting constructor
   invariants instead of re-validating. Each gate is the exact
   projection of `Matches` onto its information granularity:
   `ShouldSkipMatch` detects money-vs-match mismatches and tuples no
@@ -294,6 +328,82 @@ surface, and are reachable from the test project via
   `ShouldAdvanceGame` deliberately stays at the interface default
   (false): a matching decision can be followed by mirror-orientation
   decisions in the same game, so there is no sound game-level cut.
+
+  **Money sessions and the Jacoby rule** (halheinrich/backgammon#121).
+  The two money tokens are separate targets, each admitting money
+  records under one rule — `moneyJ` admits
+  `IsMoneyGame && IsJacoby == true`, `moneyNJ` admits
+  `IsMoneyGame && IsJacoby == false`. Wanting money under either rule
+  means **listing both**, exactly as admitting a score regardless of
+  who is on roll means listing both orientations. A money record whose
+  Jacoby fact is unknown (`IsJacoby` `null`) matches **neither** — an
+  unknown rule is never guessed into a side (the illegal state is
+  upstream's to prevent, halheinrich/backgammon#142; the filter simply
+  never admits it). The `== true` / `== false` spellings are
+  load-bearing against the tri-state: the near-misses `!= false` /
+  `!= true` each admit the unknown record into one side, which is what
+  the unknown-side pins in `MatchScoreFilterTests` exist to catch.
+  Match scores are untouched by the money tokens and vice versa.
+
+  The header gates cannot see the fact — `IMatchInfo` / `IGameInfo`
+  carry no Jacoby member, by their "members are added on demand"
+  minimalism — so at header scope a money session is admissible iff
+  **either** money token is listed. That is still the exact projection
+  onto the information those headers carry (a header cannot distinguish
+  the two rules, both occur under it, `Matches` stays the arbiter) —
+  the same shape as the orientation projection above.
+* `MatchScoreToken` — **the score-token grammar**, and the one public
+  type in `Filtering/` besides `FilterConfig`, `DecisionFilterSet`,
+  `NamedFilterCollection`, and `IDecisionFilter`. It states once, for
+  the whole library, what a `MatchScores` entry may say: a `NaNa[C]`
+  match score, or one of the money tokens. `MatchScoreFilter` parses
+  through it, `FilterConfig`'s field-rule table judges through it, and
+  a consumer asks it directly.
+
+  * **Vocabulary as exported constants** — `MoneyWithJacoby`
+    (`"moneyJ"`), `MoneyWithoutJacoby` (`"moneyNJ"`), `RetiredMoney`
+    (`"money"`), plus `RetiredMoneyReplacements` (both rule-bearing
+    tokens, in order). Spellings live here once; a consumer rendering
+    them in help text, a placeholder, or an explanation reads the
+    constants rather than repeating literals, the same export
+    discipline as `FilterHelp.StorageSectionAnchorId`.
+  * **Case and whitespace** — the whole grammar is case-insensitive and
+    trims incidental *surrounding* whitespace before judging anything:
+    the `a` separators, the `C` Crawford suffix, and the money tokens
+    with their `J` / `NJ` suffixes alike, so `MONEYNJ`, `moneynj`, and
+    `moneyNJ` are one token. Embedded whitespace and repeated
+    separators are still rejected. (This regularised one inconsistency:
+    the old bare `money` check compared *untrimmed* while score tokens
+    trimmed.)
+  * **`GetFault(token)`** — the single statement of token validity,
+    returning a `MatchScoreTokenFault` and **never a sentence**. Null
+    is `Malformed` rather than an exception, so
+    `GetInvalidFields` keeps its never-throws contract on a config an
+    explicit JSON `null` produced.
+  * **`ParseScore`** (internal) fail-louds with `ArgumentException`
+    (offending token in the message) on malformed tokens, on impossible
+    scores — away scores below 1 (`0a5a`), Crawford tokens without
+    exactly one side 1-away and the other ≥ 2 (`3a5aC`, `1a1aC`, a
+    (1,1) game being always post-Crawford) — and on the retired token.
+    Both it and `GetFault` route through one private `Inspect`, so the
+    answer a consumer asks for and the answer `Build()` enforces cannot
+    drift.
+  * **The `money` retirement** (halheinrich/backgammon#121). `money` is
+    no longer a valid token: a pattern containing it is **invalid**,
+    named by `GetInvalidFields()` and rejected by `Build()`, carrying
+    the `Retired` fault so a consumer can distinguish it from a typo
+    and offer `RetiredMoneyReplacements`. The two alternatives were
+    both rejected as *silent semantic changes*: reinterpreting it as
+    "either rule" would quietly widen a saved filter's meaning, and
+    letting it match nothing would quietly narrow it — either way the
+    user gets a result they cannot explain from what they typed. The
+    verdict is loud instead, and messageless: the lib rules, the
+    consumer words it (the #39 posture, extended with a typed fault and
+    replacement data rather than prose). The token survives as a
+    constant because `DecisionRow.MatchScore` still *writes* it, for
+    the one money row that has no rule to state; written out it is an
+    honest "unknown", read back in as a target it is retired. That
+    asymmetry is deliberate.
 * `ErrorRangeFilter` — `double?` min / max on `FilterError`. Returns `false`
   when `FilterError` is `null`, i.e. unanalyzed rows are excluded, not
   passed through.
@@ -679,6 +789,11 @@ public enum FilterFacet          // declaration order == FilterConfig.Build()'s 
     ContactTypes, PositionTypes, PlayTypes, AnalysisDepth, DiceRolls,
     PositionPattern,
 }
+public enum FilterField          // deliberately partial: one member per rule that can name it
+{
+    MatchScores, ErrorMin, ErrorMax,
+}
+public enum MatchScoreTokenFault { None, Malformed, Retired }
 
 public static class EnumLabel
 {
@@ -694,6 +809,18 @@ public interface IDecisionFilter
     bool Matches(IDecisionFilterData data);
     virtual bool ShouldAdvanceGame (IDecisionFilterData data) => false;
     virtual bool ShouldAdvanceMatch(IDecisionFilterData data) => false;
+}
+
+/// The score-token grammar and vocabulary: spellings once, verdicts typed.
+public static class MatchScoreToken
+{
+    public const string MoneyWithJacoby    = "moneyJ";
+    public const string MoneyWithoutJacoby = "moneyNJ";
+    public const string RetiredMoney       = "money";   // retired as a target
+
+    public static IReadOnlyList<string> RetiredMoneyReplacements { get; }
+
+    public static MatchScoreTokenFault GetFault(string? token);   // never throws
 }
 
 public sealed class DecisionFilterSet
@@ -729,7 +856,8 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     public BoardPattern?             PositionPattern      { get; set; }
 
     public DecisionFilterSet Build();
-    public IReadOnlySet<FilterFacet> GetActiveFacets();
+    public IReadOnlySet<FilterFacet> GetActiveFacets();   // presence
+    public IReadOnlySet<FilterField> GetInvalidFields();  // validity; no message
 
     public string ToJson();
     public static FilterConfig FromJson(string json);
@@ -901,12 +1029,29 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
   `ShouldAdvanceMatch`'s file-cut fires immediately, so it must treat
   the *current* game's score (either orientation) as still-matchable,
   not just future games.
-* **`MatchScoreFilter` has coupled constraints.** Money matches only if
-  `matchLength == 0`; a Crawford target requires exactly one side at
-  1-away and the other at `≥ 2`; away scores below 1 are impossible.
-  The constructor (`ParseScore`) enforces all of these fail-loud, and
-  the gates rely on those invariants — adding parse shortcuts that
-  bypass validation will let impossible targets through unchecked.
+* **`MatchScoreFilter` has coupled constraints.** A money token matches
+  only if `matchLength == 0`; a Crawford target requires exactly one
+  side at 1-away and the other at `≥ 2`; away scores below 1 are
+  impossible. `MatchScoreToken.ParseScore` enforces all of these
+  fail-loud, and the gates rely on those invariants — adding parse
+  shortcuts that bypass validation will let impossible targets through
+  unchecked.
+* **The Jacoby fact is tri-state, and `!= false` / `!= true` are the
+  trap.** `IDecisionFilterData.IsJacoby` is `bool?`: `true` / `false` on
+  a money record, `null` when the rule was never stamped (and `null` on
+  a match record, where the question does not arise). `moneyJ` /
+  `moneyNJ` must be spelled `IsMoneyGame && IsJacoby == true` /
+  `== false`. The near-miss spellings each silently admit the
+  unknown-rule record into one side — a wrong answer that no
+  known-rule test would catch, which is why the unknown-side pins are
+  called out by name in `MatchScoreFilterTests`.
+* **Adding a validity rule means adding it in one place, not two.** A
+  facet's rule belongs on the facet that owns the semantic
+  (`ErrorRangeFilter.IsBoundNonNegative`, `MatchScoreToken.GetFault`);
+  `FilterConfig`'s `FieldRules` row only *routes* to it. Writing the
+  predicate inline in the table would let `GetInvalidFields()` and
+  `Build()` drift, and the swept agreement tests in `FilterConfigTests`
+  exist to catch exactly that.
 * **`IDecisionFilter.ShouldAdvanceGame` / `ShouldAdvanceMatch` default to
   `false`.** A filter that *can* early-exit mid-game must override them.
   Missing an override is silent — rows just stop being skipped.
