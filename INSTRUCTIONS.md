@@ -125,6 +125,18 @@ type — no parallel hierarchies, no conversion at the filter boundary.
   member retires together with its facet. Labels match the
   FilterPanel's visible section headings, so an "N hidden filters
   active" signal names the sections the user finds on expanding.
+* `FilterField` — the companion vocabulary to `FilterFacet`, and the
+  currency of `FilterConfig.GetInvalidFields()`: one member per
+  individually-blameable *field* a validity rule can name (MatchScores,
+  ErrorMin, ErrorMax, MoveNumberMin, MoveNumberMax), declared in that order.
+  Deliberately **partial**, and it grows with the rules — a member exists iff
+  some `FieldRules` row can name it, so a facet with no rule to state (a
+  checkbox list, whose only failure mode is an undefined enum value no UI can
+  produce) is absent rather than permanently valid. Read it as the blameable
+  set, never as an inventory of the config's members; `FilterFacet` is the
+  complete vocabulary. Fields rather than facets because a consumer marks
+  inputs: a range facet contributes one member per bound, so a misordered pair
+  can blame both ends.
 * `MatchScoreTokenFault` — the typed verdict `MatchScoreToken.GetFault`
   returns on one `MatchScores` entry: `None`, `Malformed`, `Retired`. Two
   faults, not one per parse rule, because the only distinction that changes
@@ -225,12 +237,26 @@ surface, and are reachable from the test project via
   predicate **delegating to the facet that owns the semantic**, feeds
   `GetInvalidFields()` — an `IReadOnlySet<FilterField>` naming the fields
   whose values `Build()` would throw on. The table is sparse by design; the
-  two facets a user fills in by hand are the two with rows: the error
-  bounds (via `ErrorRangeFilter.IsBoundNonNegative` / `.AreBoundsOrdered`,
-  halheinrich/backgammon#39) and the match-score tokens (via
-  `MatchScoreToken.GetFault`, halheinrich/backgammon#121 — the "one enum
-  member, one row" join #39 booked for this facet). A checkbox list has no
-  rule to state, so it contributes none. Like `GetActiveFacets()` it never
+  facets a user fills in by hand are the ones with rows — the match-score
+  tokens (via `MatchScoreToken.GetFault`, halheinrich/backgammon#121, the "one
+  enum member, one row" join halheinrich/backgammon#39 booked for this facet),
+  the error bounds (via `ErrorRangeFilter.IsBoundNonNegative` /
+  `.AreBoundsOrdered`, halheinrich/backgammon#39), and the move-number bounds
+  (via `MoveNumberFilter.IsBoundAtLeastOne` / `.AreBoundsOrdered`,
+  halheinrich/backgammon#119). A checkbox list has no rule to state, so it
+  contributes none.
+
+  A range facet contributes **two** rows for one rule pair, because a consumer
+  marks inputs rather than facets. Each row composes its own bound's
+  admissibility with the pair's ordering rule, and the composition is what
+  keeps blame honest: a bound wrong on its own value is named alone, while a
+  misordered pair — both bounds individually admissible, still out of order —
+  blames both ends and leaves the user to choose which to move. A bound
+  already at fault for its own value drags the pair out of order as a side
+  effect, and that consequence must not red the field the user got right. The
+  two range facets differ only in the floor each bound must clear, and each
+  floor is stated by the filter that owns it: zero for an error magnitude, one
+  for a 1-based move ordinal. Like `GetActiveFacets()` it never
   throws and is computed fresh from mutable state, and it is deliberately
   **not** a gate on assignment: setters accept anything, so a saved document
   written before a rule existed still loads and the offending value can be
@@ -266,6 +292,52 @@ surface, and are reachable from the test project via
   the last-committed one rather than re-materializing or serializing
   anything — a `ToJson()` comparison was explicitly rejected. No `==` /
   `!=` operators; see the pitfalls.
+
+* `NamedFilterCollection` — the versioned **saved-filters document**: an
+  immutable collection of named `FilterConfig` entries, the pick list a
+  consumer offers when the user saves and reloads configurations. The library
+  does no I/O — consumers load bytes, deserialize, apply the withers
+  (`With(name, config)` adds or replaces, `Without(name)` removes and is
+  idempotent; each returns a new collection and leaves the receiver
+  untouched), and serialize back.
+
+  * **One comparer is the whole name rule.** `OrdinalIgnoreCase` is the single
+    definition of "same name" for duplicate rejection, `Contains` /
+    `GetConfig` / `TryGetConfig` lookup, replace-on-`With`, `Without`, and the
+    canonical sort — which the rule makes total, since case-variant duplicates
+    cannot coexist. Display case is preserved as typed, and a replacing `With`
+    stores the new spelling (last write wins for name and config alike). Names
+    are validated, never coerced: blank or untrimmed names are rejected, in
+    memory and on the wire.
+  * **One canonical order.** Entries sort by name — in `Names` and on the wire
+    — so a given collection always serializes to the same content regardless
+    of the add/remove sequence that built it. Reads accept entries in any
+    order and re-canonicalize: order is presentation, not semantics, so a
+    hand-reordered file is not corruption (the duplicate check still gates).
+  * **Snapshot contract.** `FilterConfig` is deliberately mutable (UI state
+    binds to it), so this document stores each config's *serialized value*,
+    never the caller's instance: `With` snapshots on the way in through the
+    canonical `FilterConfig.ToJson` / `FromJson` round-trip — which also
+    normalizes, so the stored value is exactly what the wire will carry — and
+    every retrieval hands out a fresh snapshot. Mutating a config after saving
+    it, or mutating one retrieved from the document, never affects the
+    document; saving an edit back is an explicit `With`.
+  * **Strict envelope, tolerant payload.** JSON via the type-bundled
+    `internal` converter (type-level `[JsonConverter]` — consumers register
+    nothing) at `CurrentSchemaVersion`. The envelope — version, structure,
+    names — is fail-loud, with a version bump as its only evolution mechanism;
+    entry config bodies delegate to `FilterConfig`'s own deserialization,
+    which ignores unknown members, so a retired config facet never bricks a
+    user's saved collection. The persistence trio matches `FilterConfig`'s:
+    `ToJson` / `FromJson` / `TryFromJson`, the last absorbing the absent,
+    null-token, and malformed cases into `Empty`.
+  * A plain class, not a record: it wraps a collection, where record equality
+    would silently be reference equality. Instances compare by reference.
+
+  Because a stored config is restored rather than re-entered, this is also
+  where `GetInvalidFields()` earns its posture: a document written before a
+  rule existed loads intact and reports invalid at apply, instead of failing
+  the restore and losing the value the user has to fix.
 
 * **Depth facet semantics.** User-facing selection state is three per-mode
   pairs — a toggle plus its own level list (`IncludeEvaluations` +
@@ -416,6 +488,16 @@ surface, and are reachable from the test project via
   Overrides `ShouldAdvanceGame`: once a row past `max` is seen, no
   later row in the same game can match, since move numbers increase
   monotonically per game.
+
+  Bounds are **constrained, not merely stored** (halheinrich/backgammon#119).
+  `IsBoundAtLeastOne` and `AreBoundsOrdered` state the rule once for the whole
+  library and the constructor enforces it: move numbers are 1-based, so a
+  lower bound below 1 only restates the open end while an upper bound below 1
+  admits nothing at all, and `min > max` is empty by construction. None is a
+  filter a user could mean, so each is a construction error — `Build()` throws
+  where it once handed back a filter that silently matched nothing. Same
+  posture as `ErrorRangeFilter`'s magnitude bounds, differing only in the
+  floor.
 * `ContactTypeFilter` — include list of `ContactType`. Same
   read-`data.Board` + private-registry dispatch pattern as
   `PositionTypeFilter`, over the `Contact` / `Race` classifiers. OR
@@ -791,7 +873,7 @@ public enum FilterFacet          // declaration order == FilterConfig.Build()'s 
 }
 public enum FilterField          // deliberately partial: one member per rule that can name it
 {
-    MatchScores, ErrorMin, ErrorMax,
+    MatchScores, ErrorMin, ErrorMax, MoveNumberMin, MoveNumberMax,
 }
 public enum MatchScoreTokenFault { None, Malformed, Retired }
 
@@ -866,6 +948,32 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     public bool Equals(FilterConfig? other);   // value equality over every
     public override bool Equals(object? obj);  // member; list facets compare
     public override int GetHashCode();         // as multisets. No == / !=.
+}
+
+/// The versioned saved-filters document: immutable, name-keyed
+/// (OrdinalIgnoreCase), canonically sorted by name, storing each config as a
+/// serialized snapshot rather than the caller's instance. Wire format via a
+/// type-bundled internal converter — consumers register nothing. Reference
+/// equality; the library does no I/O.
+public sealed class NamedFilterCollection
+{
+    public const int CurrentSchemaVersion = 1;
+
+    public static NamedFilterCollection Empty { get; }
+
+    public int                   Count { get; }
+    public IReadOnlyList<string> Names { get; }   // canonical order
+
+    public bool         Contains    (string name);
+    public FilterConfig GetConfig   (string name);   // KeyNotFoundException when absent
+    public bool         TryGetConfig(string name, out FilterConfig? config);
+
+    public NamedFilterCollection With   (string name, FilterConfig config);  // add or replace
+    public NamedFilterCollection Without(string name);                       // idempotent
+
+    public string ToJson();
+    public static NamedFilterCollection FromJson(string json);
+    public static bool TryFromJson(string? json, out NamedFilterCollection collection);
 }
 ```
 
@@ -1047,7 +1155,8 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
   called out by name in `MatchScoreFilterTests`.
 * **Adding a validity rule means adding it in one place, not two.** A
   facet's rule belongs on the facet that owns the semantic
-  (`ErrorRangeFilter.IsBoundNonNegative`, `MatchScoreToken.GetFault`);
+  (`ErrorRangeFilter.IsBoundNonNegative`,
+  `MoveNumberFilter.IsBoundAtLeastOne`, `MatchScoreToken.GetFault`);
   `FilterConfig`'s `FieldRules` row only *routes* to it. Writing the
   predicate inline in the table would let `GetInvalidFields()` and
   `Build()` drift, and the swept agreement tests in `FilterConfigTests`
