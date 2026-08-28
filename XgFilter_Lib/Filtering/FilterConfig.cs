@@ -99,10 +99,22 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// </summary>
     public double? ErrorMax { get; set; }
 
-    /// <summary>Inclusive lower bound on move number; null = open lower bound.</summary>
+    /// <summary>
+    /// Inclusive lower bound on move number; null = open lower bound. Must be
+    /// one or greater (move numbers are 1-based within a game), and must not
+    /// exceed <see cref="MoveNumberMax"/> when both are present — the setter
+    /// does not enforce that, <see cref="GetInvalidFields"/> reports it, and
+    /// <see cref="Build"/> rejects it.
+    /// </summary>
     public int? MoveNumberMin { get; set; }
 
-    /// <summary>Inclusive upper bound on move number; null = open upper bound.</summary>
+    /// <summary>
+    /// Inclusive upper bound on move number; null = open upper bound. Must be
+    /// one or greater (move numbers are 1-based within a game), and must not
+    /// fall below <see cref="MoveNumberMin"/> when both are present — the
+    /// setter does not enforce that, <see cref="GetInvalidFields"/> reports it,
+    /// and <see cref="Build"/> rejects it.
+    /// </summary>
     public int? MoveNumberMax { get; set; }
 
     /// <summary>
@@ -231,10 +243,11 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
             static c => c.MatchScores.Count > 0,
             static c => new MatchScoreFilter(c.MatchScores)),
 
-        // Presence-based like every other row: a bound that violates the
-        // facet's non-negative/ordered rule still activates the facet (it is a
-        // filter the user set, however broken). The factory is where that rule
-        // bites — see GetInvalidFields for asking before building.
+        // Presence-based like every other row: a bound that violates its
+        // facet's floor/ordered rule still activates the facet (it is a filter
+        // the user set, however broken). The factory is where that rule bites
+        // — see GetInvalidFields for asking before building. Both range facets
+        // below work this way.
         new(FilterFacet.ErrorRange,
             static c => c.ErrorMin.HasValue || c.ErrorMax.HasValue,
             static c => new ErrorRangeFilter(c.ErrorMin, c.ErrorMax)),
@@ -318,7 +331,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// <see cref="MatchScoreToken.RetiredMoney"/> token; see
     /// <see cref="MatchScoreToken.GetFault"/>; or <see cref="ErrorMin"/> exceeds
     /// <see cref="ErrorMax"/> with both present — see
-    /// <see cref="ErrorRangeFilter.AreBoundsOrdered"/>.
+    /// <see cref="ErrorRangeFilter.AreBoundsOrdered"/>; or
+    /// <see cref="MoveNumberMin"/> exceeds <see cref="MoveNumberMax"/> with
+    /// both present — see <see cref="MoveNumberFilter.AreBoundsOrdered"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>, or
@@ -328,7 +343,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// is on (an inert level list is never validated). Also when
     /// <see cref="ErrorMin"/> or <see cref="ErrorMax"/> is negative or
     /// <see cref="double.NaN"/> — see
-    /// <see cref="ErrorRangeFilter.IsBoundNonNegative"/>.
+    /// <see cref="ErrorRangeFilter.IsBoundNonNegative"/> — and when
+    /// <see cref="MoveNumberMin"/> or <see cref="MoveNumberMax"/> is below one
+    /// — see <see cref="MoveNumberFilter.IsBoundAtLeastOne"/>.
     /// </exception>
     public DecisionFilterSet Build()
     {
@@ -406,17 +423,22 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// in wrongly appear. A checkbox list has no rule to state (its failure mode
     /// is an undefined enum value, which no UI can produce and
     /// <see cref="Build"/> already rejects), so it contributes no row and its
-    /// members are absent from <see cref="FilterField"/> entirely. The two
-    /// facets that <em>are</em> filled in by hand — free text for the score
-    /// tokens, free numbers for the error bounds — are the two that appear.
+    /// members are absent from <see cref="FilterField"/> entirely. The facets
+    /// that <em>are</em> filled in by hand — free text for the score tokens,
+    /// free numbers for the error and move-number bounds — are the ones that
+    /// appear.
     /// </para>
     ///
     /// <para>
-    /// The error facet contributes two rows for one rule pair, because a
-    /// consumer marks inputs, not facets. Both rows consult the ordering rule
-    /// via <see cref="ErrorBoundsMisordered"/>: <c>min &gt; max</c> is a fault
-    /// of the pair, with neither bound wrong on its own, so it blames both and
-    /// leaves the user to decide which end to move.
+    /// Each range facet contributes two rows for one rule pair, because a
+    /// consumer marks inputs, not facets. Both of a pair's rows consult their
+    /// facet's ordering rule — via <see cref="ErrorBoundsMisordered"/> and
+    /// <see cref="MoveNumberBoundsMisordered"/> respectively. A
+    /// <c>min &gt; max</c> is a fault of the pair, with neither bound wrong on
+    /// its own, so it blames both and leaves the user to decide which end to
+    /// move. The two facets differ only in the floor each bound must clear on
+    /// its own — zero for an error magnitude, one for a 1-based move ordinal —
+    /// and each floor is stated by the filter that owns it, never here.
     /// </para>
     /// </summary>
     private static readonly FieldRule[] FieldRules =
@@ -440,6 +462,14 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
         new(FilterField.ErrorMax,
             static c => !ErrorRangeFilter.IsBoundNonNegative(c.ErrorMax)
                      || ErrorBoundsMisordered(c)),
+
+        new(FilterField.MoveNumberMin,
+            static c => !MoveNumberFilter.IsBoundAtLeastOne(c.MoveNumberMin)
+                     || MoveNumberBoundsMisordered(c)),
+
+        new(FilterField.MoveNumberMax,
+            static c => !MoveNumberFilter.IsBoundAtLeastOne(c.MoveNumberMax)
+                     || MoveNumberBoundsMisordered(c)),
     ];
 
     /// <summary>
@@ -455,6 +485,18 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
         ErrorRangeFilter.IsBoundNonNegative(config.ErrorMin)
         && ErrorRangeFilter.IsBoundNonNegative(config.ErrorMax)
         && !ErrorRangeFilter.AreBoundsOrdered(config.ErrorMin, config.ErrorMax);
+
+    /// <summary>
+    /// The move-number facet's counterpart to <see cref="ErrorBoundsMisordered"/>,
+    /// and blameable on the same terms: both bounds individually admissible
+    /// under their own floor, and still out of order. Kept a sibling rather
+    /// than generalized with it — the shape is shared but the rules are not,
+    /// and each facet's pair of rules belongs to the filter that owns it.
+    /// </summary>
+    private static bool MoveNumberBoundsMisordered(FilterConfig config) =>
+        MoveNumberFilter.IsBoundAtLeastOne(config.MoveNumberMin)
+        && MoveNumberFilter.IsBoundAtLeastOne(config.MoveNumberMax)
+        && !MoveNumberFilter.AreBoundsOrdered(config.MoveNumberMin, config.MoveNumberMax);
 
     /// <summary>
     /// The fields whose current values violate their facet's rule — the
@@ -484,7 +526,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// <see cref="FieldRules"/> still carry content <see cref="Build"/>
     /// validates (an undefined enum value in a checkbox list). Those join this
     /// query as their rules are stated; <see cref="MatchScores"/> joined with
-    /// the score-token grammar's (halheinrich/backgammon#121).
+    /// the score-token grammar's (halheinrich/backgammon#121), and the
+    /// move-number bounds with their floor and ordering rules
+    /// (halheinrich/backgammon#119).
     /// </para>
     /// <para>
     /// The verdict is a set of fields and nothing more — no message, and for

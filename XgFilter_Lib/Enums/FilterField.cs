@@ -56,4 +56,16 @@ public enum FilterField
     /// <see cref="FilterFacet.ErrorRange"/> facet.
     /// </summary>
     ErrorMax,
+
+    /// <summary>
+    /// The lower move-number bound (<see cref="FilterConfig.MoveNumberMin"/>)
+    /// of the <see cref="FilterFacet.MoveNumberRange"/> facet.
+    /// </summary>
+    MoveNumberMin,
+
+    /// <summary>
+    /// The upper move-number bound (<see cref="FilterConfig.MoveNumberMax"/>)
+    /// of the <see cref="FilterFacet.MoveNumberRange"/> facet.
+    /// </summary>
+    MoveNumberMax,
 }

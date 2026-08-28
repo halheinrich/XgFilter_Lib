@@ -822,9 +822,20 @@ public class FilterConfigTests
     [Fact]
     public void GetInvalidFields_EnumeratesInFilterFieldDeclarationOrder()
     {
-        new FilterConfig { MatchScores = { "garbage" }, ErrorMin = 0.20, ErrorMax = 0.05 }
+        new FilterConfig
+        {
+            MatchScores = { "garbage" },
+            ErrorMin = 0.20,
+            ErrorMax = 0.05,
+            MoveNumberMin = 10,
+            MoveNumberMax = 3,
+        }
             .GetInvalidFields().Should().ContainInOrder(
-                FilterField.MatchScores, FilterField.ErrorMin, FilterField.ErrorMax);
+                FilterField.MatchScores,
+                FilterField.ErrorMin,
+                FilterField.ErrorMax,
+                FilterField.MoveNumberMin,
+                FilterField.MoveNumberMax);
     }
 
     [Fact]
@@ -862,6 +873,8 @@ public class FilterConfigTests
         {
             ErrorMin = double.NaN,
             ErrorMax = -1.0,
+            MoveNumberMin = 0,
+            MoveNumberMax = int.MinValue,
             MatchScores = { "garbage" },
             DecisionType = (DecisionTypeOption)999,
             ContactTypes = { (ContactType)999 },
@@ -937,6 +950,8 @@ public class FilterConfigTests
             var cfg = new FilterConfig();
             cfg.ErrorMin = -1.0;
             cfg.ErrorMax = double.NaN;
+            cfg.MoveNumberMin = 0;
+            cfg.MoveNumberMax = -3;
             return cfg;
         };
 
@@ -1690,6 +1705,223 @@ public class FilterConfigTests
         // that was built from it.
         var config = NamedFilterCollection.Empty
             .With("Legacy", new FilterConfig { MatchScores = { "money" } })
+            .GetConfig("Legacy");
+
+        config.GetInvalidFields().Should().NotBeEmpty(
+            "a consumer gating on GetInvalidFields must refuse to apply this");
+
+        var act = () => config.Build();
+        act.Should().Throw<ArgumentException>(
+            "and a consumer that builds regardless must fail loud, never return an empty set");
+    }
+
+    // -----------------------------------------------------------------------
+    //  GetInvalidFields — the move-number bound rules
+    //  (halheinrich/backgammon#119, the same shape the error bounds already
+    //  had: two FilterField members, two FieldRules rows delegating to the
+    //  facet's own filter). The rules themselves are pinned in
+    //  MoveNumberFilterTests; these pin the reporting, and the Build path that
+    //  reaches them.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(null, null)]   // both absent: the rule constrains values, never presence
+    [InlineData(1, null)]      // one-sided, at the admissible edge
+    [InlineData(null, 1)]
+    [InlineData(1, 1)]         // the opening-decision filter
+    [InlineData(5, 5)]         // equal bounds: inclusive, so a single-move filter
+    [InlineData(3, 10)]
+    [InlineData(3, null)]
+    [InlineData(null, 10)]
+    public void GetInvalidFields_AdmissibleMoveNumberBounds_ReturnsEmptySet(int? min, int? max)
+    {
+        new FilterConfig { MoveNumberMin = min, MoveNumberMax = max }
+            .GetInvalidFields().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0, null)]      // the floor is one, so zero is a bound that names no decision
+    [InlineData(0, 10)]
+    [InlineData(-5, 10)]
+    [InlineData(int.MinValue, null)]
+    public void GetInvalidFields_InadmissibleMoveNumberMinAlone_BlamesOnlyMoveNumberMin(
+        int? min, int? max)
+    {
+        new FilterConfig { MoveNumberMin = min, MoveNumberMax = max }
+            .GetInvalidFields().Should().Equal(FilterField.MoveNumberMin);
+    }
+
+    [Theory]
+    [InlineData(null, 0)]
+    [InlineData(1, 0)]         // the min is also "above" the max, but only because the max is bad
+    [InlineData(10, 0)]
+    [InlineData(null, -5)]
+    public void GetInvalidFields_InadmissibleMoveNumberMaxAlone_BlamesOnlyMoveNumberMax(
+        int? min, int? max)
+    {
+        // Blame honesty, the same way the error facet states it: an
+        // inadmissible max drags the pair out of order as a side effect, and
+        // that consequence must not red the field the user got right.
+        new FilterConfig { MoveNumberMin = min, MoveNumberMax = max }
+            .GetInvalidFields().Should().Equal(FilterField.MoveNumberMax);
+    }
+
+    [Fact]
+    public void GetInvalidFields_BothMoveNumberBoundsSubFloor_BlamesBoth()
+    {
+        new FilterConfig { MoveNumberMin = -5, MoveNumberMax = 0 }
+            .GetInvalidFields().Should().Equal(
+                FilterField.MoveNumberMin, FilterField.MoveNumberMax);
+    }
+
+    [Fact]
+    public void GetInvalidFields_MoveNumberMinExceedsMax_BlamesBothOnlyWhenBothAreAdmissible()
+    {
+        // The case halheinrich/backgammon#119 exists for: neither bound is
+        // wrong on its own, the pair is, so both are named and the user chooses
+        // which end to move.
+        new FilterConfig { MoveNumberMin = 10, MoveNumberMax = 3 }
+            .GetInvalidFields().Should().Equal(
+                FilterField.MoveNumberMin, FilterField.MoveNumberMax);
+    }
+
+    [Fact]
+    public void GetInvalidFields_InvalidMoveNumberBounds_StillReportTheFacetActive()
+    {
+        // Activity is presence, validity is content: a broken bound is still a
+        // filter the user set, so it stays countable in the panel's
+        // hidden-filters signal while being named here.
+        var cfg = new FilterConfig { MoveNumberMin = 10, MoveNumberMax = 3 };
+
+        cfg.GetActiveFacets().Should().Equal(FilterFacet.MoveNumberRange);
+        cfg.GetInvalidFields().Should().Equal(
+            FilterField.MoveNumberMin, FilterField.MoveNumberMax);
+    }
+
+    [Fact]
+    public void GetInvalidFields_MoveNumberAndErrorFacets_AreJudgedIndependently()
+    {
+        // The two range facets share a shape, not a rule: a valid error range
+        // must not be dragged into the move-number facet's verdict, and the
+        // floors genuinely differ — zero is admissible for an error magnitude,
+        // never for a 1-based move ordinal.
+        new FilterConfig { ErrorMin = 0.0, ErrorMax = 0.0, MoveNumberMin = 0 }
+            .GetInvalidFields().Should().Equal(FilterField.MoveNumberMin);
+    }
+
+    [Fact]
+    public void GetInvalidFields_AgreesWithBuild_OnEveryMoveNumberBoundCombination()
+    {
+        // The two surfaces consult the same predicates on MoveNumberFilter, so
+        // "named here" and "rejected by Build" must coincide for this facet.
+        // Swept rather than enumerated so a future bound rule cannot quietly
+        // hold on one surface only.
+        int?[] candidates = [null, 0, 1, 2, 10, -5, int.MinValue, int.MaxValue];
+
+        foreach (var min in candidates)
+        {
+            foreach (var max in candidates)
+            {
+                var cfg = new FilterConfig { MoveNumberMin = min, MoveNumberMax = max };
+                var named = cfg.GetInvalidFields().Count > 0;
+                var rejected = Record.Exception(() => cfg.Build()) is not null;
+
+                rejected.Should().Be(
+                    named,
+                    "GetInvalidFields and Build must agree for MoveNumberMin={0}, MoveNumberMax={1}",
+                    min,
+                    max);
+            }
+        }
+    }
+
+    [Fact]
+    public void FromJson_LegacyMoveNumberBounds_LoadAndAreReportedRatherThanRejected()
+    {
+        // The reason validity is a query and not a gate on assignment: a
+        // document written before the rule existed must still round-trip, so
+        // the consumer can show the offending value back to the user instead of
+        // losing it to a failed restore.
+        var restored = FilterConfig.FromJson("""{"MoveNumberMin":0,"MoveNumberMax":-3}""");
+
+        restored.MoveNumberMin.Should().Be(0);
+        restored.MoveNumberMax.Should().Be(-3);
+        restored.GetInvalidFields()
+                .Should().Equal(FilterField.MoveNumberMin, FilterField.MoveNumberMax);
+    }
+
+    [Fact]
+    public void TryFromJson_LegacyMisorderedMoveNumberBounds_SucceedsRatherThanFallingBackToDefault()
+    {
+        var ok = FilterConfig.TryFromJson("""{"MoveNumberMin":10,"MoveNumberMax":3}""", out var restored);
+
+        ok.Should().BeTrue("a rule stated after the document was written must not corrupt the restore");
+        restored.MoveNumberMin.Should().Be(10);
+        restored.MoveNumberMax.Should().Be(3);
+        restored.GetInvalidFields()
+                .Should().Equal(FilterField.MoveNumberMin, FilterField.MoveNumberMax);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The saved-filter path for the move-number bounds. A config stored before
+    //  the rule existed carries a misordered or sub-floor pair; it must LOAD
+    //  intact and then surface the same typed verdict at apply. Never a silent
+    //  drop, never a silent no-match — which is exactly what a stored
+    //  min > max used to be (halheinrich/backgammon#119).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void SavedDocument_MisorderedMoveNumberBounds_SurviveRoundTripAndAreInvalidAtApply()
+    {
+        // The full saved-filter path: a NamedFilterCollection entry snapshots
+        // its config through ToJson/FromJson, so this exercises the storage
+        // round-trip the consumer actually uses. The bounds survive it (the
+        // document is not silently rewritten), the retrieved config names both
+        // fields, and Build refuses.
+        var saved = NamedFilterCollection.Empty
+            .With("Late game", new FilterConfig { MoveNumberMin = 10, MoveNumberMax = 3 });
+
+        var reloaded = NamedFilterCollection.FromJson(saved.ToJson());
+        var config = reloaded.GetConfig("Late game");
+
+        config.MoveNumberMin.Should().Be(10);
+        config.MoveNumberMax.Should().Be(3);
+        config.GetActiveFacets().Should().Equal(FilterFacet.MoveNumberRange);
+        config.GetInvalidFields().Should().Equal(
+            FilterField.MoveNumberMin, FilterField.MoveNumberMax);
+
+        var act = () => config.Build();
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void SavedDocument_SubFloorMoveNumberBound_SurvivesRoundTripAndIsInvalidAtApply()
+    {
+        // The other half of the gate, and a different exception type: a bound
+        // wrong on its own value, not a pair out of order.
+        var saved = NamedFilterCollection.Empty
+            .With("From zero", new FilterConfig { MoveNumberMin = 0, MoveNumberMax = 10 });
+
+        var config = NamedFilterCollection.FromJson(saved.ToJson()).GetConfig("From zero");
+
+        config.MoveNumberMin.Should().Be(0);
+        config.GetInvalidFields().Should().Equal(FilterField.MoveNumberMin);
+
+        var act = () => config.Build();
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void SavedDocument_MisorderedMoveNumberBounds_NeverSilentlyMatchNothing()
+    {
+        // The failure mode the loud verdict replaces: before the bounds had
+        // rule rows, a stored min > max passed a consumer's validity gate,
+        // built a filter without complaint, and then matched nothing at all —
+        // indistinguishable from a session with no mistakes in it. Both
+        // surfaces must refuse it instead, and no DecisionFilterSet may exist
+        // that was built from it.
+        var config = NamedFilterCollection.Empty
+            .With("Legacy", new FilterConfig { MoveNumberMin = 10, MoveNumberMax = 3 })
             .GetConfig("Legacy");
 
         config.GetInvalidFields().Should().NotBeEmpty(
