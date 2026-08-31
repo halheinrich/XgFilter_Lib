@@ -1039,12 +1039,12 @@ public class FilterConfigTests
     {
         // AnalysisLevel rides the wire as its declaration name even though
         // FilterConfig does not own the enum. The spelling comes from
-        // CanonicalOptions' registration, NOT from AnalysisLevel's own
-        // type-level attribute: an options-level converter outranks a type
-        // attribute, so this options object governs (halheinrich/backgammon#164
-        // measured it). The two agree on the spelling, which is why the
-        // distinction is invisible here — but it is the reason CanonicalOptions
-        // must carry the strictness itself; see EnumTokenStrictnessTests.
+        // AnalysisLevel's own type-level StrictJsonStringEnumConverter:
+        // CanonicalOptions registers nothing at all, so every enum here is
+        // governed by its own attribute (halheinrich/backgammon#164, and the
+        // #16 dedupe that followed). That is deliberate — it is what makes the
+        // spelling survive a consumer's own serializer, not just this seam; see
+        // EnumTokenStrictnessTests' foreign-options pins.
         var json = new FilterConfig
         {
             EvaluationLevels = { AnalysisLevel.XgRoller },

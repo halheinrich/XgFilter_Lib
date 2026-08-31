@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace XgFilter_Lib.Enums;
 
@@ -8,6 +9,7 @@ namespace XgFilter_Lib.Enums;
 /// <see cref="DescriptionAttribute"/>; read it with
 /// <see cref="EnumLabel.ToLabel{TEnum}(TEnum)"/>.
 /// </summary>
+[JsonConverter(typeof(StrictJsonStringEnumConverter<DecisionTypeOption>))]
 public enum DecisionTypeOption
 {
     /// <summary>Admit only checker-play decisions; reject cube decisions.</summary>

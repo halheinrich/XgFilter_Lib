@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace XgFilter_Lib.Enums;
 
@@ -12,6 +13,7 @@ namespace XgFilter_Lib.Enums;
 /// <see cref="DescriptionAttribute"/>; read it with
 /// <see cref="EnumLabel.ToLabel{TEnum}(TEnum)"/>.
 /// </summary>
+[JsonConverter(typeof(StrictJsonStringEnumConverter<PositionType>))]
 public enum PositionType
 {
     /// <summary>Inner-board 6-3-1 structure: points 6, 3, and 1 made; points 5, 4, and 2 broken.</summary>

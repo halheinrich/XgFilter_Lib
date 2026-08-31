@@ -740,63 +740,50 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
 
     /// <summary>
     /// The single source of truth for how a <see cref="FilterConfig"/> maps to
-    /// and from JSON. Registers <see cref="JsonStringEnumConverter"/> so the
-    /// enum-typed members (<see cref="DecisionType"/>, <see cref="ContactTypes"/>,
-    /// <see cref="PositionTypes"/>, <see cref="PlayTypes"/>) serialize as their
-    /// declaration names rather than ordinals — none of those enum types carries a type-level
-    /// <c>[JsonConverter]</c>, so without this they would round-trip as ints and
-    /// silently rebind to the wrong member if the enum were ever reordered.
+    /// and from JSON. It registers <b>no converters at all</b>, and that is the
+    /// point: every member that needs one now carries it on its own type, so a
+    /// <see cref="FilterConfig"/> round-trips identically under these options
+    /// and under any <see cref="JsonSerializerOptions"/> a consumer builds.
     /// <para>
-    /// <see cref="PositionPattern"/> needs no converter registered here:
-    /// <see cref="BoardPattern"/> carries its own
-    /// <see cref="BoardPatternJsonConverter"/> via a type-level
-    /// <see cref="JsonConverterAttribute"/>, so it round-trips as its
-    /// bracket-list string under these options — and under any other
-    /// <see cref="JsonSerializerOptions"/> a consumer might use across a wire.
+    /// Each enum-typed member (<see cref="DecisionType"/>,
+    /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>,
+    /// <see cref="PlayTypes"/>) carries
+    /// <see cref="StrictJsonStringEnumConverter{TEnum}"/> by type-level
+    /// attribute; the three depth level lists hold
+    /// <see cref="AnalysisLevel"/>, which carries the equivalent attribute
+    /// owned by <c>BgDataTypes_Lib</c>. All of them therefore serialize as
+    /// declaration names and reject numeric ordinals wherever they are read.
+    /// <see cref="DiceRolls"/> and <see cref="PositionPattern"/> are the same
+    /// self-describing case with their own converters —
+    /// <see cref="DiceRoll"/> as its two-digit token (<c>"31"</c>),
+    /// <see cref="BoardPattern"/> via
+    /// <see cref="BoardPatternJsonConverter"/> as its bracket-list string.
+    /// <see cref="IncludeEvaluations"/> / <see cref="IncludeRollouts"/> /
+    /// <see cref="IncludeBookRollouts"/> are plain booleans.
     /// </para>
     /// <para>
-    /// <see cref="DiceRolls"/> is the same self-describing case as
-    /// <see cref="PositionPattern"/>: <see cref="DiceRoll"/> carries its own
-    /// type-level <c>[JsonConverter]</c> (owned by <c>BgDataTypes_Lib</c>), so
-    /// it round-trips as its two-digit token (<c>"31"</c>) untouched by the
-    /// registration above. <see cref="IncludeEvaluations"/> /
-    /// <see cref="IncludeRollouts"/> / <see cref="IncludeBookRollouts"/> are
-    /// plain booleans and need no converter.
+    /// This replaced a blanket options-level
+    /// <see cref="JsonStringEnumConverter"/> registration, which the type
+    /// attributes made exactly redundant (halheinrich/backgammon#16). Removing
+    /// it is not merely tidying: an options-level registration <i>outranks</i> a
+    /// type attribute — measured on net10.0, SDK 10.0.400 — so while it stood,
+    /// it and not the attributes governed every read through this seam, and it
+    /// masked the removal of any of them. With it gone, deleting an attribute
+    /// fails the strictness suite loudly instead of being silently covered for.
     /// </para>
     /// <para>
-    /// The three depth level lists (<see cref="EvaluationLevels"/> /
-    /// <see cref="RolloutLevels"/> / <see cref="BookRolloutLevels"/>) are
-    /// <i>not</i> such a case, and the registration above is neither redundant
-    /// nor merely harmless for them, as this doc previously claimed. Measured
-    /// on net10.0 (SDK 10.0.400): a converter registered on
-    /// <see cref="JsonSerializerOptions"/> OUTRANKS a type-level
-    /// <c>[JsonConverter]</c>. So this registration — not
-    /// <see cref="AnalysisLevel"/>'s own strict attribute — is what governs how
-    /// a saved filter's levels are read, and a loose one here would defeat that
-    /// attribute entirely. Hence <c>allowIntegerValues: false</c>; see the
-    /// remark on the field itself.
+    /// The strictness itself is why any of this matters: a saved filter is a
+    /// durable payload, and <see cref="AnalysisLevel"/>'s declaration order is
+    /// contractual with its two families interleaved, so inserting a member
+    /// renumbers every member above it — as the 2026-08-28
+    /// <see cref="AnalysisLevel.Ply3Red"/> insertion did. Writing names is what
+    /// makes such a renumber safe, and that holds only if the reader refuses
+    /// numbers (halheinrich/backgammon#164).
     /// </para>
     /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
     /// is expensive to build and thread-safe once first used.
     /// </summary>
-    private static readonly JsonSerializerOptions CanonicalOptions = new()
-    {
-        // Names only, never ordinals (halheinrich/backgammon#164). A saved
-        // filter is a durable payload, and EvaluationLevels / RolloutLevels /
-        // BookRolloutLevels hold AnalysisLevel — whose declaration order is
-        // contractual and whose two families interleave, so inserting a member
-        // renumbers every member above it. That happened on 2026-08-28 when
-        // Ply3Red landed. A reader that also accepted ordinals would decode a
-        // filter saved before that date to a DIFFERENT level than the one the
-        // user chose; the whole point of writing names is to make such a
-        // renumber safe, and it only works if the reader is the writer's
-        // inverse. No writer here has ever emitted an ordinal.
-        //
-        // namingPolicy stays null (the parameterless default this replaces):
-        // declaration names are the pinned wire spelling of every saved filter
-        // already on disk.
-        Converters = { new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false) },
-    };
+    private static readonly JsonSerializerOptions CanonicalOptions = new();
 
     /// <summary>
     /// Serializes this configuration to its canonical JSON representation —

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace XgFilter_Lib.Enums;
 
@@ -9,6 +10,7 @@ namespace XgFilter_Lib.Enums;
 /// carries a UI-facing label via <see cref="DescriptionAttribute"/>;
 /// read it with <see cref="EnumLabel.ToLabel{TEnum}(TEnum)"/>.
 /// </summary>
+[JsonConverter(typeof(StrictJsonStringEnumConverter<PlayType>))]
 public enum PlayType
 {
     /// <summary>

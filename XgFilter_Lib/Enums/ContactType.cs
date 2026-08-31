@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace XgFilter_Lib.Enums;
 
@@ -14,6 +15,7 @@ namespace XgFilter_Lib.Enums;
 /// <see cref="DescriptionAttribute"/>; read it with
 /// <see cref="EnumLabel.ToLabel{TEnum}(TEnum)"/>.
 /// </summary>
+[JsonConverter(typeof(StrictJsonStringEnumConverter<ContactType>))]
 public enum ContactType
 {
     /// <summary>At least one player still has checkers on or behind opposing checkers.</summary>

@@ -51,6 +51,9 @@ chain builds from this solution rather than from packages.
   `FilterField` (deliberately partial — one member per individually-blameable
   field). `EnumLabel` reads the `[Description]` labels, keeping display text
   owned by the library that defines the enum rather than by a UI layer.
+  `StrictJsonStringEnumConverter<T>` is bundled by type-level attribute onto
+  the four enums that cross a wire, so they serialize as declaration names and
+  reject numeric ordinals under *any* consumer's serializer.
 - **`Filtering/`** — the intent surface and the machinery behind it.
   `FilterConfig` is the serializable DTO a consumer fills; its `Build()`
   materializes a `DecisionFilterSet` from the eleven `internal` filter classes,
@@ -198,24 +201,30 @@ surface, and are reachable from the test project via
   (`ErrorRange`, `MoveNumber`) are added if either bound is set.
   Canonical JSON is single-sourced on the type via `ToJson()` /
   `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over a
-  cached `JsonSerializerOptions` that registers a **strict**
-  `JsonStringEnumConverter` (`namingPolicy: null, allowIntegerValues: false`)
-  — so every enum member round-trips as an `["InnerBoard631", ...]` name-array,
-  and a numeric ordinal is rejected rather than accepted
-  (halheinrich/backgammon#164). The strictness belongs *here* and not to the
-  enums: an options-level converter **outranks** a type-level
-  `[JsonConverter]`, so this registration governs `AnalysisLevel` too, and a
-  loose one would defeat `AnalysisLevel`'s own strict attribute. That matters
-  because a saved filter is durable and `AnalysisLevel`'s declaration order is
-  contractual and interleaved — the 2026-08-28 `Ply3Red` insertion renumbered
-  the ladder, so an ordinal read back today would name a different level than
-  when it was written. `DiceRolls` and `PositionPattern` are genuinely
-  untouched by this registration: `DiceRoll` (`BgDataTypes_Lib`) carries its
-  own type-level `[JsonConverter]` serializing as the `"31"` two-digit token,
-  and `BoardPattern` carries its own (see **Patterns** below), so both keep
-  their string form under these options and under any others — `DiceRolls`
-  thus rides the wire as a `["31","66"]` token array; the three mode toggles
-  are plain booleans. `TryFromJson` restores a fresh default
+  cached `JsonSerializerOptions` that **registers no converters at all** — every
+  member that needs one carries it on its own type. `DecisionType` /
+  `ContactTypes` / `PositionTypes` / `PlayTypes` carry
+  `StrictJsonStringEnumConverter<T>` (this repo's, in `Enums/`); the depth level
+  lists hold `AnalysisLevel`, which carries `BgDataTypes_Lib`'s equivalent; and
+  `DiceRoll` / `BoardPattern` carry their own. So every enum member round-trips
+  as an `["InnerBoard631", ...]` name-array and a numeric ordinal is rejected
+  (halheinrich/backgammon#164), `DiceRolls` rides as a `["31","66"]` token
+  array, and the three mode toggles are plain booleans.
+
+  Putting the strictness on the **types** rather than on these options is the
+  point, not an accident: a `FilterConfig` crosses wires this library does not
+  own — ExtractFromXgToCsv POSTs one to its local server under ASP.NET Core's
+  stock options — and only a type attribute reaches those
+  (halheinrich/backgammon#37, where those enums had been crossing as bare
+  ordinals). It matters because a saved filter is durable and `AnalysisLevel`'s
+  declaration order is contractual and interleaved: the 2026-08-28 `Ply3Red`
+  insertion renumbered the ladder, so an ordinal read back today would name a
+  different level than when it was written. The blanket options-level
+  registration that used to sit here became exactly redundant once the
+  attributes landed and was removed (halheinrich/backgammon#16) — while it
+  stood it *outranked* the attributes and masked the removal of any of them.
+  Note the same precedence cuts both ways: a consumer that registers a loose
+  converter on its own options can still lower the floor. `TryFromJson` restores a fresh default
   config on a null argument, the literal `null` token, or malformed JSON;
   separately, retired field names (`AnalysisDepthClasses`, the shared
   `AnalysisLevels` list) are simply ignored on read, so old saved configs

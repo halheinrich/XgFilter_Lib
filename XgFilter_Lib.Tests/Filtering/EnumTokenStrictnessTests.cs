@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
@@ -151,6 +152,82 @@ public class EnumTokenStrictnessTests
         var restored = NamedFilterCollection.FromJson(file);
 
         restored.GetConfig("Mine").EvaluationLevels.Should().Equal(AnalysisLevel.Ply2);
+    }
+
+    // ------------------------------------------------------------------ //
+    //  The guarantee travels to a consumer's own options
+    // ------------------------------------------------------------------ //
+
+    /// <summary>
+    /// The property that makes the type-level attributes worth having, and the
+    /// reason halheinrich/backgammon#37 was fixed on the enums rather than by
+    /// exposing this library's canonical options: a <see cref="FilterConfig"/>
+    /// crosses wires this library does not own — ExtractFromXgToCsv POSTs one to
+    /// its local server, bound by ASP.NET Core's stock options — and under those
+    /// the enums must still be names. Before the attributes they crossed as bare
+    /// integer ordinals.
+    /// </summary>
+    [Fact]
+    public void UnderForeignOptions_EnumsStillCrossAsNames()
+    {
+        var foreign = new JsonSerializerOptions();
+
+        var config = new FilterConfig
+        {
+            DecisionType = DecisionTypeOption.CubeOnly,
+            ContactTypes = { ContactType.Race },
+            PositionTypes = { PositionType.VsTwoPlusUp },
+            PlayTypes = { PlayType.Make20Pt },
+            EvaluationLevels = { AnalysisLevel.Ply3Red },
+        };
+
+        var json = JsonSerializer.Serialize(config, foreign);
+
+        json.Should().Contain("\"CubeOnly\"");
+        json.Should().Contain("\"Race\"");
+        json.Should().Contain("\"VsTwoPlusUp\"");
+        json.Should().Contain("\"Make20Pt\"");
+        json.Should().Contain("\"Ply3Red\"");
+
+        var restored = JsonSerializer.Deserialize<FilterConfig>(json, foreign)!;
+
+        restored.DecisionType.Should().Be(DecisionTypeOption.CubeOnly);
+        restored.EvaluationLevels.Should().Equal(AnalysisLevel.Ply3Red);
+    }
+
+    /// <summary>
+    /// And the rejection travels with it: an ordinal payload fails under a
+    /// consumer's stock options too, not only through
+    /// <see cref="FilterConfig.FromJson"/>.
+    /// </summary>
+    [Theory]
+    [InlineData("{\"DecisionType\":1}")]
+    [InlineData("{\"ContactTypes\":[0]}")]
+    [InlineData("{\"PositionTypes\":[0]}")]
+    [InlineData("{\"PlayTypes\":[0]}")]
+    [InlineData("{\"EvaluationLevels\":[5]}")]
+    public void UnderForeignOptions_OrdinalIsStillRejected(string json) =>
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<FilterConfig>(json, new JsonSerializerOptions()));
+
+    /// <summary>
+    /// The attributes are the sole enforcement now that <c>CanonicalOptions</c>
+    /// registers nothing (the halheinrich/backgammon#16 dedupe), so this pins
+    /// the precedence fact that makes that dedupe safe to reason about: a
+    /// consumer CAN still lower the floor by registering a loose converter of
+    /// its own. The attribute is what a consumer gets for free, not a ceiling it
+    /// cannot override.
+    /// </summary>
+    [Fact]
+    public void AConsumersOwnLooseRegistration_StillOutranksTheAttribute()
+    {
+        var loose = new JsonSerializerOptions
+        {
+            Converters = { new JsonStringEnumConverter() },
+        };
+
+        JsonSerializer.Deserialize<FilterConfig>("{\"DecisionType\":1}", loose)!
+            .DecisionType.Should().Be(DecisionTypeOption.CubeOnly);
     }
 
     // ------------------------------------------------------------------ //
