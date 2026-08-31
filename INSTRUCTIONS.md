@@ -198,19 +198,24 @@ surface, and are reachable from the test project via
   (`ErrorRange`, `MoveNumber`) are added if either bound is set.
   Canonical JSON is single-sourced on the type via `ToJson()` /
   `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over a
-  cached `JsonSerializerOptions` that registers `JsonStringEnumConverter`
-  — so the enum-list members round-trip as `["InnerBoard631", ...]`
-  name-arrays rather than ordinals (`ContactType` / `PositionType` /
-  `PlayType` / `DecisionType` carry no type-level `[JsonConverter]`).
-  The three depth level lists, `DiceRolls`, and `PositionPattern` are the
-  self-describing exceptions that need no converter registered here:
-  `AnalysisLevel` (owned by `BgDataTypes_Lib`) carries its own type-level
-  `JsonStringEnumConverter`, `DiceRoll` (also `BgDataTypes_Lib`) carries its
+  cached `JsonSerializerOptions` that registers a **strict**
+  `JsonStringEnumConverter` (`namingPolicy: null, allowIntegerValues: false`)
+  — so every enum member round-trips as an `["InnerBoard631", ...]` name-array,
+  and a numeric ordinal is rejected rather than accepted
+  (halheinrich/backgammon#164). The strictness belongs *here* and not to the
+  enums: an options-level converter **outranks** a type-level
+  `[JsonConverter]`, so this registration governs `AnalysisLevel` too, and a
+  loose one would defeat `AnalysisLevel`'s own strict attribute. That matters
+  because a saved filter is durable and `AnalysisLevel`'s declaration order is
+  contractual and interleaved — the 2026-08-28 `Ply3Red` insertion renumbered
+  the ladder, so an ordinal read back today would name a different level than
+  when it was written. `DiceRolls` and `PositionPattern` are genuinely
+  untouched by this registration: `DiceRoll` (`BgDataTypes_Lib`) carries its
   own type-level `[JsonConverter]` serializing as the `"31"` two-digit token,
-  and `BoardPattern` carries its own (see **Patterns** below), so all three
-  serialize as their string form under these options and under any others —
-  `DiceRolls` thus rides the wire as a `["31","66"]` token array; the three
-  mode toggles are plain booleans. `TryFromJson` restores a fresh default
+  and `BoardPattern` carries its own (see **Patterns** below), so both keep
+  their string form under these options and under any others — `DiceRolls`
+  thus rides the wire as a `["31","66"]` token array; the three mode toggles
+  are plain booleans. `TryFromJson` restores a fresh default
   config on a null argument, the literal `null` token, or malformed JSON;
   separately, retired field names (`AnalysisDepthClasses`, the shared
   `AnalysisLevels` list) are simply ignored on read, so old saved configs

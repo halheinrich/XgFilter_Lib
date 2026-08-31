@@ -1037,9 +1037,14 @@ public class FilterConfigTests
     [Fact]
     public void ToJson_DepthLevels_SerializeAsDeclarationNames()
     {
-        // AnalysisLevel carries its own type-level JsonStringEnumConverter (it is
-        // owned by BgDataTypes_Lib), so it rides the wire as its declaration name
-        // even though FilterConfig does not own the enum.
+        // AnalysisLevel rides the wire as its declaration name even though
+        // FilterConfig does not own the enum. The spelling comes from
+        // CanonicalOptions' registration, NOT from AnalysisLevel's own
+        // type-level attribute: an options-level converter outranks a type
+        // attribute, so this options object governs (halheinrich/backgammon#164
+        // measured it). The two agree on the spelling, which is why the
+        // distinction is invisible here — but it is the reason CanonicalOptions
+        // must carry the strictness itself; see EnumTokenStrictnessTests.
         var json = new FilterConfig
         {
             EvaluationLevels = { AnalysisLevel.XgRoller },

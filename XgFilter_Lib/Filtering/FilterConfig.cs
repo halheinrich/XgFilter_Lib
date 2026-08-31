@@ -755,29 +755,47 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// <see cref="JsonSerializerOptions"/> a consumer might use across a wire.
     /// </para>
     /// <para>
-    /// The three depth level lists (<see cref="EvaluationLevels"/> /
-    /// <see cref="RolloutLevels"/> / <see cref="BookRolloutLevels"/>) and
-    /// <see cref="DiceRolls"/> are the same self-describing case as
-    /// <see cref="PositionPattern"/>: <see cref="AnalysisLevel"/> carries its own
-    /// type-level <see cref="JsonStringEnumConverter"/> (it is owned by
-    /// <c>BgDataTypes_Lib</c>, not <c>XgFilter_Lib.Enums</c>) and
-    /// <see cref="DiceRoll"/> carries its own type-level
-    /// <c>[JsonConverter]</c> (also owned by <c>BgDataTypes_Lib</c>), so each
-    /// serializes as its string form even without the registration above —
-    /// <see cref="AnalysisLevel"/> as its declaration name,
-    /// <see cref="DiceRoll"/> as its two-digit token (<c>"31"</c>). The shared
-    /// <see cref="JsonStringEnumConverter"/> registered here is redundant for
-    /// the level lists (and does not touch <see cref="DiceRolls"/>)
-    /// but harmless. <see cref="IncludeEvaluations"/> /
+    /// <see cref="DiceRolls"/> is the same self-describing case as
+    /// <see cref="PositionPattern"/>: <see cref="DiceRoll"/> carries its own
+    /// type-level <c>[JsonConverter]</c> (owned by <c>BgDataTypes_Lib</c>), so
+    /// it round-trips as its two-digit token (<c>"31"</c>) untouched by the
+    /// registration above. <see cref="IncludeEvaluations"/> /
     /// <see cref="IncludeRollouts"/> / <see cref="IncludeBookRollouts"/> are
     /// plain booleans and need no converter.
+    /// </para>
+    /// <para>
+    /// The three depth level lists (<see cref="EvaluationLevels"/> /
+    /// <see cref="RolloutLevels"/> / <see cref="BookRolloutLevels"/>) are
+    /// <i>not</i> such a case, and the registration above is neither redundant
+    /// nor merely harmless for them, as this doc previously claimed. Measured
+    /// on net10.0 (SDK 10.0.400): a converter registered on
+    /// <see cref="JsonSerializerOptions"/> OUTRANKS a type-level
+    /// <c>[JsonConverter]</c>. So this registration — not
+    /// <see cref="AnalysisLevel"/>'s own strict attribute — is what governs how
+    /// a saved filter's levels are read, and a loose one here would defeat that
+    /// attribute entirely. Hence <c>allowIntegerValues: false</c>; see the
+    /// remark on the field itself.
     /// </para>
     /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
     /// is expensive to build and thread-safe once first used.
     /// </summary>
     private static readonly JsonSerializerOptions CanonicalOptions = new()
     {
-        Converters = { new JsonStringEnumConverter() },
+        // Names only, never ordinals (halheinrich/backgammon#164). A saved
+        // filter is a durable payload, and EvaluationLevels / RolloutLevels /
+        // BookRolloutLevels hold AnalysisLevel — whose declaration order is
+        // contractual and whose two families interleave, so inserting a member
+        // renumbers every member above it. That happened on 2026-08-28 when
+        // Ply3Red landed. A reader that also accepted ordinals would decode a
+        // filter saved before that date to a DIFFERENT level than the one the
+        // user chose; the whole point of writing names is to make such a
+        // renumber safe, and it only works if the reader is the writer's
+        // inverse. No writer here has ever emitted an ordinal.
+        //
+        // namingPolicy stays null (the parameterless default this replaces):
+        // declaration names are the pinned wire spelling of every saved filter
+        // already on disk.
+        Converters = { new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false) },
     };
 
     /// <summary>
