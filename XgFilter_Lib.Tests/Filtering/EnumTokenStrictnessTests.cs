@@ -22,11 +22,19 @@ namespace XgFilter_Lib.Tests.Filtering;
 /// names is what makes such a renumber safe, and that only holds if the reader
 /// refuses numbers.</para>
 ///
-/// <para>The strictness lives on <c>FilterConfig.CanonicalOptions</c> rather
-/// than being inherited from <see cref="AnalysisLevel"/>'s own type-level
-/// attribute, because an options-level converter outranks a type attribute —
-/// measured, and pinned in BgDataTypes_Lib's own suite. A loose registration
-/// here would defeat that attribute entirely.</para>
+/// <para>The strictness is inherited from each enum's own type-level
+/// attribute — <see cref="AnalysisLevel"/>'s, owned by BgDataTypes_Lib, and
+/// this library's four <c>StrictJsonStringEnumConverter</c> bundles. The seam
+/// that reads a saved filter registers nothing of its own and has not since
+/// the halheinrich/backgammon#16 dedupe, which is deliberate: an options-level
+/// converter outranks a type attribute — measured, and pinned in
+/// BgDataTypes_Lib's own suite — so a registration here would both defeat the
+/// attributes and mask their removal. Since halheinrich/backgammon#129 leg 4
+/// that seam is a source-generated
+/// <c>JsonTypeInfo</c> off <c>XgFilterJsonContext</c> rather than an options
+/// object, which changes nothing here: the attributes still carry it, and
+/// <c>XgFilterJsonContextTests</c> pins the same rejections on that
+/// path.</para>
 /// </summary>
 public class EnumTokenStrictnessTests
 {
@@ -211,8 +219,8 @@ public class EnumTokenStrictnessTests
             () => JsonSerializer.Deserialize<FilterConfig>(json, new JsonSerializerOptions()));
 
     /// <summary>
-    /// The attributes are the sole enforcement now that <c>CanonicalOptions</c>
-    /// registers nothing (the halheinrich/backgammon#16 dedupe), so this pins
+    /// The attributes are the sole enforcement, this library's own seam
+    /// registering nothing (the halheinrich/backgammon#16 dedupe), so this pins
     /// the precedence fact that makes that dedupe safe to reason about: a
     /// consumer CAN still lower the floor by registering a loose converter of
     /// its own. The attribute is what a consumer gets for free, not a ceiling it

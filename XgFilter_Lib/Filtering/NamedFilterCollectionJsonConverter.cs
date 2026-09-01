@@ -59,9 +59,25 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="NamedFilterCollection.TryFromJson"/> is the tolerant restore
 /// path.
 /// </para>
+///
+/// <para>
+/// <b>Public because the source generator needs it to be</b>
+/// (halheinrich/backgammon#129 leg 4) — the same rule
+/// <see cref="Patterns.BoardPatternJsonConverter"/> states, and it applies to
+/// every type-level converter this library bundles. On the reflection path
+/// accessibility is irrelevant: System.Text.Json instantiates the
+/// attribute-named type itself. The source generator emits
+/// <c>new NamedFilterCollectionJsonConverter()</c> into the
+/// <em>declaring</em> assembly, so a consumer's context that names
+/// <see cref="NamedFilterCollection"/> cannot construct it — measured on
+/// net10.0 / SDK 10.0.400, the generator reports SYSLIB1220 then SYSLIB1030
+/// and drops the type, silently leaving that consumer with no metadata for
+/// the document it is trying to persist.
+/// </para>
 /// </summary>
-internal sealed class NamedFilterCollectionJsonConverter : JsonConverter<NamedFilterCollection>
+public sealed class NamedFilterCollectionJsonConverter : JsonConverter<NamedFilterCollection>
 {
+    /// <inheritdoc/>
     public override NamedFilterCollection? Read(
         ref Utf8JsonReader reader,
         Type typeToConvert,
@@ -215,6 +231,7 @@ internal sealed class NamedFilterCollectionJsonConverter : JsonConverter<NamedFi
         }
     }
 
+    /// <inheritdoc/>
     public override void Write(
         Utf8JsonWriter writer,
         NamedFilterCollection value,

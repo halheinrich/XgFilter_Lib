@@ -10,14 +10,29 @@ namespace XgFilter_Lib.Patterns;
 /// <see cref="BoardPattern.Parse"/> keeps deserialization on the validated path
 /// — a malformed or out-of-range pattern in the JSON fails fast rather than
 /// materializing an invalid object. Never registered on any
-/// <see cref="JsonSerializerOptions"/> (<c>FilterConfig</c>'s canonical options
-/// deliberately omit it): the type-level <see cref="JsonConverterAttribute"/>
-/// on <see cref="BoardPattern"/> is the single wiring point, and it reaches
-/// this converter regardless of accessibility — System.Text.Json instantiates
-/// the attribute-named type via reflection, so <c>internal</c> works on the
-/// real wire path (pinned by <c>BoardPatternWireSafetyTests</c>).
+/// <see cref="JsonSerializerOptions"/>: the type-level
+/// <see cref="JsonConverterAttribute"/> on <see cref="BoardPattern"/> is the
+/// single wiring point (pinned by <c>BoardPatternWireSafetyTests</c>).
+///
+/// <para>
+/// <b>Public because the source generator needs it to be</b>
+/// (halheinrich/backgammon#129 leg 4). On the reflection path accessibility
+/// is irrelevant — System.Text.Json instantiates the attribute-named type
+/// itself, and <c>internal</c> worked. The source generator emits
+/// <c>new BoardPatternJsonConverter()</c> into the <em>declaring</em>
+/// assembly instead, so a consumer's context that walks into
+/// <see cref="BoardPattern"/> — ExtractFromXgToCsv's <c>ProcessRequest</c>
+/// carries a <c>FilterConfig</c>, and the walk reaches this type from its
+/// pattern facet — cannot construct it. Measured on net10.0 / SDK 10.0.400:
+/// the generator reports SYSLIB1220 (no accessible parameterless
+/// constructor) and then SYSLIB1030 (did not generate serialization
+/// metadata) and <em>drops the type</em>, leaving a hole in the consumer's
+/// metadata that only surfaces once trimming removes the reflection
+/// fallback. Warnings, not errors — which is why this is a rule of the arc
+/// rather than something a build would have told us.
+/// </para>
 /// </summary>
-internal sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern>
+public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern>
 {
     /// <inheritdoc/>
     public override BoardPattern? Read(

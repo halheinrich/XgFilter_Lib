@@ -1039,10 +1039,10 @@ public class FilterConfigTests
     {
         // AnalysisLevel rides the wire as its declaration name even though
         // FilterConfig does not own the enum. The spelling comes from
-        // AnalysisLevel's own type-level StrictJsonStringEnumConverter:
-        // CanonicalOptions registers nothing at all, so every enum here is
+        // AnalysisLevel's own type-level StrictJsonStringEnumConverter: the
+        // canonical seam registers nothing at all, so every enum here is
         // governed by its own attribute (halheinrich/backgammon#164, and the
-        // #16 dedupe that followed). That is deliberate — it is what makes the
+        // halheinrich/backgammon#16 dedupe that followed). That is deliberate — it is what makes the
         // spelling survive a consumer's own serializer, not just this seam; see
         // EnumTokenStrictnessTests' foreign-options pins.
         var json = new FilterConfig
@@ -1123,8 +1123,10 @@ public class FilterConfigTests
     {
         // Pin the wire-format contract Razor relies on: enum values serialize
         // as their declaration names (PositionType.InnerBoard631 ->
-        // "InnerBoard631"), not ordinals. These enum types carry no type-level
-        // [JsonConverter], so this is guaranteed only by the canonical options.
+        // "InnerBoard631"), not ordinals. Each of these enum types carries its
+        // own StrictJsonStringEnumConverter by type-level attribute
+        // (halheinrich/backgammon#37), so the spelling travels to a consumer's
+        // serializer too — EnumTokenStrictnessTests pins that half.
         var json = new FilterConfig
         {
             DecisionType = DecisionTypeOption.CheckerPlaysOnly,
@@ -1502,7 +1504,7 @@ public class FilterConfigTests
 
     // -----------------------------------------------------------------------
     //  GetInvalidFields — the match-score field rule (halheinrich/backgammon#121,
-    //  the shape #39 booked for #23: one FilterField member, one FieldRules
+    //  the shape halheinrich/backgammon#39 booked for halheinrich/backgammon#23: one FilterField member, one FieldRules
     //  row delegating to the facet's own grammar). The grammar's rules are
     //  pinned in MatchScoreTokenTests; these pin the reporting.
     // -----------------------------------------------------------------------
@@ -1646,7 +1648,7 @@ public class FilterConfigTests
     // -----------------------------------------------------------------------
     //  The saved-filter path. A document written before the split carries the
     //  retired token; it must LOAD intact (validity is a query, not a gate on
-    //  assignment — the #39 posture, so the offending value can be shown back
+    //  assignment — the halheinrich/backgammon#39 posture, so the offending value can be shown back
     //  to the user) and then surface the same typed verdict at apply. Never a
     //  silent drop, never a silent no-match.
     // -----------------------------------------------------------------------

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Patterns;
@@ -189,9 +190,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// cube decisions (which carry no roll) never pass an active dice filter.
     /// Serializes as a string-token array (e.g. <c>["31","66"]</c>) via the
     /// converter <see cref="DiceRoll"/> declares on itself, so it needs no
-    /// converter registered in <see cref="CanonicalOptions"/> — the same
-    /// self-describing case as the depth level lists (e.g.
-    /// <see cref="EvaluationLevels"/>) and <see cref="PositionPattern"/>.
+    /// converter of its own on the canonical seam — the same self-describing
+    /// case as the depth level lists (e.g. <see cref="EvaluationLevels"/>) and
+    /// <see cref="PositionPattern"/>.
     /// </summary>
     public IList<DiceRoll> DiceRolls { get; set; } = new List<DiceRoll>();
 
@@ -740,10 +741,12 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
 
     /// <summary>
     /// The single source of truth for how a <see cref="FilterConfig"/> maps to
-    /// and from JSON. It registers <b>no converters at all</b>, and that is the
-    /// point: every member that needs one now carries it on its own type, so a
-    /// <see cref="FilterConfig"/> round-trips identically under these options
-    /// and under any <see cref="JsonSerializerOptions"/> a consumer builds.
+    /// and from JSON: the source-generated metadata for this type, off
+    /// <see cref="XgFilterJsonContext"/>. It carries <b>no converters and no
+    /// policy at all</b>, and that is the point: every member that needs one
+    /// carries it on its own type, so a <see cref="FilterConfig"/> round-trips
+    /// identically through this metadata and under any
+    /// <see cref="JsonSerializerOptions"/> a consumer builds.
     /// <para>
     /// Each enum-typed member (<see cref="DecisionType"/>,
     /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>,
@@ -762,14 +765,19 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// <see cref="IncludeBookRollouts"/> are plain booleans.
     /// </para>
     /// <para>
-    /// This replaced a blanket options-level
-    /// <see cref="JsonStringEnumConverter"/> registration, which the type
-    /// attributes made exactly redundant (halheinrich/backgammon#16). Removing
-    /// it is not merely tidying: an options-level registration <i>outranks</i> a
-    /// type attribute — measured on net10.0, SDK 10.0.400 — so while it stood,
-    /// it and not the attributes governed every read through this seam, and it
-    /// masked the removal of any of them. With it gone, deleting an attribute
-    /// fails the strictness suite loudly instead of being silently covered for.
+    /// A blanket options-level <see cref="JsonStringEnumConverter"/>
+    /// registration once stood here, which the type attributes made exactly
+    /// redundant (halheinrich/backgammon#16). Removing it was not merely
+    /// tidying: an options-level registration <i>outranks</i> a type attribute
+    /// — measured on net10.0, SDK 10.0.400 — so while it stood, it and not the
+    /// attributes governed every read through this seam, and it masked the
+    /// removal of any of them. With it gone, deleting an attribute fails the
+    /// strictness suite loudly instead of being silently covered for. That
+    /// emptiness is also what lets this seam be a bare
+    /// <see cref="System.Text.Json.Serialization.Metadata.JsonTypeInfo{T}"/>
+    /// rather than an options object: there was no policy left for
+    /// <c>[JsonSourceGenerationOptions]</c> to have to mirror
+    /// (halheinrich/backgammon#129 leg 4).
     /// </para>
     /// <para>
     /// The strictness itself is why any of this matters: a saved filter is a
@@ -780,10 +788,11 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// makes such a renumber safe, and that holds only if the reader refuses
     /// numbers (halheinrich/backgammon#164).
     /// </para>
-    /// Held as a cached, immutable instance: <see cref="JsonSerializerOptions"/>
-    /// is expensive to build and thread-safe once first used.
+    /// Held as the context's own cached, immutable instance — built once by
+    /// the generated context and thread-safe for the life of the process.
     /// </summary>
-    private static readonly JsonSerializerOptions CanonicalOptions = new();
+    private static JsonTypeInfo<FilterConfig> CanonicalTypeInfo =>
+        XgFilterJsonContext.Default.FilterConfig;
 
     /// <summary>
     /// Serializes this configuration to its canonical JSON representation —
@@ -794,7 +803,7 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// directly, so the enum-as-string contract stays in one place.
     /// </summary>
     /// <returns>A JSON object string carrying every field of this instance.</returns>
-    public string ToJson() => JsonSerializer.Serialize(this, CanonicalOptions);
+    public string ToJson() => JsonSerializer.Serialize(this, CanonicalTypeInfo);
 
     /// <summary>
     /// Deserializes a <see cref="FilterConfig"/> from its canonical JSON
@@ -816,7 +825,7 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     {
         ArgumentNullException.ThrowIfNull(json);
 
-        return JsonSerializer.Deserialize<FilterConfig>(json, CanonicalOptions)
+        return JsonSerializer.Deserialize(json, CanonicalTypeInfo)
             ?? throw new ArgumentException(
                 "JSON deserialized to a null configuration; expected a FilterConfig object.",
                 nameof(json));
@@ -855,7 +864,7 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
         {
             try
             {
-                if (JsonSerializer.Deserialize<FilterConfig>(json, CanonicalOptions) is { } parsed)
+                if (JsonSerializer.Deserialize(json, CanonicalTypeInfo) is { } parsed)
                 {
                     config = parsed;
                     return true;

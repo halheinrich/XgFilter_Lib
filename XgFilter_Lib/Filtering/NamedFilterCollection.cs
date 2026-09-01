@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace XgFilter_Lib.Filtering;
 
@@ -261,13 +262,30 @@ public sealed class NamedFilterCollection
     }
 
     /// <summary>
+    /// The single source of truth for how a
+    /// <see cref="NamedFilterCollection"/> reaches a serializer: the
+    /// source-generated metadata for this type, off
+    /// <see cref="XgFilterJsonContext"/>
+    /// (halheinrich/backgammon#129 leg 4). It replaces a bare
+    /// <c>JsonSerializer.Serialize(this)</c> against the reflection-based
+    /// default resolver, and carries no policy of its own — the bundled
+    /// <see cref="NamedFilterCollectionJsonConverter"/> writes and reads the
+    /// whole envelope by hand, and each entry's body is delegated to
+    /// <see cref="FilterConfig.ToJson"/> / <see cref="FilterConfig.FromJson"/>,
+    /// so nothing about this document is options-derived except the
+    /// whitespace of the writer the serializer creates.
+    /// </summary>
+    private static JsonTypeInfo<NamedFilterCollection> CanonicalTypeInfo =>
+        XgFilterJsonContext.Default.NamedFilterCollection;
+
+    /// <summary>
     /// Serializes this collection to its canonical JSON representation — the
     /// inverse of <see cref="FromJson"/>. See
     /// <see cref="NamedFilterCollectionJsonConverter"/> for the pinned wire
     /// format.
     /// </summary>
     /// <returns>A JSON object string carrying every entry of this collection.</returns>
-    public string ToJson() => JsonSerializer.Serialize(this);
+    public string ToJson() => JsonSerializer.Serialize(this, CanonicalTypeInfo);
 
     /// <summary>
     /// Deserializes a <see cref="NamedFilterCollection"/> from its canonical
@@ -287,7 +305,7 @@ public sealed class NamedFilterCollection
     {
         ArgumentNullException.ThrowIfNull(json);
 
-        return JsonSerializer.Deserialize<NamedFilterCollection>(json)
+        return JsonSerializer.Deserialize(json, CanonicalTypeInfo)
             ?? throw new ArgumentException(
                 "JSON deserialized to a null collection; expected a NamedFilterCollection object.",
                 nameof(json));
@@ -324,7 +342,7 @@ public sealed class NamedFilterCollection
         {
             try
             {
-                if (JsonSerializer.Deserialize<NamedFilterCollection>(json) is { } parsed)
+                if (JsonSerializer.Deserialize(json, CanonicalTypeInfo) is { } parsed)
                 {
                     collection = parsed;
                     return true;

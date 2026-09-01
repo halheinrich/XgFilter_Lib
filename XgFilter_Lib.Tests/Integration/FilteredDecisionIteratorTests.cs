@@ -649,16 +649,7 @@ public class FilteredDecisionIteratorTests
     }
 
     /// <summary>8/5 6/5 — the classic 3-1, legal for either side from the opening.</summary>
-    private static Play MakeFivePoint
-    {
-        get
-        {
-            var play = new Play();
-            play.Add(new Move(8, 5));
-            play.Add(new Move(6, 5));
-            return play;
-        }
-    }
+    private static Play MakeFivePoint => [new(8, 5), new(6, 5)];
 
     // -----------------------------------------------------------------------
     //  Spy filters used by the early-exit pipeline tests

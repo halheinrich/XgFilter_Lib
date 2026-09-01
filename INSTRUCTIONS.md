@@ -200,9 +200,10 @@ surface, and are reachable from the test project via
   Likewise `DecisionType = Both` is a no-op and is skipped. Range filters
   (`ErrorRange`, `MoveNumber`) are added if either bound is set.
   Canonical JSON is single-sourced on the type via `ToJson()` /
-  `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over a
-  cached `JsonSerializerOptions` that **registers no converters at all** — every
-  member that needs one carries it on its own type. `DecisionType` /
+  `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over the
+  source-generated `XgFilterJsonContext.Default.FilterConfig` metadata, which
+  carries **no converters and no policy at all** — every member that needs one
+  carries it on its own type. `DecisionType` /
   `ContactTypes` / `PositionTypes` / `PlayTypes` carry
   `StrictJsonStringEnumConverter<T>` (this repo's, in `Enums/`); the depth level
   lists hold `AnalysisLevel`, which carries `BgDataTypes_Lib`'s equivalent; and
@@ -337,8 +338,8 @@ surface, and are reachable from the test project via
     it, or mutating one retrieved from the document, never affects the
     document; saving an edit back is an explicit `With`.
   * **Strict envelope, tolerant payload.** JSON via the type-bundled
-    `internal` converter (type-level `[JsonConverter]` — consumers register
-    nothing) at `CurrentSchemaVersion`. The envelope — version, structure,
+    converter (type-level `[JsonConverter]` — consumers register nothing) at
+    `CurrentSchemaVersion`. The envelope — version, structure,
     names — is fail-loud, with a version bump as its only evolution mechanism;
     entry config bodies delegate to `FilterConfig`'s own deserialization,
     which ignores unknown members, so a retired config facet never bricks a
@@ -484,7 +485,7 @@ surface, and are reachable from the test project via
     letting it match nothing would quietly narrow it — either way the
     user gets a result they cannot explain from what they typed. The
     verdict is loud instead, and messageless: the lib rules, the
-    consumer words it (the #39 posture, extended with a typed fault and
+    consumer words it (the halheinrich/backgammon#39 posture, extended with a typed fault and
     replacement data rather than prose). The token survives as a
     constant because `DecisionRow.MatchScore` still *writes* it, for
     the one money row that has no rule to state; written out it is an
@@ -595,6 +596,56 @@ surface, and are reachable from the test project via
   no `ShouldAdvance*`: dice are not knowable from a match/game header and are
   not monotonic within a game, so there is no sound early-exit (the
   `AnalysisDepthFilter` reasoning).
+
+### Serialization
+
+`XgFilterJsonContext` (repo root namespace, `XgFilterJsonContext.cs`) is the
+source-generated `JsonSerializerContext` for this library's whole wire surface
+— compile-time `System.Text.Json` metadata instead of runtime reflection
+(halheinrich/backgammon#129 leg 4). The invariant of that arc: **source
+generation changes the mechanism, never the bytes.** Every pre-existing
+serialization test and golden passes unchanged, and
+`XgFilterJsonContextTests` pins byte identity between the reflection resolver,
+this context alone, and both orders of a chained consumer.
+
+* **The wire surface.** Two documents own the canonical persistence trio
+  (`ToJson` / `FromJson` / `TryFromJson`): `FilterConfig` and
+  `NamedFilterCollection`. Those six call sites are **every** place this
+  assembly touches `JsonSerializer`, and all six now name a `JsonTypeInfo<T>`
+  off this context rather than a `JsonSerializerOptions`. Five more types are
+  wire units by the other mark — a bundled type-level `[JsonConverter]` that
+  defines their own token: `BoardPattern` and the four
+  `StrictJsonStringEnumConverter` enums. All seven are declared roots.
+* **Public, deliberately.** XgFilter_Razor's `SavedFiltersStore` — and BgQuiz
+  behind it — round-trips through the trio and owns no `JsonSerializerOptions`,
+  so that consumer alone would have admitted an `internal` context (leg 2's
+  shape). ExtractFromXgToCsv would not: its `ProcessRequest` carries a
+  `public FilterConfig Filters`, the client POSTs it with `PostAsJsonAsync` and
+  the server binds it `[FromBody]` under a bare `AddControllers()`, so
+  `FilterConfig` is named to two serializers this library does not own.
+* **Every bundled converter must be public.** Not for this context — the
+  generator runs in this assembly, where `internal` resolves fine — but for a
+  consumer's, whose generator emits `new TheConverter()` into its own assembly.
+  With an internal converter it reports SYSLIB1220 then SYSLIB1030 and drops
+  the type. Warnings, not errors; `XgFilterJsonContextTests` is the gate.
+* **Chains nothing, and shadows `BgDataTypes_Lib` on purpose.** A
+  `FilterConfig` embeds three `IList<AnalysisLevel>` facets and an
+  `IList<DiceRoll>`, so the generator's walk reaches those types and emits its
+  own copy of their metadata here. Measured: this context resolves the entire
+  closure alone, so the shipped entry points need no resolver chain — and there
+  is no options object here for one to hang on. The cost is that a consumer
+  chaining most-derived-first gets *this* copy; the tests pin the two copies
+  byte-identical rather than assuming it.
+* **`GenerationMode = Metadata`,** per the arc's binding rule: a default-mode
+  fast-path handler binds nested resolution to the declaring context's private
+  options and bypasses the resolver chain. BgDataTypes_Lib's chained-consumer
+  test pair owns that rule.
+* **Trim posture.** The library csproj sets `IsTrimmable` and
+  `EnableTrimAnalyzer`, so with repo-wide `TreatWarningsAsErrors` a
+  reflection-serialization regression is a **build error here** rather than a
+  publish-time warning downstream. Mutation-checked: reverting either
+  `ToJson` to the default resolver fails the build with IL2026 before a test
+  runs.
 
 ### Classification
 
@@ -738,16 +789,23 @@ reintroduction-ready alternative to the named `PositionType` machinery.
     BoardPatternJsonConverter))]` on itself, so it round-trips as its
     bracket-list string under *any* `JsonSerializerOptions`; a consumer
     need not remember to register the converter. This is why
-    `FilterConfig`'s canonical options list omits it.
+    `FilterConfig`'s canonical seam registers nothing.
 * `BoardPatternJsonConverter` — the `JsonConverter<BoardPattern>` the
   type declares. Writes the bracket-list string; reads it back through
   `BoardPattern.Parse`, so deserialization stays on the validated path
   and a malformed/out-of-range pattern in the JSON fails fast as a
   `JsonException` rather than materializing an invalid object. A JSON
-  `null` reads as `null`. `internal`: the type-level attribute on
-  `BoardPattern` is the only wiring point, and System.Text.Json
-  instantiates the attribute-named converter via reflection regardless
-  of accessibility — verified on the real wire path by
+  `null` reads as `null`. `public`, and that is load-bearing: the
+  type-level attribute is the only wiring point, and on the *reflection*
+  path accessibility is irrelevant (System.Text.Json instantiates the
+  attribute-named converter itself, and this was `internal` until
+  halheinrich/backgammon#129 leg 4), but a **consumer's** source generator
+  emits `new BoardPatternJsonConverter()` into its own assembly. Measured
+  on net10.0 / SDK 10.0.400: with an internal converter the generator
+  reports SYSLIB1220 then SYSLIB1030 and silently drops the type from that
+  consumer's metadata. Both are warnings, so nothing downstream fails —
+  which is why `XgFilterJsonContextTests` gates it here. Verified on the
+  real wire path by
   `BoardPatternWireSafetyTests`, so the converter needs no public
   presence.
 
@@ -895,6 +953,15 @@ public static class EnumLabel
 {
     public static string ToLabel<TEnum>(this TEnum value) where TEnum : struct, Enum;
 }
+
+/// A JsonStringEnumConverter<TEnum> pinned to allowIntegerValues: false, for
+/// attribute-form registration (an attribute cannot pass ctor arguments).
+/// Bundled onto ContactType / DecisionTypeOption / PlayType / PositionType.
+public sealed class StrictJsonStringEnumConverter<TEnum> : JsonStringEnumConverter<TEnum>
+    where TEnum : struct, Enum
+{
+    public StrictJsonStringEnumConverter();
+}
 ```
 
 ```csharp
@@ -967,8 +1034,8 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
 /// The versioned saved-filters document: immutable, name-keyed
 /// (OrdinalIgnoreCase), canonically sorted by name, storing each config as a
 /// serialized snapshot rather than the caller's instance. Wire format via a
-/// type-bundled internal converter — consumers register nothing. Reference
-/// equality; the library does no I/O.
+/// type-bundled converter — consumers register nothing. Reference equality;
+/// the library does no I/O.
 public sealed class NamedFilterCollection
 {
     public const int CurrentSchemaVersion = 1;
@@ -989,6 +1056,12 @@ public sealed class NamedFilterCollection
     public static NamedFilterCollection FromJson(string json);
     public static bool TryFromJson(string? json, out NamedFilterCollection collection);
 }
+
+/// The document's wire format, bundled by the type-level [JsonConverter]
+/// above. Public so a consumer's source generator can construct it (see
+/// Serialization); nothing needs to register it.
+public sealed class NamedFilterCollectionJsonConverter
+    : JsonConverter<NamedFilterCollection>;
 ```
 
 ```csharp
@@ -1087,6 +1160,30 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
     public override bool Equals(object? obj);  // constraint set, order-
     public override int GetHashCode();         // insensitive. No == / !=.
 }
+
+/// The bracket-list wire format, bundled by the type-level [JsonConverter]
+/// above. Public so a consumer's source generator can construct it (see
+/// Serialization); nothing needs to register it.
+public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern>;
+```
+
+```csharp
+namespace XgFilter_Lib;
+
+/// The source-generated metadata for this library's whole wire surface
+/// (halheinrich/backgammon#129 leg 4). The shipped ToJson / FromJson /
+/// TryFromJson trios route through it; a consumer that names FilterConfig or
+/// NamedFilterCollection to its own serializer chains it as a type-info
+/// resolver, most-derived-first. Metadata-only generation, per the arc's rule.
+[JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
+[JsonSerializable(typeof(FilterConfig))]
+[JsonSerializable(typeof(NamedFilterCollection))]
+[JsonSerializable(typeof(BoardPattern))]
+[JsonSerializable(typeof(ContactType))]
+[JsonSerializable(typeof(DecisionTypeOption))]
+[JsonSerializable(typeof(PlayType))]
+[JsonSerializable(typeof(PositionType))]
+public sealed partial class XgFilterJsonContext : JsonSerializerContext;
 ```
 
 ## Pitfalls
@@ -1234,9 +1331,10 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
   `JsonSerializerOptions` — the immutable type has no settable property
   for its constructor parameter, so the default reflection serializer
   cannot reconstruct it. Remove the attribute and `FilterConfig`'s
-  `PositionPattern` silently stops deserializing correctly, because
-  `FilterConfig.CanonicalOptions` intentionally does **not** register the
-  converter (it relies on the type-level attribute).
+  `PositionPattern` silently stops deserializing correctly, because the
+  canonical seam intentionally registers **nothing** (it relies on the
+  type-level attribute). The same attribute must name a **public**
+  converter — see `BoardPatternJsonConverter` under **Patterns**.
 * **Shared `TestData` at `backgammon\TestData`.** Referenced via
   `..\..\TestData` with `Link` in the Tests csproj. Moving TestData or
   changing csproj output depth breaks every file-touching test.
