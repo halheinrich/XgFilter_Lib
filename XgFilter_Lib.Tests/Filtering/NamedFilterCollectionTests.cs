@@ -68,16 +68,27 @@ public class NamedFilterCollectionTests
         extended.Names.Should().Equal("Blitz", "Calm");
     }
 
+    /// <summary>
+    /// The name set is chosen to distinguish the comparers, not merely to be
+    /// unsorted on the way in: <c>blitz</c>, <c>Calm</c>, <c>deep</c>,
+    /// <c>Endgame</c> alternate lower and upper case, so an ordinal comparer
+    /// would sort every capitalized name ahead of every lowercase one —
+    /// <c>Calm</c>, <c>Endgame</c>, <c>blitz</c>, <c>deep</c> — while the
+    /// document's <c>OrdinalIgnoreCase</c> rule yields the alphabetical order
+    /// asserted below. An earlier version of this test used a set whose two
+    /// orderings coincided, so it could not fail on the wrong comparer
+    /// (halheinrich/backgammon#190 leg (A)).
+    /// </summary>
     [Fact]
     public void Names_AreSortedCaseInsensitively_RegardlessOfAddOrder()
     {
         var collection = NamedFilterCollection.Empty
-            .With("delta", new FilterConfig())
-            .With("Alpha", new FilterConfig())
-            .With("charlie", new FilterConfig())
-            .With("Bravo", new FilterConfig());
+            .With("deep", new FilterConfig())
+            .With("Endgame", new FilterConfig())
+            .With("blitz", new FilterConfig())
+            .With("Calm", new FilterConfig());
 
-        collection.Names.Should().Equal("Alpha", "Bravo", "charlie", "delta");
+        collection.Names.Should().Equal("blitz", "Calm", "deep", "Endgame");
     }
 
     [Fact]
@@ -89,7 +100,7 @@ public class NamedFilterCollectionTests
 
         collection.Count.Should().Be(1);
         collection.Names.Should().Equal("blitz");   // last write wins for spelling too
-        collection.GetConfig("BLITZ").ToJson().Should().Be(RichConfig().ToJson());
+        collection.Get("BLITZ").ToJson().Should().Be(RichConfig().ToJson());
     }
 
     [Fact]
@@ -153,7 +164,7 @@ public class NamedFilterCollectionTests
     }
 
     // -----------------------------------------------------------------------
-    //  Lookup — Contains / GetConfig / TryGetConfig
+    //  Lookup — Contains / Get / TryGet
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -174,44 +185,44 @@ public class NamedFilterCollectionTests
     }
 
     [Fact]
-    public void GetConfig_ReturnsAnEquivalentConfig_CaseInsensitively()
+    public void Get_ReturnsAnEquivalentConfig_CaseInsensitively()
     {
         var collection = NamedFilterCollection.Empty.With("Blitz", RichConfig());
 
-        collection.GetConfig("BLITZ").ToJson().Should().Be(RichConfig().ToJson());
+        collection.Get("BLITZ").ToJson().Should().Be(RichConfig().ToJson());
     }
 
     [Fact]
-    public void GetConfig_MissingName_Throws()
+    public void Get_MissingName_Throws()
     {
-        var act = () => NamedFilterCollection.Empty.GetConfig("nope");
+        var act = () => NamedFilterCollection.Empty.Get("nope");
 
         act.Should().Throw<KeyNotFoundException>().WithMessage("*nope*");
     }
 
     [Fact]
-    public void GetConfig_NullName_Throws()
+    public void Get_NullName_Throws()
     {
-        var act = () => NamedFilterCollection.Empty.GetConfig(null!);
+        var act = () => NamedFilterCollection.Empty.Get(null!);
 
         act.Should().Throw<ArgumentNullException>();
     }
 
     [Fact]
-    public void TryGetConfig_Hit_YieldsAnEquivalentConfig()
+    public void TryGet_Hit_YieldsAnEquivalentConfig()
     {
         var collection = NamedFilterCollection.Empty.With("Blitz", RichConfig());
 
-        var found = collection.TryGetConfig("blitz", out var config);
+        var found = collection.TryGet("blitz", out var config);
 
         found.Should().BeTrue();
         config!.ToJson().Should().Be(RichConfig().ToJson());
     }
 
     [Fact]
-    public void TryGetConfig_Miss_YieldsNull()
+    public void TryGet_Miss_YieldsNull()
     {
-        var found = NamedFilterCollection.Empty.TryGetConfig("nope", out var config);
+        var found = NamedFilterCollection.Empty.TryGet("nope", out var config);
 
         found.Should().BeFalse();
         config.Should().BeNull();
@@ -229,24 +240,24 @@ public class NamedFilterCollectionTests
 
         live.Players.Add("Mallory");
 
-        collection.GetConfig("Blitz").Players.Should().BeEmpty();
+        collection.Get("Blitz").Players.Should().BeEmpty();
     }
 
     [Fact]
-    public void GetConfig_SnapshotsOnEgress_MutatingARetrievedConfigDoesNotLeakBack()
+    public void Get_SnapshotsOnEgress_MutatingARetrievedConfigDoesNotLeakBack()
     {
         var collection = NamedFilterCollection.Empty.With("Blitz", new FilterConfig());
 
-        collection.GetConfig("Blitz").Players.Add("Mallory");
+        collection.Get("Blitz").Players.Add("Mallory");
 
-        collection.GetConfig("Blitz").Players.Should().BeEmpty();
+        collection.Get("Blitz").Players.Should().BeEmpty();
     }
 
     [Fact]
-    public void GetConfig_ReturnsAFreshInstancePerCall()
+    public void Get_ReturnsAFreshInstancePerCall()
     {
         var collection = NamedFilterCollection.Empty.With("Blitz", new FilterConfig());
 
-        collection.GetConfig("Blitz").Should().NotBeSameAs(collection.GetConfig("Blitz"));
+        collection.Get("Blitz").Should().NotBeSameAs(collection.Get("Blitz"));
     }
 }

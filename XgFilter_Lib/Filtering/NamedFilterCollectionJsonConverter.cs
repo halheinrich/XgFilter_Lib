@@ -1,261 +1,46 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Serialises <see cref="NamedFilterCollection"/> as its versioned persistent
-/// wire format. Bundled via type-level <c>[JsonConverter]</c> on the
-/// collection (the same pattern as <see cref="Patterns.BoardPatternJsonConverter"/> and
-/// BgGame_Lib's document converters), so consumers do not need to register
-/// anything on their <see cref="JsonSerializerOptions"/>.
+/// The saved-filters document's wire identity: the closed
+/// <see cref="NamedCollectionJsonConverter{TValue, TSelf}"/> for
+/// <see cref="NamedFilterCollection"/>, supplying the two property names that
+/// are this document's own — <c>filters</c> for the entries array and
+/// <c>config</c> for each entry's body. The envelope itself (schema version,
+/// structure, the name rule, the duplicate check, entry-order tolerance, and
+/// the delegation of each body to <see cref="FilterConfig"/>'s
+/// <see cref="IJsonDocument{TSelf}"/> seam) is the base's and is documented
+/// there. Bundled by the type-level <c>[JsonConverter]</c> on the collection,
+/// so consumers register nothing.
 ///
 /// <para>
-/// The envelope is hand-written with fixed property names — the persisted
-/// format is a file contract and must not vary with the consumer's options
-/// (naming policy etc.). Whitespace is the one thing options still control
-/// (<see cref="JsonSerializerOptions.WriteIndented"/> lives on the writer the
-/// serializer creates), so byte-stable files additionally need fixed
-/// consumer-side options. Writes order entries by name — the document's
-/// canonical order — so a given collection always serializes to the same
-/// content. Wire shape (schema version
-/// <see cref="NamedFilterCollection.CurrentSchemaVersion"/>):
-/// </para>
-///
-/// <code>
-/// {
-///   "schemaVersion": 1,
-///   "filters": [
-///     { "name": "Blitz mistakes", "config": { ...FilterConfig canonical JSON... } }
-///   ]
-/// }
-/// </code>
-///
-/// <para>
-/// <b>The envelope is strict and fail-loud.</b> A schema version other than
-/// <see cref="NamedFilterCollection.CurrentSchemaVersion"/> (with a
-/// distinguished "newer than this library supports" message — a version bump
-/// is the envelope's only evolution mechanism), a missing required property,
-/// an unknown property at the top or entry level, an invalid name (blank or
-/// untrimmed — the same single-sourced rule as
-/// <see cref="NamedFilterCollection.With"/>, which reads route through), or a
-/// duplicate name per the document's name rule (case-insensitive; checked
-/// explicitly here because <see cref="NamedFilterCollection.With"/> would
-/// silently replace) all throw <see cref="JsonException"/>. Entry order is
-/// the one envelope liberty: reads accept any order and re-canonicalize,
-/// because order is presentation, not semantics.
+/// <b>Those two names are a file contract, not a detail.</b> Every
+/// <c>xg-filters.json</c> already on a user's disk spells them <c>filters</c>
+/// and <c>config</c>; changing either is a file migration rather than a
+/// refactor, and <c>NamedFilterCollectionSerializationTests</c> pins the
+/// resulting bytes exactly.
 /// </para>
 ///
 /// <para>
-/// <b>Config bodies are tolerant payload.</b> Each entry's <c>config</c> body
-/// is handed verbatim to <see cref="FilterConfig.FromJson"/> — the canonical
-/// deserialization seam — so unknown or retired members are ignored exactly
-/// as <see cref="FilterConfig"/> itself ignores them, and a facet retirement
-/// never bricks a saved collection. A body that
-/// <see cref="FilterConfig"/> itself rejects (invalid enum name, malformed
-/// pattern, the <c>null</c> token) is corruption, not evolution, and fails
-/// the whole file with the entry named in the message — a silently-reset
-/// saved filter would filter nothing, which is worse than a loud error.
-/// <see cref="NamedFilterCollection.TryFromJson"/> is the tolerant restore
-/// path.
-/// </para>
-///
-/// <para>
-/// <b>Public because the source generator needs it to be</b>
-/// (halheinrich/backgammon#129 leg 4) — the same rule
-/// <see cref="Patterns.BoardPatternJsonConverter"/> states, and it applies to
-/// every type-level converter this library bundles. On the reflection path
-/// accessibility is irrelevant: System.Text.Json instantiates the
-/// attribute-named type itself. The source generator emits
-/// <c>new NamedFilterCollectionJsonConverter()</c> into the
-/// <em>declaring</em> assembly, so a consumer's context that names
-/// <see cref="NamedFilterCollection"/> cannot construct it — measured on
-/// net10.0 / SDK 10.0.400, the generator reports SYSLIB1220 then SYSLIB1030
-/// and drops the type, silently leaving that consumer with no metadata for
-/// the document it is trying to persist.
+/// <b>Sealed, public, parameterless — because the source generator needs it
+/// to be</b> (halheinrich/backgammon#129 leg 4, and the rule every bundled
+/// converter in this library states). An open generic cannot be named by an
+/// attribute and the base has no parameterless constructor by design, so the
+/// closed type is what makes the pattern work at all. The generator emits
+/// <c>new NamedFilterCollectionJsonConverter()</c> into the <em>declaring</em>
+/// assembly of every context naming the document, so an internal converter
+/// fails a consumer's context with SYSLIB1220 then SYSLIB1030 and silently
+/// drops the type — measured on net10.0 / SDK 10.0.400. A converter factory
+/// activating a closed converter at runtime is the reflection path this
+/// pattern exists to avoid, and the trim analyzer here rejects it.
 /// </para>
 /// </summary>
-public sealed class NamedFilterCollectionJsonConverter : JsonConverter<NamedFilterCollection>
+public sealed class NamedFilterCollectionJsonConverter
+    : NamedCollectionJsonConverter<FilterConfig, NamedFilterCollection>
 {
-    /// <inheritdoc/>
-    public override NamedFilterCollection? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options)
-    {
-        if (reader.TokenType == JsonTokenType.Null)
-            return null;
-
-        if (reader.TokenType != JsonTokenType.StartObject)
-            throw new JsonException(
-                $"Expected object for NamedFilterCollection, got {reader.TokenType}.");
-
-        int? schemaVersion = null;
-        List<(string Name, FilterConfig Config)>? filters = null;
-
-        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
-        {
-            var name = reader.GetString();
-            reader.Read();
-            switch (name)
-            {
-                case "schemaVersion":
-                    schemaVersion = ReadSchemaVersion(ref reader);
-                    break;
-                case "filters":
-                    filters = ReadFilters(ref reader);
-                    break;
-                default:
-                    throw new JsonException(
-                        $"Unknown NamedFilterCollection property '{name}'.");
-            }
-        }
-
-        if (schemaVersion is null)
-            throw new JsonException("Missing required property 'schemaVersion'.");
-        if (filters is null)
-            throw new JsonException("Missing required property 'filters'.");
-
-        var collection = NamedFilterCollection.Empty;
-        var seen = new HashSet<string>(NamedFilterCollection.NameComparer);
-        foreach (var (filterName, config) in filters)
-        {
-            if (!seen.Add(filterName))
-                throw new JsonException($"Duplicate filter name '{filterName}'.");
-
-            try
-            {
-                // Routes through With so the wire-level name rule has the same
-                // single definition as the in-memory one. With re-snapshots the
-                // freshly parsed config — a second round-trip per entry, seen
-                // and accepted: one construction path, stored form guaranteed
-                // canonical, negligible at load-a-pick-list scale.
-                collection = collection.With(filterName, config);
-            }
-            catch (ArgumentException ex)
-            {
-                throw new JsonException(ex.Message, ex);
-            }
-        }
-
-        return collection;
-    }
-
-    private static int ReadSchemaVersion(ref Utf8JsonReader reader)
-    {
-        if (reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out int version))
-            throw new JsonException(
-                $"Expected integer for 'schemaVersion', got {reader.TokenType}.");
-
-        if (version > NamedFilterCollection.CurrentSchemaVersion)
-            throw new JsonException(
-                $"Saved-filter collection has schema version {version}, newer than the highest " +
-                $"version this library supports ({NamedFilterCollection.CurrentSchemaVersion}).");
-        if (version != NamedFilterCollection.CurrentSchemaVersion)
-            throw new JsonException(
-                $"Saved-filter collection has unsupported schema version {version}; " +
-                $"expected {NamedFilterCollection.CurrentSchemaVersion}.");
-
-        return version;
-    }
-
-    private static List<(string Name, FilterConfig Config)> ReadFilters(ref Utf8JsonReader reader)
-    {
-        if (reader.TokenType != JsonTokenType.StartArray)
-            throw new JsonException($"Expected array for 'filters', got {reader.TokenType}.");
-
-        var filters = new List<(string, FilterConfig)>();
-        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
-            filters.Add(ReadFilter(ref reader));
-
-        return filters;
-    }
-
-    private static (string Name, FilterConfig Config) ReadFilter(ref Utf8JsonReader reader)
-    {
-        if (reader.TokenType != JsonTokenType.StartObject)
-            throw new JsonException(
-                $"Expected object for a filters element, got {reader.TokenType}.");
-
-        string? name = null;
-        JsonDocument? configBody = null;
-
-        try
-        {
-            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
-            {
-                var property = reader.GetString();
-                reader.Read();
-                switch (property)
-                {
-                    case "name":
-                        if (reader.TokenType != JsonTokenType.String)
-                            throw new JsonException(
-                                $"Expected string for 'name', got {reader.TokenType}.");
-                        name = reader.GetString();
-                        break;
-                    case "config":
-                        // Captured raw and re-parsed below through the
-                        // FilterConfig seam — the tolerant-payload boundary.
-                        configBody = JsonDocument.ParseValue(ref reader);
-                        break;
-                    default:
-                        throw new JsonException(
-                            $"Unknown filters-element property '{property}'.");
-                }
-            }
-
-            if (name is null)
-                throw new JsonException(
-                    "Filters element is missing required property 'name'.");
-            if (configBody is null)
-                throw new JsonException(
-                    $"Saved filter '{name}' is missing required property 'config'.");
-
-            try
-            {
-                return (name, FilterConfig.FromJson(configBody.RootElement.GetRawText()));
-            }
-            catch (Exception ex) when (ex is JsonException or ArgumentException)
-            {
-                // Fail the file, naming the entry: a body FilterConfig rejects
-                // is corruption, not evolution (unknown members were already
-                // absorbed by the seam above).
-                throw new JsonException(
-                    $"Saved filter '{name}' has an invalid config body: {ex.Message}", ex);
-            }
-        }
-        finally
-        {
-            configBody?.Dispose();
-        }
-    }
-
-    /// <inheritdoc/>
-    public override void Write(
-        Utf8JsonWriter writer,
-        NamedFilterCollection value,
-        JsonSerializerOptions options)
-    {
-        writer.WriteStartObject();
-        writer.WriteNumber("schemaVersion", NamedFilterCollection.CurrentSchemaVersion);
-        writer.WriteStartArray("filters");
-
-        foreach (var (name, config) in value.CanonicalEntries)   // name-sorted — canonical
-        {
-            writer.WriteStartObject();
-            writer.WriteString("name", name);
-            writer.WritePropertyName("config");
-
-            // Embedded via the canonical serializer so FilterConfig.ToJson
-            // stays the single definition of a config's wire form.
-            using (var body = JsonDocument.Parse(config.ToJson()))
-                body.RootElement.WriteTo(writer);
-
-            writer.WriteEndObject();
-        }
-
-        writer.WriteEndArray();
-        writer.WriteEndObject();
-    }
+    /// <summary>
+    /// Initializes the converter with this document's two wire names.
+    /// </summary>
+    public NamedFilterCollectionJsonConverter() : base("filters", "config") { }
 }

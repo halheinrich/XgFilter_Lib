@@ -1689,7 +1689,7 @@ public class FilterConfigTests
             .With("Money sessions", new FilterConfig { MatchScores = { "money" } });
 
         var reloaded = NamedFilterCollection.FromJson(saved.ToJson());
-        var config = reloaded.GetConfig("Money sessions");
+        var config = reloaded.Get("Money sessions");
 
         config.MatchScores.Should().Equal("money");
         config.GetActiveFacets().Should().Equal(FilterFacet.MatchScores);
@@ -1712,7 +1712,7 @@ public class FilterConfigTests
         // that was built from it.
         var config = NamedFilterCollection.Empty
             .With("Legacy", new FilterConfig { MatchScores = { "money" } })
-            .GetConfig("Legacy");
+            .Get("Legacy");
 
         config.GetInvalidFields().Should().NotBeEmpty(
             "a consumer gating on GetInvalidFields must refuse to apply this");
@@ -1889,7 +1889,7 @@ public class FilterConfigTests
             .With("Late game", new FilterConfig { MoveNumberMin = 10, MoveNumberMax = 3 });
 
         var reloaded = NamedFilterCollection.FromJson(saved.ToJson());
-        var config = reloaded.GetConfig("Late game");
+        var config = reloaded.Get("Late game");
 
         config.MoveNumberMin.Should().Be(10);
         config.MoveNumberMax.Should().Be(3);
@@ -1909,7 +1909,7 @@ public class FilterConfigTests
         var saved = NamedFilterCollection.Empty
             .With("From zero", new FilterConfig { MoveNumberMin = 0, MoveNumberMax = 10 });
 
-        var config = NamedFilterCollection.FromJson(saved.ToJson()).GetConfig("From zero");
+        var config = NamedFilterCollection.FromJson(saved.ToJson()).Get("From zero");
 
         config.MoveNumberMin.Should().Be(0);
         config.GetInvalidFields().Should().Equal(FilterField.MoveNumberMin);
@@ -1929,7 +1929,7 @@ public class FilterConfigTests
         // that was built from it.
         var config = NamedFilterCollection.Empty
             .With("Legacy", new FilterConfig { MoveNumberMin = 10, MoveNumberMax = 3 })
-            .GetConfig("Legacy");
+            .Get("Legacy");
 
         config.GetInvalidFields().Should().NotBeEmpty(
             "a consumer gating on GetInvalidFields must refuse to apply this");

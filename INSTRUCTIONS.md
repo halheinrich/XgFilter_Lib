@@ -58,8 +58,9 @@ chain builds from this solution rather than from packages.
   `FilterConfig` is the serializable DTO a consumer fills; its `Build()`
   materializes a `DecisionFilterSet` from the eleven `internal` filter classes,
   which implement the `IDecisionFilter` / `IMatchFilter` seams.
-  `NamedFilterCollection`, with its type-bundled `internal` converter, is the
-  versioned saved-filters document a consumer persists. `MatchScoreToken` is
+  `NamedFilterCollection` is the versioned saved-filters document a consumer
+  persists — a `NamedCollection` specialization owning only its identity, with
+  its type-bundled closed converter. `MatchScoreToken` is
   the one public *grammar* here — the score-token vocabulary and its wordless
   verdict — standing to `MatchScoreFilter` as `BoardPattern` stands to
   `PositionPatternFilter`.
@@ -310,44 +311,30 @@ surface, and are reachable from the test project via
 
 * `NamedFilterCollection` — the versioned **saved-filters document**: an
   immutable collection of named `FilterConfig` entries, the pick list a
-  consumer offers when the user saves and reloads configurations. The library
-  does no I/O — consumers load bytes, deserialize, apply the withers
-  (`With(name, config)` adds or replaces, `Without(name)` removes and is
-  idempotent; each returns a new collection and leaves the receiver
-  untouched), and serialize back.
+  consumer offers when the user saves and reloads configurations, persisted as
+  `xg-filters.json`. The library does no I/O — consumers load bytes, restore,
+  apply the withers (`With(name, config)` adds or replaces, `Without(name)`
+  removes and is idempotent; each returns a new collection and leaves the
+  receiver untouched), and write back.
 
-  * **One comparer is the whole name rule.** `OrdinalIgnoreCase` is the single
-    definition of "same name" for duplicate rejection, `Contains` /
-    `GetConfig` / `TryGetConfig` lookup, replace-on-`With`, `Without`, and the
-    canonical sort — which the rule makes total, since case-variant duplicates
-    cannot coexist. Display case is preserved as typed, and a replacing `With`
-    stores the new spelling (last write wins for name and config alike). Names
-    are validated, never coerced: blank or untrimmed names are rejected, in
-    memory and on the wire.
-  * **One canonical order.** Entries sort by name — in `Names` and on the wire
-    — so a given collection always serializes to the same content regardless
-    of the add/remove sequence that built it. Reads accept entries in any
-    order and re-canonicalize: order is presentation, not semantics, so a
-    hand-reordered file is not corruption (the duplicate check still gates).
-  * **Snapshot contract.** `FilterConfig` is deliberately mutable (UI state
-    binds to it), so this document stores each config's *serialized value*,
-    never the caller's instance: `With` snapshots on the way in through the
-    canonical `FilterConfig.ToJson` / `FromJson` round-trip — which also
-    normalizes, so the stored value is exactly what the wire will carry — and
-    every retrieval hands out a fresh snapshot. Mutating a config after saving
-    it, or mutating one retrieved from the document, never affects the
-    document; saving an edit back is an explicit `With`.
-  * **Strict envelope, tolerant payload.** JSON via the type-bundled
-    converter (type-level `[JsonConverter]` — consumers register nothing) at
-    `CurrentSchemaVersion`. The envelope — version, structure,
-    names — is fail-loud, with a version bump as its only evolution mechanism;
-    entry config bodies delegate to `FilterConfig`'s own deserialization,
-    which ignores unknown members, so a retired config facet never bricks a
-    user's saved collection. The persistence trio matches `FilterConfig`'s:
-    `ToJson` / `FromJson` / `TryFromJson`, the last absorbing the absent,
-    null-token, and malformed cases into `Empty`.
-  * A plain class, not a record: it wraps a collection, where record equality
-    would silently be reference equality. Instances compare by reference.
+  * **It is a `NamedCollection` specialization, and owns only its identity.**
+    Everything structural is BgDataTypes_Lib's
+    `NamedCollection<FilterConfig, NamedFilterCollection>` and documented
+    there: the name rule (`OrdinalIgnoreCase` as the single definition of
+    "same name" for duplicate rejection, `Contains` / `Get` / `TryGet` lookup,
+    replace-on-`With`, `Without`, and the canonical sort), the one canonical
+    name-sorted order with re-canonicalizing reads, the snapshot contract, the
+    strict-envelope/tolerant-payload split at `CurrentSchemaVersion`, the
+    `IJsonDocument<TSelf>` trio, and reference equality. What lives here is
+    the private constructor, `Create`, `CanonicalTypeInfo` pointing at
+    `XgFilterJsonContext`, and the two wire names on the closed converter
+    (`halheinrich/backgammon#190` leg (B)). See the Pitfalls entry before
+    changing any part of it.
+  * **The payload is what makes the document worth having.** `FilterConfig` is
+    deliberately mutable (UI state binds to it), and its own trio is both the
+    base's snapshot mechanism and its entry-body seam — so the tolerance of
+    absent members is what keeps a retired config facet from bricking a user's
+    saved collection.
 
   Because a stored config is restored rather than re-entered, this is also
   where `GetInvalidFields()` earns its posture: a document written before a
@@ -612,7 +599,8 @@ this context alone, and both orders of a chained consumer.
   `FromJson` / `TryFromJson`): `FilterConfig` and `NamedFilterCollection`.
   That trio is no longer a convention the two of them restated for each other
   — it is BgDataTypes_Lib's `IJsonDocument<TSelf>`, which `FilterConfig`
-  implements (`halheinrich/backgammon#190` leg (B)). The contract's trim rule
+  implements directly and `NamedFilterCollection` inherits from
+  `NamedCollection` (`halheinrich/backgammon#190` leg (B)). The contract's trim rule
   is what binds it here — an implementer resolves its metadata from a
   source-generated context, never from a reflection-bound `JsonSerializer`
   overload — so every serializer entry point reached on this assembly's behalf
@@ -1036,12 +1024,20 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     public override int GetHashCode();         // as multisets. No == / !=.
 }
 
-/// The versioned saved-filters document: immutable, name-keyed
-/// (OrdinalIgnoreCase), canonically sorted by name, storing each config as a
-/// serialized snapshot rather than the caller's instance. Wire format via a
-/// type-bundled converter — consumers register nothing. Reference equality;
-/// the library does no I/O.
+/// The versioned saved-filters document: a NamedCollection specialization
+/// (BgDataTypes_Lib), immutable, name-keyed (OrdinalIgnoreCase), canonically
+/// sorted by name, storing each config as a serialized snapshot rather than
+/// the caller's instance. Wire format via a type-bundled converter —
+/// consumers register nothing. Reference equality; the library does no I/O.
+///
+/// Every member below is inherited: the base owns them, and its own docs are
+/// the reference for what each promises. All this type declares is a private
+/// constructor plus the two explicit INamedCollectionSpecialization members
+/// (Create, CanonicalTypeInfo), which are not public surface.
+[JsonConverter(typeof(NamedFilterCollectionJsonConverter))]
 public sealed class NamedFilterCollection
+    : NamedCollection<FilterConfig, NamedFilterCollection>,
+      INamedCollectionSpecialization<FilterConfig, NamedFilterCollection>
 {
     public const int CurrentSchemaVersion = 1;
 
@@ -1050,9 +1046,9 @@ public sealed class NamedFilterCollection
     public int                   Count { get; }
     public IReadOnlyList<string> Names { get; }   // canonical order
 
-    public bool         Contains    (string name);
-    public FilterConfig GetConfig   (string name);   // KeyNotFoundException when absent
-    public bool         TryGetConfig(string name, out FilterConfig? config);
+    public bool         Contains(string name);
+    public FilterConfig Get     (string name);    // KeyNotFoundException when absent
+    public bool         TryGet  (string name, out FilterConfig? config);
 
     public NamedFilterCollection With   (string name, FilterConfig config);  // add or replace
     public NamedFilterCollection Without(string name);                       // idempotent
@@ -1062,11 +1058,13 @@ public sealed class NamedFilterCollection
     public static bool TryFromJson(string? json, out NamedFilterCollection collection);
 }
 
-/// The document's wire format, bundled by the type-level [JsonConverter]
-/// above. Public so a consumer's source generator can construct it (see
+/// The document's wire identity: the closed converter, supplying the two
+/// property names ("filters", "config") that every xg-filters.json on disk
+/// already carries. The envelope itself is the base's. Sealed, public and
+/// parameterless because a consumer's source generator emits `new` on it (see
 /// Serialization); nothing needs to register it.
 public sealed class NamedFilterCollectionJsonConverter
-    : JsonConverter<NamedFilterCollection>;
+    : NamedCollectionJsonConverter<FilterConfig, NamedFilterCollection>;
 ```
 
 ```csharp
@@ -1176,8 +1174,10 @@ public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern>;
 namespace XgFilter_Lib;
 
 /// The source-generated metadata for this library's whole wire surface
-/// (halheinrich/backgammon#129 leg 4). The shipped ToJson / FromJson /
-/// TryFromJson trios route through it; a consumer that names FilterConfig or
+/// (halheinrich/backgammon#129 leg 4). Both documents' IJsonDocument trios
+/// route through it — FilterConfig's forwards name it directly, and the
+/// collection's inherited trio reaches it through the specialization's
+/// CanonicalTypeInfo; a consumer that names FilterConfig or
 /// NamedFilterCollection to its own serializer chains it as a type-info
 /// resolver, most-derived-first. Metadata-only generation, per the arc's rule.
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
@@ -1340,6 +1340,25 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   canonical seam intentionally registers **nothing** (it relies on the
   type-level attribute). The same attribute must name a **public**
   converter — see `BoardPatternJsonConverter` under **Patterns**.
+* **`NamedFilterCollection` owns only its identity — the rest is a closed
+  pattern upstream.** The document is a
+  `NamedCollection<FilterConfig, NamedFilterCollection>` specialization, and
+  the four parts it declares (private constructor, explicit `Create`, explicit
+  `CanonicalTypeInfo`, and a sealed public parameterless converter passing
+  `"filters"` / `"config"`, named by the type-level `[JsonConverter]`) are each
+  load-bearing. BgDataTypes_Lib's Pitfalls entry on the pattern says what
+  breaks if a part is skipped — SYSLIB1220 then SYSLIB1030 in a consumer's
+  context for an internal or non-parameterless converter, a runtime
+  `InvalidCastException` for a wrong `TSelf` — and is the reference; do not
+  re-derive it here. Two consequences are this repo's own: **the name rule, the
+  canonical sort, the snapshot round-trip, and the whole envelope are not
+  reimplementable here** — a local copy would be a second definition of what
+  the base already single-sources; and **the two wire names are a file
+  contract, not a detail**, fixed by every `xg-filters.json` on a user's disk
+  and pinned byte-for-byte by `NamedFilterCollectionSerializationTests`.
+  Changing either is a file migration. The base's `Get` / `TryGet` are the only
+  get pair: the domain-spelled `GetConfig` / `TryGetConfig` are gone and got no
+  forwarder, by ruling (2026-09-09, `halheinrich/backgammon#190`).
 * **Shared `TestData` at `backgammon\TestData`.** Referenced via
   `..\..\TestData` with `Link` in the Tests csproj. Moving TestData or
   changing csproj output depth breaks every file-touching test.

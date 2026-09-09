@@ -46,8 +46,8 @@ public class NamedFilterCollectionSerializationTests
         var restored = NamedFilterCollection.FromJson(collection.ToJson());
 
         restored.Names.Should().Equal("Blitz", "calm");
-        restored.GetConfig("Blitz").ToJson().Should().Be(RichConfig().ToJson());
-        restored.GetConfig("calm").ToJson().Should().Be(new FilterConfig().ToJson());
+        restored.Get("Blitz").ToJson().Should().Be(RichConfig().ToJson());
+        restored.Get("calm").ToJson().Should().Be(new FilterConfig().ToJson());
     }
 
     [Fact]
@@ -245,7 +245,7 @@ public class NamedFilterCollectionSerializationTests
 
         var restored = NamedFilterCollection.FromJson(json);
 
-        restored.GetConfig("Blitz").Players.Should().Equal("Alice");
+        restored.Get("Blitz").Players.Should().Equal("Alice");
     }
 
     [Theory]
@@ -265,7 +265,7 @@ public class NamedFilterCollectionSerializationTests
     }
 
     // -----------------------------------------------------------------------
-    //  FromJson / TryFromJson — the persistence trio
+    //  FromJson / TryFromJson — the IJsonDocument trio, inherited from the base
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -293,7 +293,7 @@ public class NamedFilterCollectionSerializationTests
 
         result.Should().BeTrue();
         restored.Names.Should().Equal("Blitz");
-        restored.GetConfig("Blitz").ToJson().Should().Be(RichConfig().ToJson());
+        restored.Get("Blitz").ToJson().Should().Be(RichConfig().ToJson());
     }
 
     [Theory]

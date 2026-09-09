@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Patterns;
@@ -65,9 +66,10 @@ namespace XgFilter_Lib;
 /// <list type="bullet">
 ///   <item><description>
 ///     XgFilter_Razor's <c>SavedFiltersStore</c> — and BgQuiz behind it —
-///     never names these types to a serializer; it round-trips through
-///     <see cref="NamedFilterCollection.ToJson"/> /
-///     <see cref="NamedFilterCollection.TryFromJson"/> and owns no
+///     never names these types to a serializer; it round-trips a
+///     <see cref="NamedFilterCollection"/> through that document's inherited
+///     <see cref="IJsonDocument{TSelf}.ToJson"/> /
+///     <see cref="IJsonDocument{TSelf}.TryFromJson"/> and owns no
 ///     <c>JsonSerializerOptions</c> at all. That consumer alone would have
 ///     admitted an <see langword="internal"/> context, leg 2's shape.
 ///   </description></item>

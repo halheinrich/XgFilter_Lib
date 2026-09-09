@@ -360,7 +360,7 @@ public class XgFilterJsonContextTests
         var restored = JsonSerializer.Deserialize(
             json, TypeInfo<NamedFilterCollection>(ContextOnlyOptions))!;
 
-        restored.GetConfig("Blitz").Players.Should().Equal("Alice");
+        restored.Get("Blitz").Players.Should().Equal("Alice");
     }
 
     // -----------------------------------------------------------------------
@@ -412,9 +412,9 @@ public class XgFilterJsonContextTests
     //
     //  Side A is this library's wire surface, derived from the assembly by the
     //  two marks that make a type a wire unit here — a type-level
-    //  [JsonConverter] (the type defines its own wire token) or the
-    //  ToJson/FromJson/TryFromJson persistence trio (the type is a document) —
-    //  and then expanded by the serializer's own metadata graph, because a
+    //  [JsonConverter] (the type defines its own wire token) or
+    //  IJsonDocument<TSelf> (the type is a document) — and then expanded by
+    //  the serializer's own metadata graph, because a
     //  context owes metadata for everything its roots reach, not just for the
     //  roots. Side B is what the generator actually produced, read off its
     //  JsonTypeInfo<T> properties rather than off the [JsonSerializable] list.
@@ -455,9 +455,9 @@ public class XgFilterJsonContextTests
             typeof(PlayType), typeof(PositionType),
         });
 
-        // The trio mark: the two documents. FilterConfig is here and nowhere
-        // else — it is the one wire unit no converter marks.
-        TrioBearing().Should().BeEquivalentTo(new[]
+        // The document mark: the two IJsonDocument implementers. FilterConfig
+        // is here and nowhere else — it is the one wire unit no converter marks.
+        DocumentBearing().Should().BeEquivalentTo(new[]
         {
             typeof(FilterConfig), typeof(NamedFilterCollection),
         });
@@ -529,36 +529,40 @@ public class XgFilterJsonContextTests
             .Where(t => t.GetCustomAttribute<JsonConverterAttribute>(inherit: false) is not null)];
 
     /// <summary>
-    /// Side A, second mark: every type declaring the canonical persistence
-    /// trio — <c>string ToJson()</c>, <c>static T FromJson(string)</c>,
-    /// <c>static bool TryFromJson(string?, out T)</c>. That trio is how this
-    /// library says a type is a document, and it is the only mark
+    /// Side A, second mark: every type implementing
+    /// <see cref="IJsonDocument{TSelf}"/> with itself as the argument — the
+    /// <c>ToJson</c> / <c>FromJson</c> / <c>TryFromJson</c> trio, which is how
+    /// a type here says it is a document. It is the only mark
     /// <see cref="FilterConfig"/> carries: it has no converter of its own,
     /// because every member that needs one carries it instead.
+    ///
+    /// <para>
+    /// The mark is the interface rather than a reflected method shape
+    /// (halheinrich/backgammon#190). A shape sniff was a second definition of
+    /// the trio, and it would also have had to answer a question the contract
+    /// makes irrelevant — whether the members are declared on the type or
+    /// inherited from generic machinery, which is exactly how
+    /// <see cref="NamedFilterCollection"/> now supplies them. (Concretely: a
+    /// <c>GetMethod</c> sniff for the two static readers needs
+    /// <see cref="BindingFlags.FlattenHierarchy"/> to see an inherited static
+    /// at all, and silently reports "not a document" without it.) Asking for
+    /// the interface asks the one authority instead. The self-typed argument
+    /// is part of what is checked: a type implementing the contract on some
+    /// <em>other</em> type's behalf is not itself a document.
+    /// </para>
     /// </summary>
-    private static IReadOnlyList<Type> TrioBearing() =>
-        [.. LibraryTypes().Where(HasPersistenceTrio)];
+    private static IReadOnlyList<Type> DocumentBearing() =>
+        [.. LibraryTypes().Where(IsJsonDocument)];
 
-    private static bool HasPersistenceTrio(Type type)
-    {
-        const BindingFlags Instance = BindingFlags.Public | BindingFlags.Instance;
-        const BindingFlags Static = BindingFlags.Public | BindingFlags.Static;
-
-        if (type.GetMethod("ToJson", Instance, Type.EmptyTypes) is not { } toJson
-            || toJson.ReturnType != typeof(string))
-            return false;
-
-        if (type.GetMethod("FromJson", Static, [typeof(string)]) is not { } fromJson
-            || fromJson.ReturnType != type)
-            return false;
-
-        return type.GetMethod("TryFromJson", Static, [typeof(string), type.MakeByRefType()])
-            is { } tryFromJson && tryFromJson.ReturnType == typeof(bool);
-    }
+    private static bool IsJsonDocument(Type type) =>
+        type.GetInterfaces().Any(contract =>
+            contract.IsGenericType
+            && contract.GetGenericTypeDefinition() == typeof(IJsonDocument<>)
+            && contract.GenericTypeArguments[0] == type);
 
     /// <summary>Side A: the union of the two marks, in a stable order.</summary>
     private static IReadOnlyList<Type> WireSurface() =>
-        Ordered(ConverterBearing().Union(TrioBearing()));
+        Ordered(ConverterBearing().Union(DocumentBearing()));
 
     /// <summary>
     /// Side B: every type the generator actually produced metadata for, read

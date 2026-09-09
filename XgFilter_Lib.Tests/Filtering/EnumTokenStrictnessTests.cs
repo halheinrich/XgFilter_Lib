@@ -159,7 +159,7 @@ public class EnumTokenStrictnessTests
 
         var restored = NamedFilterCollection.FromJson(file);
 
-        restored.GetConfig("Mine").EvaluationLevels.Should().Equal(AnalysisLevel.Ply2);
+        restored.Get("Mine").EvaluationLevels.Should().Equal(AnalysisLevel.Ply2);
     }
 
     // ------------------------------------------------------------------ //
