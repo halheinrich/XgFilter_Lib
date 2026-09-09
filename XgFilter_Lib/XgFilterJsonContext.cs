@@ -23,14 +23,21 @@ namespace XgFilter_Lib;
 /// <c>XgFilterJsonContextTests</c> derives from the assembly and intersects:
 /// <list type="bullet">
 ///   <item><description>
-///     <b>The persistence trio.</b> <see cref="FilterConfig"/> and
+///     <b>The document trio.</b> <see cref="FilterConfig"/> and
 ///     <see cref="NamedFilterCollection"/> each own a
 ///     <c>ToJson</c> / <c>FromJson</c> / <c>TryFromJson</c> trio, which is
-///     how this library says "this type is a document." Those six call sites
-///     are every place this assembly touches
-///     <see cref="System.Text.Json.JsonSerializer"/>, and all six now name a
+///     how this library says "this type is a document." That trio is no
+///     longer a convention the two of them spelled out for each other to
+///     copy: it is BgDataTypes_Lib's <c>IJsonDocument&lt;TSelf&gt;</c>, which
+///     <see cref="FilterConfig"/> implements
+///     (halheinrich/backgammon#190 leg (B)). The contract's own trim rule is
+///     what binds it to this context — an implementer resolves its metadata
+///     from a source-generated context and never from a reflection-bound
+///     <see cref="System.Text.Json.JsonSerializer"/> overload — so every
+///     serializer entry point reached on this assembly's behalf names a
 ///     <see cref="System.Text.Json.Serialization.Metadata.JsonTypeInfo{T}"/>
-///     off this context.
+///     off this context rather than a
+///     <see cref="System.Text.Json.JsonSerializerOptions"/>.
 ///   </description></item>
 ///   <item><description>
 ///     <b>A bundled type-level <c>[JsonConverter]</c>.</b>
@@ -47,7 +54,7 @@ namespace XgFilter_Lib;
 ///   </description></item>
 /// </list>
 /// <see cref="NamedFilterCollection"/> is a member of both sets. Nothing
-/// else in this assembly reaches a serializer.
+/// else in this assembly is a document or defines its own wire token.
 /// </para>
 ///
 /// <para>

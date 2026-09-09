@@ -608,14 +608,19 @@ serialization test and golden passes unchanged, and
 `XgFilterJsonContextTests` pins byte identity between the reflection resolver,
 this context alone, and both orders of a chained consumer.
 
-* **The wire surface.** Two documents own the canonical persistence trio
-  (`ToJson` / `FromJson` / `TryFromJson`): `FilterConfig` and
-  `NamedFilterCollection`. Those six call sites are **every** place this
-  assembly touches `JsonSerializer`, and all six now name a `JsonTypeInfo<T>`
-  off this context rather than a `JsonSerializerOptions`. Five more types are
-  wire units by the other mark — a bundled type-level `[JsonConverter]` that
-  defines their own token: `BoardPattern` and the four
-  `StrictJsonStringEnumConverter` enums. All seven are declared roots.
+* **The wire surface.** Two documents own the canonical trio (`ToJson` /
+  `FromJson` / `TryFromJson`): `FilterConfig` and `NamedFilterCollection`.
+  That trio is no longer a convention the two of them restated for each other
+  — it is BgDataTypes_Lib's `IJsonDocument<TSelf>`, which `FilterConfig`
+  implements (`halheinrich/backgammon#190` leg (B)). The contract's trim rule
+  is what binds it here — an implementer resolves its metadata from a
+  source-generated context, never from a reflection-bound `JsonSerializer`
+  overload — so every serializer entry point reached on this assembly's behalf
+  names a `JsonTypeInfo<T>` off this context rather than a
+  `JsonSerializerOptions`. Five more types are wire units by the other mark —
+  a bundled type-level `[JsonConverter]` that defines their own token:
+  `BoardPattern` and the four `StrictJsonStringEnumConverter` enums. All seven
+  are declared roots.
 * **Public, deliberately.** XgFilter_Razor's `SavedFiltersStore` — and BgQuiz
   behind it — round-trips through the trio and owns no `JsonSerializerOptions`,
   so that consumer alone would have admitted an `internal` context (leg 2's

@@ -65,8 +65,23 @@ namespace XgFilter_Lib.Filtering;
 /// collection, since its hash would change underneath the collection. Nothing
 /// here does that today; this line is the guard against a consumer starting to.
 /// </para>
+///
+/// <para>
+/// <b>A JSON document.</b> The type implements
+/// <see cref="IJsonDocument{TSelf}"/>: <see cref="ToJson"/> writes the
+/// canonical form, <see cref="FromJson"/> is its fail-loud inverse, and
+/// <see cref="TryFromJson"/> the non-throwing restore whose out is always
+/// usable. That contract — not a convention this type spells out for others
+/// to copy — is where the restore policy and the exception taxonomy are
+/// stated; the two readers here forward to
+/// <see cref="CanonicalJson"/>, which holds their single-sourced bodies
+/// (halheinrich/backgammon#190 leg (B)). Implementing it is also what lets
+/// <see cref="NamedFilterCollection"/> store a config by name: the
+/// collection's snapshot mechanism and its entry-body seam are both this
+/// trio.
+/// </para>
 /// </summary>
-public sealed class FilterConfig : IEquatable<FilterConfig>
+public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<FilterConfig>
 {
     /// <summary>Player names whose decisions should pass; empty = no player filter.</summary>
     public IList<string> Players { get; set; } = new List<string>();
@@ -789,7 +804,11 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// numbers (halheinrich/backgammon#164).
     /// </para>
     /// Held as the context's own cached, immutable instance — built once by
-    /// the generated context and thread-safe for the life of the process.
+    /// the generated context and thread-safe for the life of the process. This
+    /// is also the serializer metadata the two <see cref="IJsonDocument{TSelf}"/>
+    /// readers hand to <see cref="CanonicalJson"/> — the "implementer forwards
+    /// with its own metadata" half of that contract, and what keeps the shared
+    /// reader bodies off the reflection path.
     /// </summary>
     private static JsonTypeInfo<FilterConfig> CanonicalTypeInfo =>
         XgFilterJsonContext.Default.FilterConfig;
@@ -807,11 +826,22 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
 
     /// <summary>
     /// Deserializes a <see cref="FilterConfig"/> from its canonical JSON
-    /// representation — the inverse of <see cref="ToJson"/>. Members absent
-    /// from the JSON retain their type defaults (e.g. omitted lists materialize
-    /// empty, omitted <see cref="DecisionType"/> stays
+    /// representation — the inverse of <see cref="ToJson"/>. The fail-loud
+    /// half of <see cref="IJsonDocument{TSelf}"/>, whose contract states what
+    /// a read rejects and with which exception; the body forwards to
+    /// <see cref="CanonicalJson.Parse{T}"/>, where that taxonomy is written
+    /// once for every document in the arc.
+    ///
+    /// <para>
+    /// What is this type's own is the tolerance: members absent from the JSON
+    /// retain their type defaults (e.g. omitted lists materialize empty,
+    /// omitted <see cref="DecisionType"/> stays
     /// <see cref="DecisionTypeOption.Both"/>), so a default-config blob and an
-    /// empty object both round-trip to an equivalent instance.
+    /// empty object both round-trip to an equivalent instance. That latitude
+    /// is what makes a config a safe entry body inside a
+    /// <see cref="NamedFilterCollection"/> — a retired facet does not brick a
+    /// saved collection.
+    /// </para>
     /// </summary>
     /// <param name="json">A JSON object string, typically produced by <see cref="ToJson"/>.</param>
     /// <returns>The materialized configuration.</returns>
@@ -821,25 +851,20 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// configuration.
     /// </exception>
     /// <exception cref="JsonException"><paramref name="json"/> is malformed.</exception>
-    public static FilterConfig FromJson(string json)
-    {
-        ArgumentNullException.ThrowIfNull(json);
-
-        return JsonSerializer.Deserialize(json, CanonicalTypeInfo)
-            ?? throw new ArgumentException(
-                "JSON deserialized to a null configuration; expected a FilterConfig object.",
-                nameof(json));
-    }
+    public static FilterConfig FromJson(string json) =>
+        CanonicalJson.Parse(json, CanonicalTypeInfo);
 
     /// <summary>
-    /// Non-throwing counterpart to <see cref="FromJson"/>, following the
-    /// <c>Parse</c>/<c>TryParse</c> convention. Absorbs the three ways a
+    /// Non-throwing counterpart to <see cref="FromJson"/>, and the tolerant
+    /// half of <see cref="IJsonDocument{TSelf}"/>: it absorbs the three ways a
     /// restore can fail — a null <paramref name="json"/> (e.g. a storage key
     /// that was never written), the literal <c>null</c> token, or malformed
-    /// JSON — and yields a fresh default <see cref="FilterConfig"/> in each
-    /// case. This single-sources the "absent or corrupt input restores to
-    /// defaults" policy in the lib so consumers need no knowledge of the JSON
-    /// representation or its exception taxonomy.
+    /// JSON — so consumers need no knowledge of the JSON representation or its
+    /// exception taxonomy. The absorb-exactly-those-three rule lives in
+    /// <see cref="CanonicalJson.TryParse{T}"/>, which this forwards to; what
+    /// this type supplies is the inert default the contract asks each
+    /// implementer to name — a fresh <see cref="FilterConfig"/>, which filters
+    /// nothing.
     /// </summary>
     /// <param name="json">
     /// The candidate JSON, or null. Typically read straight from a persistence
@@ -858,26 +883,6 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     /// restore (e.g. clear the corrupt entry or record telemetry) without
     /// catching exceptions.
     /// </returns>
-    public static bool TryFromJson(string? json, out FilterConfig config)
-    {
-        if (json is not null)
-        {
-            try
-            {
-                if (JsonSerializer.Deserialize(json, CanonicalTypeInfo) is { } parsed)
-                {
-                    config = parsed;
-                    return true;
-                }
-            }
-            catch (JsonException)
-            {
-                // Malformed JSON falls through to the default below; any other
-                // (unexpected) exception is intentionally left to propagate.
-            }
-        }
-
-        config = new FilterConfig();
-        return false;
-    }
+    public static bool TryFromJson(string? json, out FilterConfig config) =>
+        CanonicalJson.TryParse(json, CanonicalTypeInfo, new FilterConfig(), out config);
 }
