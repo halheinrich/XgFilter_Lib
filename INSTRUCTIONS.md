@@ -430,21 +430,30 @@ surface, and are reachable from the test project via
   type in `Filtering/` besides `FilterConfig`, `DecisionFilterSet`,
   `NamedFilterCollection`, and `IDecisionFilter`. It states once, for
   the whole library, what a `MatchScores` entry may say: a `NaNa[C]`
-  match score, or one of the money tokens. `MatchScoreFilter` parses
+  match score (with `DMP` as an alias of `1a1a`), or one of the money
+  tokens. `MatchScoreFilter` parses
   through it, `FilterConfig`'s field-rule table judges through it, and
   a consumer asks it directly.
 
   * **Vocabulary as exported constants** — `MoneyWithJacoby`
-    (`"moneyJ"`), `MoneyWithoutJacoby` (`"moneyNJ"`), `RetiredMoney`
-    (`"money"`), plus `RetiredMoneyReplacements` (both rule-bearing
-    tokens, in order). Spellings live here once; a consumer rendering
+    (`"moneyJ"`), `MoneyWithoutJacoby` (`"moneyNJ"`),
+    `DoubleMatchPoint` (`"DMP"`), `RetiredMoney` (`"money"`), plus
+    `RetiredMoneyReplacements` (both rule-bearing tokens, in order).
+    `DoubleMatchPoint` is an **alias of `1a1a`**
+    (halheinrich/backgammon#259): it parses to `(1, 1, false)`, resolved
+    inside the private `Inspect` so `GetFault` and `ParseScore` learn the
+    word in one place, and nothing past the parse — the filter, the
+    config, the gates — can tell it from `1a1a`. It takes no Crawford
+    suffix (`DMPC` is `Malformed`, as `1a1aC` is impossible), and a
+    stored `DMP` round-trips unchanged: the spelling is the user's, the
+    tuple is the meaning. Spellings live here once; a consumer rendering
     them in help text, a placeholder, or an explanation reads the
     constants rather than repeating literals, the same export
     discipline as `FilterHelp.StorageSectionAnchorId`.
   * **Case and whitespace** — the whole grammar is case-insensitive and
     trims incidental *surrounding* whitespace before judging anything:
-    the `a` separators, the `C` Crawford suffix, and the money tokens
-    with their `J` / `NJ` suffixes alike, so `MONEYNJ`, `moneynj`, and
+    the `a` separators, the `C` Crawford suffix, the `DMP` alias, and
+    the money tokens with their `J` / `NJ` suffixes alike, so `MONEYNJ`, `moneynj`, and
     `moneyNJ` are one token. Embedded whitespace and repeated
     separators are still rejected. (This regularised one inconsistency:
     the old bare `money` check compared *untrimmed* while score tokens
@@ -972,6 +981,7 @@ public static class MatchScoreToken
 {
     public const string MoneyWithJacoby    = "moneyJ";
     public const string MoneyWithoutJacoby = "moneyNJ";
+    public const string DoubleMatchPoint   = "DMP";     // alias of 1a1a
     public const string RetiredMoney       = "money";   // retired as a target
 
     public static IReadOnlyList<string> RetiredMoneyReplacements { get; }

@@ -861,6 +861,10 @@ public class MatchScoreFilterTests
     [InlineData("3a5aC")]
     [InlineData("1a1aC")]
     [InlineData("4 a 5a")]
+    [InlineData("DMP")]
+    [InlineData(" dmp ")]
+    [InlineData("DMPC")]
+    [InlineData("DMP1")]
     public void Constructor_ThrowsExactlyWhenGetFaultFaults(string token)
     {
         var act = () => new MatchScoreFilter([token]);
@@ -869,5 +873,66 @@ public class MatchScoreFilterTests
             act.Should().NotThrow();
         else
             act.Should().Throw<ArgumentException>();
+    }
+
+    // -----------------------------------------------------------------------
+    //  The DMP alias (halheinrich/backgammon#259). Pinned as an equivalence
+    //  with 1a1a rather than as its own expectations: whatever 1a1a admits or
+    //  rejects, at every gate, DMP must too — so a future change to 1a1a's
+    //  behaviour carries the alias with it instead of splitting the two.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void DoubleMatchPoint_FiltersExactlyAs1a1a()
+    {
+        var alias = new MatchScoreFilter([MatchScoreToken.DoubleMatchPoint]);
+        var score = new MatchScoreFilter(["1a1a"]);
+
+        // Decisions: every small score in both orientations, Crawford or not,
+        // at match lengths the gates treat differently, plus money under each
+        // rule.
+        var rows = new List<RowShape>();
+        foreach (int length in new[] { 1, 2, 5 })
+            for (int onRoll = 1; onRoll <= length; onRoll++)
+                for (int opp = 1; opp <= length; opp++)
+                    foreach (bool crawford in new[] { false, true })
+                        rows.Add(new RowShape(
+                            MatchLength: length, OnRollNeeds: onRoll,
+                            OpponentNeeds: opp, IsCrawford: crawford));
+        foreach (bool? rule in new bool?[] { true, false, null })
+            rows.Add(MoneyRow(rule));
+
+        foreach (var row in rows)
+        {
+            AssertMatchesBoth(alias, row, expected: score.Matches(row.ToDecisionRow()));
+            AssertShouldAdvanceMatchBoth(
+                alias, row, expected: score.ShouldAdvanceMatch(row.ToDecisionRow()));
+        }
+
+        // Header gates.
+        foreach (int length in new[] { 0, 1, 2, 5 })
+        {
+            var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = length };
+            alias.ShouldSkipMatch(match).Should().Be(
+                score.ShouldSkipMatch(match), "match length {0}", length);
+        }
+
+        for (int away1 = 0; away1 <= 3; away1++)
+            for (int away2 = 0; away2 <= 3; away2++)
+                foreach (bool crawford in new[] { false, true })
+                {
+                    var game = new FakeGameInfo
+                    {
+                        Away1 = away1, Away2 = away2, IsCrawfordGame = crawford,
+                    };
+                    alias.ShouldSkipGame(game).Should().Be(
+                        score.ShouldSkipGame(game), "game header {0}", game);
+                }
+
+        // Not vacuous: the sweep contains the decision both admit.
+        AssertMatchesBoth(
+            alias,
+            new RowShape(MatchLength: 5, OnRollNeeds: 1, OpponentNeeds: 1, IsCrawford: false),
+            expected: true);
     }
 }

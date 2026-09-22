@@ -22,11 +22,13 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="BgDataTypes_Lib.DecisionRow.MatchScore"/> writes. Wanting money
 /// sessions under either rule means listing both tokens, the same way
 /// admitting a score regardless of who is on roll means listing both
-/// orientations.
+/// orientations. One match score has a second spelling:
+/// <see cref="DoubleMatchPoint"/> is an alias of <c>1a1a</c> — it parses to
+/// the same tuple, so nothing past the parse can tell the two apart.
 /// </para>
 ///
 /// <para>
-/// <b>Spellings live here.</b> The three token spellings are exported
+/// <b>Spellings live here.</b> The four token spellings are exported
 /// constants rather than literals repeated at each surface, so a consumer
 /// rendering them (help text, a placeholder, an explanation of a rejected
 /// token) and the parser accepting them cannot drift. The verdicts are
@@ -38,10 +40,10 @@ namespace XgFilter_Lib.Filtering;
 /// <para>
 /// <b>Case and whitespace.</b> The whole grammar is case-insensitive and
 /// trims incidental surrounding whitespace before judging anything: the
-/// <c>a</c> away-separators, the <c>C</c> Crawford suffix, and the money
-/// tokens (including their <c>J</c> / <c>NJ</c> suffixes) all match in any
-/// casing, so <c>MONEYNJ</c>, <c>moneynj</c>, and <c>moneyNJ</c> are one
-/// token. Embedded whitespace and any extra or repeated separator are
+/// <c>a</c> away-separators, the <c>C</c> Crawford suffix, the money
+/// tokens (including their <c>J</c> / <c>NJ</c> suffixes), and the
+/// <see cref="DoubleMatchPoint"/> alias all match in any casing, so
+/// <c>MONEYNJ</c>, <c>moneynj</c>, and <c>moneyNJ</c> are one token. Embedded whitespace and any extra or repeated separator are
 /// rejected — trimming tolerates hand-built configs and CLI arguments, it
 /// does not loosen the grammar.
 /// </para>
@@ -65,6 +67,22 @@ public static partial class MatchScoreToken
     /// reason as <see cref="MoneyWithJacoby"/>.
     /// </summary>
     public const string MoneyWithoutJacoby = "moneyNJ";
+
+    /// <summary>
+    /// Double match point: an alias of the match score <c>1a1a</c>, whose
+    /// parse is <c>(1, 1, false)</c> — the same tuple <c>1a1a</c> parses to,
+    /// so a filter, a config, and everything downstream see only the score,
+    /// never which spelling the user typed. Exported so a consumer renders
+    /// the spelling this grammar accepts rather than its own literal.
+    /// <para>
+    /// It takes no Crawford suffix: a (1,1) game is always post-Crawford, so
+    /// <c>1a1aC</c> is an impossible score and <c>DMPC</c> is likewise
+    /// <see cref="MatchScoreTokenFault.Malformed"/> rather than a variant.
+    /// The alias is a fixed spelling under the grammar's case and whitespace
+    /// rules and nothing more.
+    /// </para>
+    /// </summary>
+    public const string DoubleMatchPoint = "DMP";
 
     /// <summary>
     /// The retired bare money token. It once meant "any money session"; the
@@ -161,6 +179,13 @@ public static partial class MatchScoreToken
         HasSpelling(token, RetiredMoney);
 
     /// <summary>
+    /// Whether <paramref name="token"/> is the <see cref="DoubleMatchPoint"/>
+    /// alias, under the grammar's case and whitespace rules.
+    /// </summary>
+    private static bool IsDoubleMatchPointToken(string? token) =>
+        HasSpelling(token, DoubleMatchPoint);
+
+    /// <summary>
     /// The grammar's one comparison rule for a fixed-spelling token: trim the
     /// ends, then compare case-insensitively by ordinal.
     /// </summary>
@@ -174,7 +199,8 @@ public static partial class MatchScoreToken
     /// <see cref="GetFault"/> would fault. The two money tokens are the
     /// caller's to recognize first (they are not scores and carry no away
     /// counts); everything else — including the retired
-    /// <see cref="RetiredMoney"/> — arrives here.
+    /// <see cref="RetiredMoney"/> and the <see cref="DoubleMatchPoint"/>
+    /// alias, which is a score — arrives here.
     /// <para>
     /// Fail-loud by design, and the reason <see cref="FilterConfig.Build"/>
     /// rejects an invalid configuration rather than materializing a filter
@@ -224,7 +250,7 @@ public static partial class MatchScoreToken
 
             _ => throw new ArgumentException(
                 $"Invalid match score: '{token}'. Expected format like '3a5a', '1a5aC', " +
-                $"'{MoneyWithJacoby}', or '{MoneyWithoutJacoby}'.",
+                $"'{DoubleMatchPoint}', '{MoneyWithJacoby}', or '{MoneyWithoutJacoby}'.",
                 nameof(token)),
         };
     }
@@ -245,11 +271,13 @@ public static partial class MatchScoreToken
     }
 
     /// <summary>
-    /// The score-token rule, stated once: match the anchored grammar, then
-    /// check the two things a well-formed token can still get wrong. Both
-    /// <see cref="GetFault"/> and <see cref="ParseScore"/> route here, so the
-    /// answer a consumer asks for and the answer
-    /// <see cref="FilterConfig.Build"/> enforces are the same answer.
+    /// The score-token rule, stated once: resolve the
+    /// <see cref="DoubleMatchPoint"/> alias to its tuple, otherwise match the
+    /// anchored grammar, then check the two things a well-formed token can
+    /// still get wrong. Both <see cref="GetFault"/> and
+    /// <see cref="ParseScore"/> route here, so the answer a consumer asks for
+    /// and the answer <see cref="FilterConfig.Build"/> enforces are the same
+    /// answer — and the alias is recognized in exactly one place.
     /// <para>
     /// Validated beyond the characters because a dead tuple is the silent
     /// "filter does nothing" failure fail-loud exists to prevent: an away
@@ -269,6 +297,12 @@ public static partial class MatchScoreToken
     {
         away1 = away2 = 0;
         isCrawford = false;
+
+        if (IsDoubleMatchPointToken(trimmed))
+        {
+            away1 = away2 = 1;
+            return ScoreShape.WellFormed;
+        }
 
         var match = ScoreTokenRegex().Match(trimmed);
         if (!match.Success

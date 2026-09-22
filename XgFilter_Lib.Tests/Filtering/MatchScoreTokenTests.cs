@@ -24,6 +24,7 @@ public class MatchScoreTokenTests
         // visible act.
         MatchScoreToken.MoneyWithJacoby.Should().Be("moneyJ");
         MatchScoreToken.MoneyWithoutJacoby.Should().Be("moneyNJ");
+        MatchScoreToken.DoubleMatchPoint.Should().Be("DMP");
         MatchScoreToken.RetiredMoney.Should().Be("money");
     }
 
@@ -143,5 +144,35 @@ public class MatchScoreTokenTests
         // \d+ matches it, int.TryParse does not — the shape check has to
         // absorb that rather than let an overflow escape.
         MatchScoreToken.GetFault("9999999999a5a").Should().Be(MatchScoreTokenFault.Malformed);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The DMP alias: a second spelling of 1a1a
+    //  (halheinrich/backgammon#259)
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("DMP")]
+    [InlineData("dmp")]         // the grammar's casing rule
+    [InlineData(" DMP ")]       // ...and its trimming rule
+    public void DoubleMatchPoint_IsAcceptedAndParsesTo1a1a(string token)
+    {
+        MatchScoreToken.GetFault(token).Should().Be(MatchScoreTokenFault.None);
+        MatchScoreToken.ParseScore(token).Should().Be((1, 1, false));
+
+        // The tuple is the canonical form: the alias and the score it names
+        // are indistinguishable past the parse.
+        MatchScoreToken.ParseScore(token).Should().Be(MatchScoreToken.ParseScore("1a1a"));
+    }
+
+    [Theory]
+    [InlineData("DMPC")]        // 1a1aC is an impossible score; its alias is not a variant
+    [InlineData("DMP1")]
+    public void DoubleMatchPoint_WithASuffix_IsMalformed(string token)
+    {
+        MatchScoreToken.GetFault(token).Should().Be(MatchScoreTokenFault.Malformed);
+
+        var act = () => MatchScoreToken.ParseScore(token);
+        act.Should().Throw<ArgumentException>().WithMessage($"*{token}*");
     }
 }

@@ -1578,6 +1578,7 @@ public class FilterConfigTests
             "money", "MONEY", " money ",
             "garbage", "", "   ", "0a5a", "5a0a", "3a5aC", "1a1aC",
             "4 a 5a", "3a5a5a", "moneyX", "9999999999a5a",
+            "DMP", " dmp ", "DMPC", "DMP1",
         ];
 
         foreach (string token in candidates)
@@ -1591,6 +1592,24 @@ public class FilterConfigTests
                 "GetInvalidFields and Build must agree for MatchScores token '{0}'",
                 token);
         }
+    }
+
+    [Fact]
+    public void DoubleMatchPointAlias_RoundTripsThroughJsonUnchanged()
+    {
+        // The spelling is the user's; the parse is the meaning. A stored DMP
+        // is never rewritten to 1a1a on its way through the wire, and it is
+        // as valid on the far side as it was on the near one
+        // (halheinrich/backgammon#259).
+        var original = new FilterConfig { MatchScores = { MatchScoreToken.DoubleMatchPoint } };
+
+        var restored = FilterConfig.FromJson(original.ToJson());
+
+        restored.MatchScores.Should().Equal("DMP");
+        restored.Should().Be(original);
+        restored.GetInvalidFields().Should().BeEmpty();
+        var act = () => restored.Build();
+        act.Should().NotThrow();
     }
 
     // -----------------------------------------------------------------------
