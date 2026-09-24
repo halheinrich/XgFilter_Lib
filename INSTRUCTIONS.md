@@ -279,7 +279,10 @@ surface, and are reachable from the test project via
   throws and is computed fresh from mutable state, and it is deliberately
   **not** a gate on assignment: setters accept anything, so a saved document
   written before a rule existed still loads and the offending value can be
-  shown back to the user rather than lost to a failed restore. Validity is
+  shown back to the user rather than lost to a failed restore. Position
+  patterns are the exception: `PositionPattern` is typed, so a stored
+  pattern a newer rule refuses makes its whole document fail to load
+  (tracked as halheinrich/backgammon#269). Validity is
   orthogonal to activity — a retired score token still reports its facet
   active while being named here.
 
@@ -342,7 +345,10 @@ surface, and are reachable from the test project via
   Because a stored config is restored rather than re-entered, this is also
   where `GetInvalidFields()` earns its posture: a document written before a
   rule existed loads intact and reports invalid at apply, instead of failing
-  the restore and losing the value the user has to fix.
+  the restore and losing the value the user has to fix. Position patterns
+  are the exception: `PositionPattern` is typed, so a stored pattern a newer
+  rule refuses fails its entry and, through the strict envelope, the whole
+  file (tracked as halheinrich/backgammon#269).
 
 * **Depth facet semantics.** User-facing selection state is three per-mode
   pairs — a toggle plus its own level list (`IncludeEvaluations` +
@@ -1400,7 +1406,8 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   deserializes: `FilterConfig.FromJson` throws `JsonException` and
   `TryFromJson` falls back to a default config, losing every member, and
   one such entry fails a whole `NamedFilterCollection` file (the
-  `…StoredBarRuleToken…` tests measure this). Spans are exempt: a span
+  `…StoredBarRuleToken…` tests measure this; the proper load behaviour is
+  tracked as halheinrich/backgammon#269). Spans are exempt: a span
   may include either bar with either sign. The rule lives in
   `CheckerLocation.Sides`; do not re-encode it in a parser or a UI.
 * **A span counts one side; a point sees both.** `[a-b,…]` totals the

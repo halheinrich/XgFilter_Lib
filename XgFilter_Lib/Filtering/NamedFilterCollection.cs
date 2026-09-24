@@ -39,6 +39,10 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="FilterConfig.GetInvalidFields"/> earns its posture: a document
 /// written before a rule existed loads intact and reports invalid at apply,
 /// instead of failing the restore and losing the value the user has to fix.
+/// Position patterns are the exception: <see cref="FilterConfig.PositionPattern"/>
+/// is typed, so a stored pattern a newer rule refuses fails its entry, and the
+/// strict envelope then fails the whole file (tracked as
+/// halheinrich/backgammon#269).
 /// </para>
 /// </summary>
 [JsonConverter(typeof(NamedFilterCollectionJsonConverter))]

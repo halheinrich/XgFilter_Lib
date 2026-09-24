@@ -308,7 +308,7 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
         var head = fields[0].Trim();
         if (head.Length == 0)
             throw new FormatException(
-                $"Malformed pattern token '{token}'. Location is required.");
+                $"Malformed pattern token '{token}'. Head is required.");
 
         if (CheckerSpan.TrySplit(head, out int first, out int last))
         {

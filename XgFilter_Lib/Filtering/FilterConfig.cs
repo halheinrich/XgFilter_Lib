@@ -47,7 +47,10 @@ namespace XgFilter_Lib.Filtering;
 /// the offending value and let the user fix it — and
 /// <see cref="GetInvalidFields"/> is where the rules are asked about. See it
 /// for the posture and <see cref="Build"/> for what happens to a configuration
-/// that was built anyway.
+/// that was built anyway. <see cref="PositionPattern"/> is the exception: it is
+/// typed, a <see cref="BoardPattern"/> validated as it is read, so a stored
+/// pattern that a newer rule refuses fails the whole document's load rather
+/// than loading to be reported (tracked as halheinrich/backgammon#269).
 /// </para>
 ///
 /// <para>
@@ -527,7 +530,10 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// This is the query a consumer gates on. It is deliberately not a gate on
     /// assignment: the setters accept anything, so a document persisted before a
     /// rule existed still loads, and a half-typed value can sit in the
-    /// configuration long enough to be shown back to the user. The consumer
+    /// configuration long enough to be shown back to the user. Patterns are the
+    /// exception: <see cref="PositionPattern"/> is typed, so a stored pattern a
+    /// newer rule refuses makes its whole document fail to load and never
+    /// reaches this query (tracked as halheinrich/backgammon#269). The consumer
     /// marks the fields named here, disables its commit action while any are
     /// named, and words the explanation itself — the same division of labour as
     /// <see cref="Patterns.BoardPattern.TryParse"/>, where the lib rules on the
