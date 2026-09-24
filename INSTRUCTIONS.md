@@ -69,15 +69,18 @@ chain builds from this solution rather than from packages.
   hand-written implementation per enum member. Board-reading only, never
   XGID-parsing.
 - **`Patterns/`** — the declarative counterpart to those named classifiers:
-  `BoardPattern` over `CheckerRange` over `CheckerLocation`, plus the converter
-  that carries the bracket-list text form onto the wire.
+  `BoardPattern` over its two `IPatternConstraint` kinds — `CheckerRange` over
+  `CheckerLocation`, and `CheckerSpanRange` over `CheckerSpan` — plus the
+  converter that carries the bracket-list text form onto the wire.
 - **`Projection/`** — `ColumnSelector`, the `Column`-driven CSV projection.
 - **Top level** — `FilteredDecisionIterator`, the integration point that walks
   XG and JSON sources through a filter set, and `XgFileStream`, the named
   stream its directory-free entries take.
 
 **`XgFilter_Lib.Tests/`** — xUnit, mirroring the library's folders with one
-test class per type, plus two folders the library has no counterpart for:
+test class per type (and `BoardPatternCompatibilityTests`, the pre-span
+grammar written out as an oracle), plus two folders the library has no
+counterpart for:
 `Helpers/` (the `BgDecisionDataBuilder` / `DecisionRowBuilder` fixture
 builders, `BoardBuilder`, the shared `DecisionFilterAsserts`, and the
 `FakeGameInfo` / `FakeMatchInfo` headers) and `Integration/` (end-to-end
@@ -528,10 +531,10 @@ surface, and are reachable from the test project via
 * `PositionPatternFilter` — the general, data-driven counterpart to the
   named `PositionTypeFilter`. Holds a single immutable `BoardPattern`
   (see **Patterns**) and passes rows whose `data.Board` satisfies every
-  per-location constraint in it. Where `PositionTypeFilter` dispatches to
+  constraint in it. Where `PositionTypeFilter` dispatches to
   hand-written classifiers, this evaluates an arbitrary sparse
-  `[location,min,max]` constraint set — board indices and the derived
-  borne-off locations alike — so a caller can express a structural shape
+  `[head,min,max]` constraint set — board indices, the derived borne-off
+  locations, and spans of board indices alike — so a caller can express a structural shape
   without a dedicated `PositionType`. An empty pattern matches every
   board.
 * `PlayTypeFilter` — include list of `PlayType`. Reads `data.Board`,
@@ -710,77 +713,127 @@ classifiers are hand-written predicates, a `BoardPattern` is a
 runtime, including via a compact text form. This is the public,
 reintroduction-ready alternative to the named `PositionType` machinery.
 
+* `CheckerSides` (internal, `[Flags]`: `Player` / `Opponent` / `Both`) —
+  the **single owner of each side's value interval** (on-roll player
+  `[0, 15]`, opponent `[-15, 0]`, the hull `[-15, 15]` for both) and of
+  which board entries are whose (`CheckersOn` counts one side over a run
+  of indices, never netting the other; `Signed` applies the sign rule).
+  Locations and span constraints read their intervals off it; nothing
+  else spells `0` / `±15` as a side's limit.
 * `CheckerLocation` — a `readonly record struct`, the discriminated
-  place a constraint addresses, and the **single source of truth for
+  place a `CheckerRange` addresses, and the **single source of truth for
   location vocabulary**: a `Kind` (`CheckerLocationKind.Board` /
-  `PlayerOff` / `OpponentOff`), the named tokens the grammar uses
-  (`off` / `opp-off`), each location's signed value interval (board
-  `[-15, 15]`, player-off `[0, 15]`, opponent-off `[-15, 0]`), and how a
-  location's value is read or derived from a board (`ValueOn`,
-  internal). Constructed only via `Board(int index)` (validated 0–25,
-  `ArgumentOutOfRangeException`) and the `PlayerOff` / `OpponentOff`
-  statics, so never invalid; `BoardIndex` is `null` on the off locations
-  (no throwing property). `default(CheckerLocation)` is `Board(0)`.
-  Carries the domain constants `MaxBoardIndex` (25) and `MaxCheckers`
-  (15) — location-domain facts, so they live on the location type.
-  Value-equality is what `BoardPattern` keys duplicate detection — and
-  its own equality — on, so a numeric and a named location never
-  conflate.
-  `ToString` renders the canonical (lower-case) token head; name parsing
-  is case-insensitive.
+  `PlayerOff` / `OpponentOff`), the board-index domain (one internal
+  check, `ThrowIfNotBoardIndex`, which `CheckerSpan` also calls), the
+  named tokens the grammar uses (`off` / `opp-off`), each location's
+  signed value interval, and how a location's value is read or derived
+  from a board (`ValueOn`, internal). The interval is the **hull of the
+  sides that can sit there** (internal `Sides`): a point (1–24) holds
+  either side, `[-15, 15]`; the opponent's bar (0) and opponent-off hold
+  only the opponent, `[-15, 0]`; the on-roll player's bar (25) and
+  player-off hold only the player, `[0, 15]`. Constructed only via
+  `Board(int index)` (validated 0–25, `ArgumentOutOfRangeException`) and
+  the `PlayerOff` / `OpponentOff` statics, so never invalid;
+  `BoardIndex` is `null` on the off locations (no throwing property).
+  `default(CheckerLocation)` is `Board(0)`. Carries the domain constants
+  `MaxBoardIndex` (25) and `MaxCheckers` (15) — location-domain facts,
+  so they live on the location type. Value-equality is what
+  `BoardPattern` keys duplicate detection — and its own equality — on,
+  so a numeric and a named location never conflate. `ToString` renders
+  the canonical (lower-case) token head; name parsing is
+  case-insensitive.
+* `CheckerSpan` — a `readonly record struct`: a contiguous run of board
+  indices `First`..`Last`, **`First < Last`** (a single index is a
+  `CheckerLocation`, so each constraint has one spelling), bars
+  allowed, borne-off counts never. `ArgumentOutOfRangeException` on an
+  index outside 0–25, `ArgumentException` on `First >= Last`. The last
+  index is stored as its distance past `First + 1`, so
+  `default(CheckerSpan)` is the valid span `0-1` — never invalid once it
+  exists. `ToString` renders the `a-b` token head; internal `TrySplit`
+  recognizes that shape (unsigned decimal parts, no whitespace) and
+  leaves validation to the constructor, so `[12-7,…]` is an argument
+  error and `[off-3,…]` a format error.
+* `IPatternConstraint` — the element type of a pattern: **closed**, its
+  two members (`Place`, `IsSatisfiedBy`) internal, so no type outside
+  the library can implement it. The constraints are `CheckerRange` and
+  `CheckerSpanRange`; a consumer needing the detail pattern-matches on
+  those. `Place` (the `CheckerLocation` or `CheckerSpan`) is what the
+  duplicate check keys on — places of different kinds never compare
+  equal.
 * `CheckerRange` — a `readonly record struct`: an inclusive signed-count
-  constraint on one `CheckerLocation`, the element of a pattern.
-  `Min` / `Max` are inclusive bounds on the on-roll-relative checker
-  count at the location (negative = opponent; `null` = that side
-  unbounded). Validated at construction — each bound must lie in the
-  **location's own value interval**, so a wrong-signed borne-off bound
-  (e.g. `[off,-2,]`) is an `ArgumentOutOfRangeException`, not a
-  constraint that silently never matches; `ArgumentException` on
-  `Min > Max`. The `(int index, min, max)` ctor remains as sugar for the
-  board-location case. `Contains` tests one signed count; internal
-  `IsSatisfiedBy(board)` pairs it with `CheckerLocation.ValueOn`;
-  `ToString` renders the `[location,min,max]` token (unbounded side →
-  empty field). A struct with value-equality by design — which is what
-  `BoardPattern`'s own equality delegates to, element by element, and
-  what its duplicate-location check keys on.
-* `BoardPattern` — an immutable, validated bag of `CheckerRange`
-  constraints over the on-roll-relative board (`[0]` opponent bar,
-  `[1..24]` points, `[25]` on-roll bar; positive = on-roll player). A
-  location named by no range is unconstrained; the empty pattern
-  (`Empty`, `IsEmpty`) matches every board (vacuous truth). The one
-  cross-element invariant the constructor enforces is **no two ranges on
-  the same location** (`ArgumentException`, keyed on `CheckerLocation`
-  value-equality, so the check spans numeric and named locations alike);
-  each element is already self-valid. `Matches(board)` ANDs every
-  constraint; borne-off values are derived per element (see the
-  derivation pitfall), and board indexing never exceeds the real 26
-  elements.
+  constraint on one `CheckerLocation`. `Min` / `Max` are inclusive
+  bounds on the on-roll-relative checker count at the location
+  (negative = opponent; `null` = that side unbounded) — the **signed**
+  count, so on a point the bounds see both sides (`[6,0,3]` rejects an
+  opponent's blot). Validated at construction — each bound must lie in
+  the **location's own value interval**, so a wrong-signed bound on a
+  bar or a borne-off count (`[0,1,]`, `[25,,-1]`, `[off,-2,]`) is an
+  `ArgumentOutOfRangeException`, not a constraint that silently never
+  matches; `ArgumentException` on `Min > Max`. The `(int index, min,
+  max)` ctor remains as sugar for the board-location case. `Contains`
+  tests one signed count; its `IsSatisfiedBy` pairs that with
+  `CheckerLocation.ValueOn`; `ToString` renders the `[location,min,max]`
+  token (unbounded side → empty field).
+* `CheckerSpanRange` — a `readonly record struct`: a bound on **one
+  side's total** across a `CheckerSpan`, token `[a-b,min,max]`. With P
+  the on-roll player's checkers summed over the span and O the
+  opponent's (non-negative): a positive bound constrains the player,
+  `min ≤ P ≤ max`; a negative bound the opponent, `min ≤ −O ≤ max`
+  (`[13-18,,-2]` = opponent has ≥ 2 there); one of each is refused
+  (`ArgumentException`); bounds beyond ±15 are
+  `ArgumentOutOfRangeException`. Formally, the bounds apply to **every
+  side whose interval holds them all**, which is what gives the zero
+  forms their meaning: `[a-b,0,0]` empty of both sides, `[a-b,,0]` no
+  player checkers, `[a-b,0,]` no opponent checkers, `[a-b,,]` nothing.
+  **The other side's checkers are ignored, never netted.** A bar
+  contributes nothing to the side that cannot sit on it, so either bar
+  may sit in a span with either sign (`[24-25,-2,-2]`). The constrained
+  sides are derived from the bounds when read (internal
+  `ConstrainedSides`), not stored, so `default(CheckerSpanRange)` is the
+  valid, unconstraining `[0-1,,]`. The `(first, last, min, max)` ctor is
+  sugar for the span form.
+* `BoardPattern` — an immutable, validated set of `IPatternConstraint`
+  elements over the on-roll-relative board (`[0]` opponent bar,
+  `[1..24]` points, `[25]` on-roll bar; positive = on-roll player),
+  exposed in construction order as `Constraints`. A place named by no
+  constraint is unconstrained; the empty pattern (`Empty`, `IsEmpty`)
+  matches every board (vacuous truth). The one cross-element invariant
+  the constructor enforces is **no two constraints on the same place**
+  (`ArgumentException`, keyed on `Place` value-equality, so the check
+  spans numeric locations, named locations and spans alike; a null
+  element is refused too); each element is already self-valid.
+  **Overlap is not duplication**: `[7,1,] [7-12,3,] [5-8,,-2]` is three
+  conditions. `Matches(board)` ANDs every constraint; borne-off values
+  are derived per element (see the derivation pitfall), and board
+  indexing never exceeds the real 26 elements.
   * **Text form** — the bracket list: whitespace-separated
-    `[location,min,max]` tokens, each field comma-separated with an
-    empty bound field meaning "unbounded". The location head is a board
-    index or a named borne-off location — `[off,min,max]` (on-roll
-    player, bounds `[0, 15]`) / `[opp-off,min,max]` (opponent, bounds
-    `[-15, 0]`, negative per the grammar-wide sign rule:
-    `[opp-off,,-2]` = "opponent has ≥ 2 off", reading exactly like
-    `[5,,-2]`), e.g. `"[6,,0] [5,2,] [off,1,] [opp-off,,-2]"`. Names
-    parse case-insensitively and render canonically lower-case. This is
-    the form the FilterPanel exposes; **parsing lives in this library**,
-    not the UI. `Parse` / `TryParse` read it (throwing vs.
+    `[head,min,max]` tokens, each field comma-separated with an empty
+    bound field meaning "unbounded". The head is a board index, a named
+    borne-off location — `[off,min,max]` (on-roll player, bounds
+    `[0, 15]`) / `[opp-off,min,max]` (opponent, bounds `[-15, 0]`,
+    negative per the grammar-wide sign rule: `[opp-off,,-2]` =
+    "opponent has ≥ 2 off", reading exactly like `[5,,-2]`) — or a span
+    `a-b` of board indices (`[7-12,3,]`), e.g.
+    `"[6,,0] [5,2,] [off,1,] [opp-off,,-2] [13-18,,-2]"`. Names parse
+    case-insensitively and render canonically lower-case. This is the
+    form the FilterPanel exposes; **parsing lives in this library**, not
+    the UI. `Parse` / `TryParse` read it (throwing vs.
     return-value-on-failure), `ToBracketList` / `ToString` write it, and
     the two round-trip. `Parse` surfaces `FormatException` (malformed
-    token, unknown location name), `ArgumentOutOfRangeException` (index
-    / bound, including wrong-signed off bounds), and `ArgumentException`
-    (`Min > Max`, duplicate location); `TryParse` absorbs all of those
-    into `false`.
+    token, unknown head — a borne-off name inside a span among them),
+    `ArgumentOutOfRangeException` (index / bound, including wrong-signed
+    bar and off bounds), and `ArgumentException` (`Min > Max`, a span
+    whose start is not below its end, opposite-signed span bounds,
+    duplicate place); `TryParse` absorbs all of those into `false`.
   * **Equality** — value-based over the constraint set, via
     `IEquatable<BoardPattern>` (`Equals` + a consistent `GetHashCode`).
-    Two patterns are equal when they carry the same `CheckerRange`
-    constraints **in any order**: the constructor already treats order as
-    insignificant, and the no-duplicate-location invariant makes the
-    constraints a set, so the comparison is an exact set comparison and
-    the hash an order-independent (XOR) aggregate. Element comparison
-    delegates to `CheckerRange`'s record-struct value equality — no
-    second encoding of "same constraint" anywhere. Patterns parsed from
+    Two patterns are equal when they carry the same constraints **in any
+    order**: the constructor already treats order as insignificant, and
+    the no-duplicate-place invariant makes the constraints a set, so the
+    comparison is an exact set comparison and the hash an
+    order-independent (XOR) aggregate. Element comparison delegates to
+    each constraint's record-struct value equality — no second encoding
+    of "same constraint" anywhere. Patterns parsed from
     the same bracket list are therefore always equal; the converse holds
     only up to token order, because `ToBracketList` preserves
     construction order and two equal patterns may render permuted lists.
@@ -1132,15 +1185,29 @@ public readonly record struct CheckerLocation
 
     public static CheckerLocation PlayerOff   { get; }   // "off";     values [0, 15]
     public static CheckerLocation OpponentOff { get; }   // "opp-off"; values [-15, 0]
-    public static CheckerLocation Board(int index);      // validated 0–25
-
+    public static CheckerLocation Board(int index);      // validated 0–25; values
+                                                         // [-15, 0] at 0, [0, 15] at 25,
+                                                         // [-15, 15] on the points
     public CheckerLocationKind Kind       { get; }
     public int?                BoardIndex { get; }       // null for the off locations
 
     public override string ToString();   // "6" | "off" | "opp-off" (canonical lower-case)
 }
 
-public readonly record struct CheckerRange
+public readonly record struct CheckerSpan
+{
+    public CheckerSpan(int first, int last);   // 0 ≤ first < last ≤ 25
+
+    public int First { get; }
+    public int Last  { get; }
+
+    public override string ToString();   // "7-12"
+}
+
+/// Closed: members internal, implemented only by the two constraints below.
+public interface IPatternConstraint;
+
+public readonly record struct CheckerRange : IPatternConstraint
 {
     public CheckerLocation Location { get; }
     public int?            Min      { get; }   // inclusive; null = unbounded
@@ -1149,8 +1216,20 @@ public readonly record struct CheckerRange
     public CheckerRange(int index, int? min, int? max);   // board-location sugar
     public CheckerRange(CheckerLocation location, int? min, int? max);  // validates
                                                         // bounds per location
-    public bool   Contains(int value);
+    public bool   Contains(int value);                  // the signed count
     public override string ToString();   // "[location,min,max]"
+}
+
+public readonly record struct CheckerSpanRange : IPatternConstraint
+{
+    public CheckerSpan Span { get; }
+    public int?        Min  { get; }   // inclusive, on the side the sign names
+    public int?        Max  { get; }   // inclusive; null = unbounded
+
+    public CheckerSpanRange(int first, int last, int? min, int? max);   // sugar
+    public CheckerSpanRange(CheckerSpan span, int? min, int? max);      // refuses
+                                                    // opposite-signed bounds
+    public override string ToString();   // "[a-b,min,max]"
 }
 
 [JsonConverter(typeof(BoardPatternJsonConverter))]
@@ -1158,9 +1237,9 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
 {
     public static BoardPattern Empty { get; }
 
-    public BoardPattern(IEnumerable<CheckerRange> ranges);   // rejects duplicate indices
-
-    public IReadOnlyList<CheckerRange> Ranges { get; }
+    public BoardPattern(IEnumerable<IPatternConstraint> constraints);   // rejects a
+                                                        // duplicate place or null element
+    public IReadOnlyList<IPatternConstraint> Constraints { get; }
     public bool IsEmpty { get; }
     public bool Matches(IReadOnlyList<int> board);
 
@@ -1313,6 +1392,27 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   are construction/parse **errors**, not empty ranges — a consumer must not
   "helpfully" flip signs before handing text to `Parse`; the sign rule is
   validated here, and `TryParse` already absorbs the rejection.
+* **The bars hold one side each, and single-location tokens say so.**
+  Since halheinrich/backgammon#268, `[0,…]` (the opponent's bar) refuses
+  a positive bound and `[25,…]` (the on-roll player's bar) a negative
+  one — `[0,1,]` and `[25,,-1]` parsed before and are now errors, like a
+  wrong-signed off bound. A **stored** pattern holding one no longer
+  deserializes: `FilterConfig.FromJson` throws `JsonException` and
+  `TryFromJson` falls back to a default config, losing every member, and
+  one such entry fails a whole `NamedFilterCollection` file (the
+  `…StoredBarRuleToken…` tests measure this). Spans are exempt: a span
+  may include either bar with either sign. The rule lives in
+  `CheckerLocation.Sides`; do not re-encode it in a parser or a UI.
+* **A span counts one side; a point sees both.** `[a-b,…]` totals the
+  side its bounds' sign names and ignores the other side's checkers —
+  `[6-7,0,3]` admits an opponent's blot on the 6-point, while `[6,0,3]`,
+  bounding the signed count on one point, rejects it. "Fixing" either to
+  match the other breaks a pinned contract: the span's by the
+  opposing-checkers invariance and P/O sweeps in `CheckerSpanRangeTests`,
+  the point's by the legacy-oracle sweep in
+  `BoardPatternCompatibilityTests`. A span never nets P against O; a pair
+  of opposite-signed span bounds is refused rather than read as a net
+  count.
 * **`==` is *not* value comparison on `FilterConfig` or `BoardPattern`.**
   Both implement `IEquatable<T>` with value semantics, but neither
   declares `==` / `!=`, so the operators keep reference semantics by the

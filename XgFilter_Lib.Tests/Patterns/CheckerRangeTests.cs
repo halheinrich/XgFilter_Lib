@@ -182,6 +182,71 @@ public class CheckerRangeTests
     }
 
     // -----------------------------------------------------------------------
+    //  Bars — each holds one side, so a wrong-signed bound is refused, as it
+    //  is on a borne-off count (halheinrich/backgammon#268, rule 5)
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(1, null)]    // the opponent's bar never holds the player's checkers
+    [InlineData(null, 1)]
+    [InlineData(-2, 3)]
+    [InlineData(15, 15)]
+    public void Ctor_OpponentsBar_PositiveBound_Throws(int? min, int? max)
+    {
+        var act = () => new CheckerRange(0, min, max);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Theory]
+    [InlineData(null, -1)]   // the player's bar never holds the opponent's checkers
+    [InlineData(-1, null)]
+    [InlineData(-2, 3)]
+    [InlineData(-15, -15)]
+    public void Ctor_PlayersBar_NegativeBound_Throws(int? min, int? max)
+    {
+        var act = () => new CheckerRange(25, min, max);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Theory]
+    [InlineData(0, 0, null)]      // opponent's bar empty, or [0,0,] as Holding1386Vs20 writes it
+    [InlineData(0, null, -2)]     // opponent has two or more up
+    [InlineData(0, -15, 0)]       // the opponent's whole interval
+    [InlineData(0, 0, 0)]
+    [InlineData(25, null, 0)]     // player's bar empty
+    [InlineData(25, 1, null)]     // player has one or more up
+    [InlineData(25, 0, 15)]       // the player's whole interval
+    [InlineData(25, 0, 0)]
+    public void Ctor_Bar_BoundsWithinItsSide_Construct(int index, int? min, int? max)
+    {
+        var act = () => new CheckerRange(index, min, max);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(12)]
+    [InlineData(24)]
+    public void Ctor_Point_AdmitsBothSigns(int index)
+    {
+        // Points hold either side: the full signed interval, mixed-sign bounds
+        // included, is unchanged by the bar rule.
+        var act = () => new CheckerRange(index, -15, 15);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Contains_OnAPoint_SeesTheOpposingSide()
+    {
+        // The single-location bound is on the signed count, so [6,0,3] rejects
+        // an opponent's blot — unlike a span, which counts one side alone.
+        var range = new CheckerRange(6, 0, 3);
+
+        range.Contains(2).Should().BeTrue();
+        range.Contains(-1).Should().BeFalse();
+    }
+
+    // -----------------------------------------------------------------------
     //  Value-equality and bracket-token rendering
     // -----------------------------------------------------------------------
 

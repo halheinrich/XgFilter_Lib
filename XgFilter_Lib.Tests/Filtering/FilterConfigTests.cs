@@ -1099,7 +1099,7 @@ public class FilterConfigTests
         var restored = FilterConfig.FromJson(original.ToJson());
 
         restored.PositionPattern.Should().NotBeNull();
-        restored.PositionPattern!.Ranges.Should().BeEquivalentTo(original.PositionPattern!.Ranges);
+        restored.PositionPattern!.Constraints.Should().Equal(original.PositionPattern!.Constraints);
     }
 
     [Fact]
@@ -1109,6 +1109,32 @@ public class FilterConfigTests
         // an empty pattern — the converter routes through BoardPattern.Parse.
         var act = () => FilterConfig.FromJson("{\"PositionPattern\":\"[99,,0]\"}");
         act.Should().Throw<JsonException>();
+    }
+
+    // A stored config written before the bar rule (halheinrich/backgammon#268,
+    // rule 5) that holds a now-refused token. These measure today's load
+    // path; they do not rule on it.
+    [Theory]
+    [InlineData("[0,1,]")]
+    [InlineData("[6,2,] [25,,-1]")]
+    public void FromJson_StoredBarRuleToken_FailsTheWholeConfigLoudly(string pattern)
+    {
+        var act = () => FilterConfig.FromJson(
+            $$"""{"Players":["Alice"],"PositionPattern":"{{pattern}}"}""");
+
+        act.Should().Throw<JsonException>();
+    }
+
+    [Theory]
+    [InlineData("[0,1,]")]
+    [InlineData("[6,2,] [25,,-1]")]
+    public void TryFromJson_StoredBarRuleToken_FallsBackToADefaultConfig_LosingEveryMember(string pattern)
+    {
+        var restored = FilterConfig.TryFromJson(
+            $$"""{"Players":["Alice"],"PositionPattern":"{{pattern}}"}""", out var config);
+
+        restored.Should().BeFalse();
+        config.Should().Be(new FilterConfig());   // Players went with the pattern
     }
 
     [Fact]

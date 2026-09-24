@@ -38,6 +38,29 @@ public class CheckerLocationTests
     }
 
     // -----------------------------------------------------------------------
+    //  Value intervals — the hull of the sides that can sit there
+    // -----------------------------------------------------------------------
+
+    public static TheoryData<CheckerLocation, int, int> Intervals() => new()
+    {
+        { CheckerLocation.Board(0), -15, 0 },     // opponent's bar
+        { CheckerLocation.Board(1), -15, 15 },
+        { CheckerLocation.Board(13), -15, 15 },
+        { CheckerLocation.Board(24), -15, 15 },
+        { CheckerLocation.Board(25), 0, 15 },     // on-roll player's bar
+        { CheckerLocation.PlayerOff, 0, 15 },
+        { CheckerLocation.OpponentOff, -15, 0 },
+    };
+
+    [Theory]
+    [MemberData(nameof(Intervals))]
+    public void ValueInterval_IsTheHullOfItsSides(CheckerLocation location, int min, int max)
+    {
+        location.MinValue.Should().Be(min);
+        location.MaxValue.Should().Be(max);
+    }
+
+    // -----------------------------------------------------------------------
     //  Value-equality — what BoardPattern's duplicate-location key relies on
     // -----------------------------------------------------------------------
 

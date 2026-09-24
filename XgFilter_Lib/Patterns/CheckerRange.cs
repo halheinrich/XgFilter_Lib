@@ -15,11 +15,21 @@ namespace XgFilter_Lib.Patterns;
 /// element being well-formed and need only police the cross-element invariant
 /// (no duplicate <see cref="Location"/>). Bounds follow the grammar-wide sign
 /// rule (positive = on-roll player, negative = opponent) and must lie within
-/// the location's own value interval: <c>[-15, 15]</c> for board locations,
-/// <c>[0, 15]</c> for <see cref="CheckerLocation.PlayerOff"/>, <c>[-15, 0]</c> for
-/// <see cref="CheckerLocation.OpponentOff"/> — so a wrong-signed borne-off bound
-/// is a construction error, not a constraint that silently never matches. The
-/// 15 ceiling is <see cref="CheckerLocation.MaxCheckers"/>.
+/// the location's own value interval: <c>[-15, 15]</c> for a point (indices
+/// 1–24), <c>[0, 15]</c> for the on-roll player's bar (index 25) and
+/// <see cref="CheckerLocation.PlayerOff"/>, <c>[-15, 0]</c> for the opponent's
+/// bar (index 0) and <see cref="CheckerLocation.OpponentOff"/> — so a
+/// wrong-signed bound on a bar or a borne-off count is a construction error,
+/// not a constraint that silently never matches. The 15 ceiling is
+/// <see cref="CheckerLocation.MaxCheckers"/>.
+/// </para>
+///
+/// <para>
+/// The bounds apply to the location's <em>signed</em> count, so on a point
+/// they see both sides: <c>[6,0,3]</c> admits up to three of the on-roll
+/// player's checkers and rejects any of the opponent's. A total across
+/// several indices is a <see cref="CheckerSpanRange"/>, which counts one side
+/// alone.
 /// </para>
 ///
 /// <para>
@@ -29,7 +39,7 @@ namespace XgFilter_Lib.Patterns;
 /// and what its duplicate-location check keys on.
 /// </para>
 /// </summary>
-public readonly record struct CheckerRange
+public readonly record struct CheckerRange : IPatternConstraint
 {
     /// <summary>The location this range constrains.</summary>
     public CheckerLocation Location { get; }
@@ -56,8 +66,10 @@ public readonly record struct CheckerRange
     /// <param name="min">Inclusive lower bound, or <see langword="null"/>.</param>
     /// <param name="max">Inclusive upper bound, or <see langword="null"/>.</param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="index"/> is outside 0–25, or a bound's magnitude exceeds
-    /// <see cref="CheckerLocation.MaxCheckers"/>.
+    /// <paramref name="index"/> is outside 0–25, or a bound lies outside the
+    /// location's value interval — beyond
+    /// ±<see cref="CheckerLocation.MaxCheckers"/>, positive on the opponent's
+    /// bar (index 0), or negative on the on-roll player's bar (index 25).
     /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="min"/> is greater than <paramref name="max"/> (an
@@ -78,9 +90,11 @@ public readonly record struct CheckerRange
     /// <param name="max">Inclusive upper bound, or <see langword="null"/>.</param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// A bound lies outside the location's value interval — beyond
-    /// ±<see cref="CheckerLocation.MaxCheckers"/>, or wrong-signed for a borne-off
-    /// count (<see cref="CheckerLocation.PlayerOff"/> admits only <c>[0, 15]</c>,
-    /// <see cref="CheckerLocation.OpponentOff"/> only <c>[-15, 0]</c>).
+    /// ±<see cref="CheckerLocation.MaxCheckers"/>, or wrong-signed for a
+    /// location only one side can occupy (the on-roll player's bar and
+    /// <see cref="CheckerLocation.PlayerOff"/> admit only <c>[0, 15]</c>, the
+    /// opponent's bar and <see cref="CheckerLocation.OpponentOff"/> only
+    /// <c>[-15, 0]</c>).
     /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="min"/> is greater than <paramref name="max"/> (an
@@ -98,9 +112,7 @@ public readonly record struct CheckerRange
                 nameof(max), max,
                 $"Bound must be within [{location.MinValue}, {location.MaxValue}] for location '{location}'.");
 
-        if (min is { } l && max is { } h && l > h)
-            throw new ArgumentException(
-                $"Min ({l}) must not exceed Max ({h}) for location '{location}'.", nameof(min));
+        InclusiveBounds.ThrowIfMinExceedsMax(min, max, location);
 
         Location = location;
         Min = min;
@@ -112,15 +124,17 @@ public readonly record struct CheckerRange
     /// <see cref="Location"/>, satisfies this range. An unbounded side admits
     /// everything on that side.
     /// </summary>
-    public bool Contains(int value) =>
-        (Min ?? int.MinValue) <= value && value <= (Max ?? int.MaxValue);
+    public bool Contains(int value) => InclusiveBounds.Contain(Min, Max, value);
+
+    /// <inheritdoc/>
+    object IPatternConstraint.Place => Location;
 
     /// <summary>
     /// Tests whether <paramref name="board"/> satisfies this constraint: the
     /// location's value on the board — read directly for a board location,
     /// derived for a borne-off count — checked against the range.
     /// </summary>
-    internal bool IsSatisfiedBy(IReadOnlyList<int> board) => Contains(Location.ValueOn(board));
+    bool IPatternConstraint.IsSatisfiedBy(IReadOnlyList<int> board) => Contains(Location.ValueOn(board));
 
     /// <summary>
     /// Renders this range in the <c>[location,min,max]</c> bracket-token form

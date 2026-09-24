@@ -189,12 +189,12 @@ public class BoardPatternTests
     {
         var pattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]");
 
-        pattern.Ranges.Should().BeEquivalentTo(new[]
+        pattern.Constraints.Should().Equal(new IPatternConstraint[]
         {
             new CheckerRange(6, null, 0),
             new CheckerRange(5, 2, null),
             new CheckerRange(0, null, -1),
-        }, options => options.WithStrictOrdering());
+        });
     }
 
     [Fact]
@@ -202,11 +202,11 @@ public class BoardPatternTests
     {
         var pattern = BoardPattern.Parse("[off,1,] [opp-off,,-2]");
 
-        pattern.Ranges.Should().BeEquivalentTo(new[]
+        pattern.Constraints.Should().Equal(new IPatternConstraint[]
         {
             new CheckerRange(CheckerLocation.PlayerOff, 1, null),
             new CheckerRange(CheckerLocation.OpponentOff, null, -2),
-        }, options => options.WithStrictOrdering());
+        });
     }
 
     [Fact]
@@ -291,6 +291,39 @@ public class BoardPatternTests
         "[off,1,] [off,,3]",          // duplicate off location
         "[opp-off,,-1] [opp-off,,-2]",// duplicate opp-off location
         "[off,1,] [OFF,2,]",          // duplicate off location, spelled in mixed case
+        // Bars hold one side each (halheinrich/backgammon#268, rule 5).
+        "[0,1,]",       // positive bound on the opponent's bar
+        "[0,,2]",
+        "[0,-2,3]",
+        "[25,,-1]",     // negative bound on the on-roll player's bar
+        "[25,-1,]",
+        "[25,-2,3]",
+        // Spans (rules 1-4).
+        "[12-7,1,]",    // a > b
+        "[7-7,1,]",     // a == b: a single index keeps its own token
+        "[0-0,,]",
+        "[7-26,1,]",    // index out of range (high)
+        "[26-27,1,]",
+        "[7-12,-2,3]",  // opposite-signed bounds
+        "[7-12,-1,1]",
+        "[7-12,16,]",   // bound beyond the ceiling
+        "[7-12,,-16]",
+        "[7-12,5,3]",   // min > max, player side
+        "[7-12,-2,-5]", // min > max, opponent side
+        "[off-3,1,]",   // a borne-off name inside a span
+        "[3-off,1,]",
+        "[opp-off-5,,-1]",
+        "[1-opp-off,,-1]",
+        "[7-,1,]",      // half a span
+        "[-12,1,]",     // (reads as index -12: out of range)
+        "[7--12,1,]",
+        "[7-12-14,1,]",
+        "[+7-12,1,]",   // span indices are unsigned
+        "[7-+12,1,]",
+        "[7 - 12,1,]",
+        "[7-12,a,]",    // non-integer bound on a span
+        "[7-12,1,] [7-12,,4]",   // duplicate span
+        "[0-25,,] [0-25,,]",
     };
 
     [Theory]
@@ -329,6 +362,99 @@ public class BoardPatternTests
     {
         var act = () => BoardPattern.Parse(null!);
         act.Should().Throw<ArgumentNullException>();
+    }
+
+    // -----------------------------------------------------------------------
+    //  Spans — [a-b,min,max] (halheinrich/backgammon#268)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Parse_SpanTokens_ProduceSpanConstraints_InOrderWithLocations()
+    {
+        var pattern = BoardPattern.Parse("[7-12,3,] [6,2,] [13-18,,-2] [0-25,0,0] [24-25,-2,-2]");
+
+        pattern.Constraints.Should().Equal(new IPatternConstraint[]
+        {
+            new CheckerSpanRange(7, 12, 3, null),
+            new CheckerRange(6, 2, null),
+            new CheckerSpanRange(13, 18, null, -2),
+            new CheckerSpanRange(0, 25, 0, 0),
+            new CheckerSpanRange(24, 25, -2, -2),
+        });
+    }
+
+    [Fact]
+    public void ToBracketList_Spans_RoundTripThroughParse()
+    {
+        const string text = "[7-12,3,] [6,2,] [13-18,,-2] [0-25,0,0] [1-6,,0] [19-24,0,] [5-8,,] [24-25,-2,-2]";
+
+        var parsed = BoardPattern.Parse(text);
+        var reparsed = BoardPattern.Parse(parsed.ToBracketList());
+
+        parsed.ToBracketList().Should().Be(text);
+        reparsed.Should().Be(parsed);
+        reparsed.GetHashCode().Should().Be(parsed.GetHashCode());
+    }
+
+    [Fact]
+    public void Ctor_OverlappingPlaces_AreAllowed()
+    {
+        // Overlap is one more condition, not a duplicate: a point inside a span,
+        // two spans sharing indices, and a span nested in another all stand.
+        var pattern = BoardPattern.Parse("[7,1,] [7-12,3,] [5-8,,-2] [7-9,,] [0-25,,15]");
+
+        pattern.Constraints.Should().HaveCount(5);
+        pattern.Matches(BoardBuilder.Build((7, 1), (9, 2), (5, -2))).Should().BeTrue();
+        pattern.Matches(BoardBuilder.Build((7, 1), (9, 2), (5, -1))).Should().BeFalse();
+        pattern.Matches(BoardBuilder.Build((7, 0), (9, 3), (5, -2))).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Ctor_DuplicateSpan_Throws()
+    {
+        var act = () => new BoardPattern([
+            new CheckerSpanRange(7, 12, 3, null),
+            new CheckerSpanRange(7, 12, null, -1),
+        ]);
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Ctor_NullElement_Throws()
+    {
+        var act = () => new BoardPattern([new CheckerRange(6, 2, null), null!]);
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Equals_SpanAndLocationConstraints_NeverConflate()
+    {
+        BoardPattern.Parse("[7-12,3,]").Should().NotBe(BoardPattern.Parse("[7,3,]"));
+        BoardPattern.Parse("[7-12,3,]").Should().NotBe(BoardPattern.Parse("[7-11,3,]"));
+        BoardPattern.Parse("[7-12,3,]").Should().NotBe(BoardPattern.Parse("[7-12,3,4]"));
+    }
+
+    [Fact]
+    public void Equals_PermutedMixedConstraints_AreEqualAndHashAlike()
+    {
+        var a = BoardPattern.Parse("[7-12,3,] [6,2,] [off,1,] [13-18,,-2]");
+        var b = BoardPattern.Parse("[13-18,,-2] [off,1,] [6,2,] [7-12,3,]");
+
+        a.Should().Be(b);
+        a.GetHashCode().Should().Be(b.GetHashCode());
+        new HashSet<BoardPattern> { a, b }.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Matches_SpanComposesWithLocations_AndSemantics()
+    {
+        // Opponent holds two or more across its outfield 13..18, and the player
+        // has made the 6-point.
+        var pattern = BoardPattern.Parse("[13-18,,-2] [6,2,]");
+
+        pattern.Matches(BoardBuilder.Build((13, -1), (17, -1), (6, 2))).Should().BeTrue();
+        pattern.Matches(BoardBuilder.Build((13, -1), (6, 2))).Should().BeFalse();
+        pattern.Matches(BoardBuilder.Build((13, -1), (17, -1), (6, 1))).Should().BeFalse();
     }
 
     // -----------------------------------------------------------------------

@@ -88,7 +88,7 @@ public enum FilterFacet
     DiceRolls,
 
     /// <summary>
-    /// The per-location checker-range pattern
+    /// The checker-count pattern over board locations and spans
     /// (<see cref="FilterConfig.PositionPattern"/>); null and the empty pattern
     /// are both the inactive state.
     /// </summary>

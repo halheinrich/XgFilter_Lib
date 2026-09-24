@@ -264,6 +264,29 @@ public class NamedFilterCollectionSerializationTests
         act.Should().Throw<JsonException>().WithMessage("*Blitz*");
     }
 
+    // A saved collection written before the bar rule (halheinrich/backgammon#268,
+    // rule 5) with one entry holding a now-refused token. These measure today's
+    // load path; they do not rule on it.
+    private const string FileWithBarRuleEntry =
+        """{"schemaVersion":1,"filters":[{"name":"Blitz","config":{"PositionPattern":"[0,1,]"}},{"name":"calm","config":{"Players":["Alice"]}}]}""";
+
+    [Fact]
+    public void Read_StoredBarRuleToken_FailsTheWholeFile_NamingTheEntry()
+    {
+        var act = () => NamedFilterCollection.FromJson(FileWithBarRuleEntry);
+
+        act.Should().Throw<JsonException>().WithMessage("*Blitz*");
+    }
+
+    [Fact]
+    public void TryFromJson_StoredBarRuleToken_FallsBackToEmpty_LosingTheValidEntriesToo()
+    {
+        var result = NamedFilterCollection.TryFromJson(FileWithBarRuleEntry, out var collection);
+
+        result.Should().BeFalse();
+        collection.Should().BeSameAs(NamedFilterCollection.Empty);
+    }
+
     // -----------------------------------------------------------------------
     //  FromJson / TryFromJson — the IJsonDocument trio, inherited from the base
     // -----------------------------------------------------------------------

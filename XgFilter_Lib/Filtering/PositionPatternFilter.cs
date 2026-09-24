@@ -5,7 +5,7 @@ namespace XgFilter_Lib.Filtering;
 
 /// <summary>
 /// Passes rows whose board satisfies a <see cref="BoardPattern"/> — a general
-/// per-location checker-range predicate. This is the pattern-based counterpart to
+/// checker-count predicate over board locations and spans. This is the pattern-based counterpart to
 /// the named <see cref="PositionTypeFilter"/>: where that filter dispatches to
 /// hand-written classifiers, this one evaluates an arbitrary sparse constraint
 /// set, so a caller can express a structural shape without a dedicated
