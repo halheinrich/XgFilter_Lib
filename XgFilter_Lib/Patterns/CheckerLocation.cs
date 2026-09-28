@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Patterns;
 
@@ -47,8 +48,8 @@ public enum CheckerLocationKind
 /// value of <c>-2</c> at <see cref="OpponentOff"/> means the opponent has two
 /// checkers off, and a positive bound on the opponent's bar is a construction
 /// error rather than a constraint that silently never matches. Off counts are
-/// derived as fifteen minus the side's on-board sum, bars included — the
-/// board array carries no off entry of its own.
+/// derived as fifteen minus the side's on-board sum, bars included — a
+/// position carries no off entry of its own.
 /// </para>
 ///
 /// <para>
@@ -186,15 +187,17 @@ public readonly record struct CheckerLocation
     /// <summary>
     /// Reads (for a board location) or derives (for an off count) this
     /// location's signed value on <paramref name="board"/>. Board locations
-    /// index the array directly; an off count counts its side's on-board
-    /// checkers — bars included, never indexing beyond the list — subtracts
-    /// that from <see cref="MaxCheckers"/>, and signs the result for the side.
+    /// read their slot directly; an off count counts its side's checkers on
+    /// all 26 slots — bars included — subtracts that from
+    /// <see cref="MaxCheckers"/>, and signs the result for the side. The
+    /// position's own invariant (at most fifteen checkers a side) keeps the
+    /// derived count within the location's value interval.
     /// </summary>
-    internal int ValueOn(IReadOnlyList<int> board) => _kind switch
+    internal int ValueOn(BoardPosition board) => _kind switch
     {
         CheckerLocationKind.Board => board[_index],
         CheckerLocationKind.PlayerOff or CheckerLocationKind.OpponentOff =>
-            Sides.Signed(MaxCheckers - Sides.CheckersOn(board, 0, board.Count)),
+            Sides.Signed(MaxCheckers - Sides.CheckersOn(board, 0, MaxBoardIndex + 1)),
         _ => throw new UnreachableException($"Undefined {nameof(CheckerLocationKind)} '{_kind}'."),
     };
 

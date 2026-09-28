@@ -1,4 +1,6 @@
-﻿namespace XgFilter_Lib.Classification;
+using BgDataTypes_Lib;
+
+namespace XgFilter_Lib.Classification;
 
 /// <summary>
 /// Returns true when the player on roll holds an inner-board 6-3-1 structure:
@@ -12,7 +14,7 @@ internal sealed class InnerBoard631Classifier : IPositionClassifier
 {
     private static readonly RaceClassifier _race = new();
 
-    public bool Matches(IReadOnlyList<int> board)
+    public bool Matches(BoardPosition board)
     {
         if (_race.Matches(board)) return false;
 

@@ -7,6 +7,15 @@ namespace XgFilter_Lib.Filtering;
 /// [min, max] (inclusive) AND whose game started from the canonical opening
 /// position. Either bound may be omitted (null) to leave that end open.
 /// <para>
+/// <b>A standalone position never passes.</b> A decision in a standalone
+/// position (an <c>.xgp</c> file) belongs to no game, so its move number and
+/// its standard start are "not applicable" — <see langword="null"/>, never a
+/// stamped value (halheinrich/backgammon#124). With no move to bound, it fails
+/// an active move-number filter whatever the bounds, the drop-don't-pass
+/// posture every filter takes towards a fact that does not apply: admitting
+/// it would read "not applicable" as "any move".
+/// </para>
+/// <para>
 /// Non-standard-start games (custom problem positions, Bg960, etc.) are
 /// dropped wholesale via <see cref="IMatchFilter.ShouldSkipGame"/>; for them
 /// no canonical move numbering is meaningful. Within standard-start games,
@@ -114,13 +123,18 @@ internal sealed class MoveNumberFilter : IDecisionFilter, IMatchFilter
     private const string AtLeastOneBoundMessage =
         "Bound must be one or greater: move numbers within a game are 1-based.";
 
-    /// <inheritdoc/>
-    public bool Matches(IDecisionFilterData data)
-    {
-        if (!data.IsStandardStart) return false;
-        return (_min is null || data.MoveNumber >= _min.Value) &&
-               (_max is null || data.MoveNumber <= _max.Value);
-    }
+    /// <summary>
+    /// Returns <see langword="true"/> iff the decision's game started from the
+    /// canonical opening position and its move number lies within the bounds.
+    /// A non-standard start fails, and so does a standalone position, whose
+    /// start and move number are both <see langword="null"/> (see the type
+    /// remarks).
+    /// </summary>
+    public bool Matches(IDecisionFilterData data) =>
+        data.IsStandardStart is true
+        && data.MoveNumber is int move
+        && (_min is null || move >= _min.Value)
+        && (_max is null || move <= _max.Value);
 
     /// <summary>
     /// Mid-stream early exit: once a decision past <c>max</c> is seen, no
@@ -128,10 +142,11 @@ internal sealed class MoveNumberFilter : IDecisionFilter, IMatchFilter
     /// increase monotonically. Does not need to check
     /// <see cref="IDecisionFilterData.IsStandardStart"/>: non-standard games
     /// are skipped by <see cref="ShouldSkipGame"/> before any rows reach the
-    /// row-level pipeline.
+    /// row-level pipeline. A standalone position has no move number and
+    /// belongs to no game, so it never votes to advance.
     /// </summary>
     public bool ShouldAdvanceGame(IDecisionFilterData data) =>
-        _max is int max && data.MoveNumber > max;
+        _max is int max && data.MoveNumber is int move && move > max;
 
     /// <inheritdoc/>
     public bool ShouldSkipMatch(IMatchInfo match) => false;

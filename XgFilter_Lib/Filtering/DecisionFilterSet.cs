@@ -37,7 +37,11 @@ public sealed class DecisionFilterSet
     public bool IsEmpty => _filters.Count == 0;
 
     /// <summary>
-    /// Returns true if the row passes all filters (or if the set is empty).
+    /// Returns true if the row passes all filters (or if the set is empty),
+    /// judged under the ranking <paramref name="data"/> was built for
+    /// (<see cref="IDecisionFilterData.Ranking"/>): a <see cref="DecisionRow"/>
+    /// states its own, and a record is filtered through its view for the
+    /// ranking in force (<see cref="BgDecisionData.ViewFor"/>).
     /// </summary>
     public bool Matches(IDecisionFilterData data) => _filters.All(f => f.Matches(data));
 

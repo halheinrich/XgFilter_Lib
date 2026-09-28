@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
     <IsPackable>false</IsPackable>
@@ -20,6 +20,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
+    <!-- The producer's record builders: the one way these tests build decision
+         records (BgDataTypes_Lib INSTRUCTIONS.md, "The test-support project"). -->
+    <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib.TestSupport\BgDataTypes_Lib.TestSupport.csproj" />
     <ProjectReference Include="..\XgFilter_Lib\XgFilter_Lib.csproj" />
   </ItemGroup>
   <ItemGroup>

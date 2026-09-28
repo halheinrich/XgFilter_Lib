@@ -1,26 +1,30 @@
+using BgDataTypes_Lib;
+
 namespace XgFilter_Lib.Classification;
 
 /// <summary>
-/// Classifies a backgammon play from three board arrays, each normalized
-/// to the player who is on roll at that moment:
-///   - priorBoard       — decision-maker on roll (before any play).
-///   - afterBestBoard   — opponent on roll (turn has flipped after the best play).
-///   - afterPlayerBoard — opponent on roll (turn has flipped after the player's actual play).
+/// Classifies a backgammon play from three positions, each in the frame the
+/// producer states on the member it comes from:
+///   - priorBoard       — <see cref="IDecisionFilterData.Board"/>, the
+///     decision-maker on roll.
+///   - afterBestBoard   — <see cref="IDecisionFilterData.AfterBestBoard"/>,
+///     the position the best play under the view's ranking reaches, in the
+///     next mover's frame.
+///   - afterPlayerBoard — <see cref="IDecisionFilterData.AfterPlayerBoard"/>,
+///     the position the player's own play reaches, in the same frame.
 ///
-/// Board index convention (each board):
-///   board[0]    = opponent's bar (never positive)
-///   board[1-24] = points 1-24 from on-roll player's perspective
-///   board[25]   = on-roll player's bar (never negative)
-///   Positive values = on-roll player's checkers; negative = opponent's.
+/// So a point of the decision-maker's in priorBoard is read in the after-boards
+/// through the producer's one flip rule (<see cref="BoardPosition.Flipped"/>),
+/// never a rule of this library's.
 ///
-/// Perspective consequence: what was the decision-maker's point X in
-/// priorBoard is point (25 - X) in the after-boards, and the decision-
-/// maker's checkers there are stored as negative values.
+/// A classifier is only asked about a play whose after-boards both exist: the
+/// caller never substitutes one board for another, so a player's play off the
+/// candidate list (no after-board) is decided before a classifier is consulted.
 /// </summary>
 internal interface IPlayTypeClassifier
 {
     bool Matches(
-        IReadOnlyList<int> priorBoard,
-        IReadOnlyList<int> afterBestBoard,
-        IReadOnlyList<int> afterPlayerBoard);
+        BoardPosition priorBoard,
+        BoardPosition afterBestBoard,
+        BoardPosition afterPlayerBoard);
 }

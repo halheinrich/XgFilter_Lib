@@ -4,8 +4,8 @@ using XgFilter_Lib.Enums;
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Passes rows based on whether they are cube decisions or checker plays,
-/// as determined by <see cref="DecisionRow.IsCube"/>.
+/// Passes decisions by kind — checker plays, cube decisions, or both — as
+/// <see cref="IDecisionFilterData.Kind"/> states it.
 /// </summary>
 internal sealed class DecisionTypeFilter : IDecisionFilter
 {
@@ -20,9 +20,9 @@ internal sealed class DecisionTypeFilter : IDecisionFilter
     /// <inheritdoc/>
     public bool Matches(IDecisionFilterData data) => _option switch
     {
-        DecisionTypeOption.CheckerPlaysOnly => !data.IsCube,
-        DecisionTypeOption.CubeOnly         => data.IsCube,
-        DecisionTypeOption.Both             =>  true,
+        DecisionTypeOption.CheckerPlaysOnly => data.Kind == DecisionKind.CheckerPlay,
+        DecisionTypeOption.CubeOnly         => data.Kind == DecisionKind.Cube,
+        DecisionTypeOption.Both             => true,
         _ => throw new ArgumentOutOfRangeException(
             nameof(_option), _option, "Unknown DecisionTypeOption"),
     };

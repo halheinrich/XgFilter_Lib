@@ -1,3 +1,4 @@
+using BgDataTypes_Lib;
 using XgFilter_Lib.Classification;
 using XgFilter_Lib.Patterns;
 using XgFilter_Lib.Tests.Helpers;
@@ -118,7 +119,7 @@ public class BoardPatternOracleTests
     //  predicates flip, not only on far-from-boundary boards.
     // -----------------------------------------------------------------------
 
-    private static readonly int[][] _fixtures =
+    private static readonly BoardPosition[] _fixtures =
     [
         // Starting position
         BoardBuilder.Build((24, 2), (13, 5), (8, 3), (6, 5), (1, -2), (12, -5), (17, -3), (19, -5)),
@@ -134,34 +135,46 @@ public class BoardPatternOracleTests
 
     /// <summary>
     /// Every sampled board: the fixtures themselves, single-index perturbations
-    /// of each fixture across ±2 (clamped to the legal ±15), and a seeded
-    /// random spread over a small signed range.
+    /// of each fixture across ±2, and a seeded random spread over a small
+    /// signed range. A perturbation or a draw is kept only when it forms a
+    /// position (each bar holding its own side, at most fifteen a side) —
+    /// classifiers and patterns are only ever asked about one.
     /// </summary>
-    private static IEnumerable<int[]> SampleBoards()
+    private static IEnumerable<BoardPosition> SampleBoards()
     {
+        var counts = new int[26];
         foreach (var fixture in _fixtures)
         {
             yield return fixture;
             for (int index = 0; index < 26; index++)
                 foreach (int delta in new[] { -2, -1, 1, 2 })
                 {
-                    var board = (int[])fixture.Clone();
-                    board[index] = Math.Clamp(board[index] + delta, -15, 15);
-                    yield return board;
+                    fixture.CopyTo(counts);
+                    counts[index] += delta;
+                    if (BoardPosition.TryCreate(counts, out var perturbed))
+                        yield return perturbed;
                 }
         }
 
         var rng = new Random(20260621);
-        for (int i = 0; i < 2000; i++)
+        for (int kept = 0; kept < 2000;)
         {
-            var board = new int[26];
             for (int index = 0; index < 26; index++)
-                board[index] = rng.Next(-4, 5);
-            yield return board;
+                counts[index] = index switch
+                {
+                    0 => rng.Next(-2, 1),
+                    25 => rng.Next(0, 3),
+                    _ => rng.Next(-2, 3),
+                };
+            if (BoardPosition.TryCreate(counts, out var drawn))
+            {
+                kept++;
+                yield return drawn;
+            }
         }
     }
 
-    private static IEnumerable<int[]> ContactBoards() =>
+    private static IEnumerable<BoardPosition> ContactBoards() =>
         SampleBoards().Where(b => !_race.Matches(b));
 
     /// <summary>
@@ -169,13 +182,13 @@ public class BoardPatternOracleTests
     /// reporting the first disagreement with the offending board.
     /// </summary>
     private static void AssertAgreesOnAll(
-        BoardPattern pattern, Func<IReadOnlyList<int>, bool> classifier, IEnumerable<int[]> boards)
+        BoardPattern pattern, Func<BoardPosition, bool> classifier, IEnumerable<BoardPosition> boards)
     {
         foreach (var board in boards)
         {
             pattern.Matches(board).Should().Be(
                 classifier(board),
-                "pattern and classifier must agree on board [{0}]", string.Join(",", board));
+                "pattern and classifier must agree on board [{0}]", board);
         }
     }
 }

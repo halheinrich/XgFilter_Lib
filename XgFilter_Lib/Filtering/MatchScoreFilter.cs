@@ -3,11 +3,23 @@ using BgDataTypes_Lib;
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Passes rows where <see cref="DecisionRow.MatchScore"/> matches any entry in
-/// the include list. Examples: "5a5a", "3a1aC", "moneyJ", "moneyNJ". The token
-/// grammar — spellings, casing, and what makes a token valid — lives once on
+/// Passes decisions whose session as it stands at the decision
+/// (<see cref="IDecisionFilterData.Session"/>) is a target in the include
+/// list. Examples: "5a5a", "3a1aC", "moneyJ", "moneyNJ". The token grammar —
+/// spellings, casing, and what makes a token valid — lives once on
 /// <see cref="MatchScoreToken"/>; this filter parses through it and states no
 /// rule of its own.
+///
+/// <para>
+/// <b>Money and match are read from the session's kind</b>
+/// (halheinrich/backgammon#273): a match's away scores and Crawford flag from
+/// a <see cref="MatchSession"/>, a money session's Jacoby rule from a
+/// <see cref="MoneySession"/>'s terms, each through the kind's exhaustive
+/// <c>Match</c>. No match fact is read off a money session, no money rule off
+/// a match, and no stand-in — a length of 0, away scores of 0 — is consulted
+/// anywhere. The header gates read the header's terms and standing the same
+/// way (<see cref="IMatchInfo.Terms"/>, <see cref="IGameInfo.Standing"/>).
+/// </para>
 ///
 /// <para>
 /// Score tokens are <b>on-roll anchored</b>: <c>MaNa</c> means the player on
@@ -15,33 +27,31 @@ namespace XgFilter_Lib.Filtering;
 /// <c>"5a4a"</c> are distinct targets — include both orientations to admit a
 /// score regardless of who is on roll. Only <see cref="Matches"/> sees on-roll
 /// information; the header-level gates project the tuples exactly onto their
-/// coarser inputs (a game header is player1/player2-anchored and both players
-/// roll within a game, so <see cref="ShouldSkipGame"/> admits either
-/// orientation and leaves the per-decision verdict to <see cref="Matches"/>).
+/// coarser inputs (a game header's standing is player1/player2-anchored and
+/// both players roll within a game, so <see cref="ShouldSkipGame"/> admits
+/// either orientation and leaves the per-decision verdict to
+/// <see cref="Matches"/>).
 /// </para>
 ///
 /// <para>
 /// <b>Money sessions and the Jacoby rule.</b> The two money tokens are
-/// separate targets, each admitting money records under one rule:
-/// <see cref="MatchScoreToken.MoneyWithJacoby"/> admits
-/// <c>IsMoneyGame &amp;&amp; IsJacoby == true</c>,
-/// <see cref="MatchScoreToken.MoneyWithoutJacoby"/> admits
-/// <c>IsMoneyGame &amp;&amp; IsJacoby == false</c>, and listing both admits
-/// money under either rule. A money record whose Jacoby fact is unknown
-/// (<see cref="IDecisionFilterData.IsJacoby"/> null) matches <b>neither</b> —
-/// an unknown rule is never guessed into a side. Match scores are untouched by
-/// the money tokens, and the money tokens are untouched by any match score.
+/// separate targets, each admitting money sessions under one rule:
+/// <see cref="MatchScoreToken.MoneyWithJacoby"/> admits a money session whose
+/// terms state the Jacoby rule (<see cref="MoneyTerms.IsJacoby"/>),
+/// <see cref="MatchScoreToken.MoneyWithoutJacoby"/> one whose terms do not,
+/// and listing both admits money under either rule. Every money session
+/// states its rule, so there is no unknown rule to place. Match scores are
+/// untouched by the money tokens, and the money tokens by any match score.
 /// </para>
 ///
 /// <para>
-/// The header-level gates cannot see the Jacoby fact —
-/// <see cref="IMatchInfo"/> and <see cref="IGameInfo"/> carry no such member,
-/// by their stated "members are added on demand" minimalism — so at header
-/// scope a money session is admissible iff <em>either</em> money token is
-/// listed (see <see cref="IncludesAnyMoneyToken"/>). That is still the exact
-/// projection onto the information those headers carry: a header cannot
-/// distinguish the two rules, both rules occur under it, and
-/// <see cref="Matches"/> remains the per-decision arbiter — the same shape as
+/// A match header states the session's terms, the Jacoby rule among them, so
+/// <see cref="ShouldSkipMatch"/> judges a money session by its rule exactly as
+/// <see cref="Matches"/> does — every decision's session carries its header's
+/// terms. A game header states only the standing, which carries no rule, so
+/// at game scope a money game is admissible iff <em>either</em> money token is
+/// listed (see <see cref="IncludesAnyMoneyToken"/>): still the exact
+/// projection onto the information a game header carries, the same shape as
 /// the orientation projection above.
 /// </para>
 /// </summary>
@@ -52,7 +62,7 @@ internal sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
     private readonly bool _includesMoneyWithoutJacoby;
 
     /// <summary>
-    /// Creates a filter passing rows whose match score appears in
+    /// Creates a filter passing decisions whose session is a target in
     /// <paramref name="scores"/>. Tokens are like <c>"3a5a"</c>,
     /// <c>"1a5aC"</c>, <c>"moneyJ"</c>, or <c>"moneyNJ"</c>; the grammar
     /// (including its case and whitespace rules) is
@@ -89,55 +99,48 @@ internal sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
 
     /// <summary>
     /// Whether either money token is listed — what a gate that cannot see the
-    /// Jacoby fact is entitled to ask. Stated once here so the two header
-    /// gates cannot drift apart on it.
+    /// Jacoby rule (a game header's standing states none) is entitled to ask.
     /// </summary>
     private bool IncludesAnyMoneyToken =>
         _includesMoneyWithJacoby || _includesMoneyWithoutJacoby;
 
-    /// <inheritdoc/>
-    public bool Matches(IDecisionFilterData data)
-    {
-        // The ruled conjunctions, spelled as IDecisionFilterData.IsJacoby
-        // states them. `== true` / `== false` are load-bearing against the
-        // tri-state: the near-miss spellings `!= false` / `!= true` would
-        // admit an unknown-rule money record into one side, and an unknown
-        // rule is never guessed.
-        if (data.IsMoneyGame)
-            return (_includesMoneyWithJacoby && data.IsJacoby == true)
-                || (_includesMoneyWithoutJacoby && data.IsJacoby == false);
+    /// <summary>
+    /// Whether a money session on <paramref name="terms"/> is a target: the
+    /// token for its Jacoby rule is listed. The one statement of the money
+    /// verdict, which <see cref="Matches"/> and <see cref="ShouldSkipMatch"/>
+    /// both ask, so the two cannot drift apart on it.
+    /// </summary>
+    private bool AdmitsMoney(MoneyTerms terms) =>
+        terms.IsJacoby ? _includesMoneyWithJacoby : _includesMoneyWithoutJacoby;
 
-        return _tuples.Any(t =>
-            t.Away1 == data.OnRollNeeds &&
-            t.Away2 == data.OpponentNeeds &&
-            t.IsCrawford == data.IsCrawford);
-    }
+    /// <summary>
+    /// Whether a match, as it stands from the player on roll's side, is a
+    /// target tuple: both away scores in their orientation and the Crawford
+    /// flag exact.
+    /// </summary>
+    private bool AdmitsMatch(MatchSession match) =>
+        _tuples.Any(t =>
+            t.Away1 == match.OnRollNeeds &&
+            t.Away2 == match.OpponentNeeds &&
+            t.IsCrawford == match.IsCrawford);
+
+    /// <inheritdoc/>
+    public bool Matches(IDecisionFilterData data) =>
+        data.Session.Match(money => AdmitsMoney(money.Terms), AdmitsMatch);
 
     /// <summary>
     /// Skip the match if:
-    /// - money session but filter lists neither money token, or
-    /// - match session but filter lists only money tokens, or
-    /// - no target tuple is a score any game of a match this length can
-    ///   carry (see <see cref="CanOccurAtLength"/>).
-    /// Match headers carry neither orientation nor the Jacoby fact, and the
-    /// length bound is orientation-free, so this projection is exact for
-    /// either orientation and either rule.
+    /// - money terms whose Jacoby rule's token is not listed, or
+    /// - match terms, but no target tuple is a score any game of a match this
+    ///   length can carry (see <see cref="CanOccurAtLength"/>) — which
+    ///   includes a filter listing only money tokens.
+    /// A match header states the terms but no orientation, and the length
+    /// bound is orientation-free, so this projection is exact for either
+    /// orientation.
     /// </summary>
-    public bool ShouldSkipMatch(IMatchInfo match)
-    {
-        bool isMoney = match.IsMoneyGame;
-
-        if (isMoney && !IncludesAnyMoneyToken) return true;
-        if (!isMoney && _tuples.Count == 0) return true;
-
-        if (!isMoney)
-        {
-            bool anyPossible = _tuples.Any(t => CanOccurAtLength(t, match.MatchLength));
-            if (!anyPossible) return true;
-        }
-
-        return false;
-    }
+    public bool ShouldSkipMatch(IMatchInfo match) => match.Terms.Match(
+        money => !AdmitsMoney(money),
+        terms => !_tuples.Any(t => CanOccurAtLength(t, terms.Length)));
 
     /// <summary>
     /// True when <paramref name="t"/> is a score some game of a match of
@@ -168,26 +171,20 @@ internal sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
     }
 
     /// <summary>
-    /// Skip the game when no target tuple can match any of its decisions.
-    /// Game headers are player1/player2-anchored while target tuples are
-    /// on-roll anchored, and both players roll within a game — a game at
+    /// Skip the game when no target can match any of its decisions. A match
+    /// standing is player1/player2-anchored while target tuples are on-roll
+    /// anchored, and both players roll within a game — a game at
     /// (Away1, Away2) yields decisions scored (Away1, Away2) <i>and</i>
     /// (Away2, Away1). The exact projection onto game-level information is
     /// therefore: skip iff no tuple matches in either orientation, Crawford
     /// flag exact. <see cref="Matches"/> remains the per-decision arbiter
     /// of orientation. A money game is admissible iff either money token is
-    /// listed — the header carries no Jacoby fact, so the rule verdict is
-    /// likewise <see cref="Matches"/>'s.
+    /// listed — a money standing carries no Jacoby rule, so the rule verdict
+    /// is <see cref="ShouldSkipMatch"/>'s and <see cref="Matches"/>'s.
     /// </summary>
-    public bool ShouldSkipGame(IGameInfo game)
-    {
-        bool isMoney = game.Away1 == 0 && game.Away2 == 0 && !game.IsCrawfordGame;
-
-        if (isMoney) return !IncludesAnyMoneyToken;
-
-        return !_tuples.Any(t =>
-            MatchesGameScore(t, game.Away1, game.Away2, game.IsCrawfordGame));
-    }
+    public bool ShouldSkipGame(IGameInfo game) => game.Standing.Match(
+        _ => !IncludesAnyMoneyToken,
+        aways => !_tuples.Any(t => MatchesGameScore(t, aways.Away1, aways.Away2, aways.IsCrawford)));
 
     /// <summary>
     /// True when <paramref name="t"/> equals the game score
@@ -203,38 +200,37 @@ internal sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
          (t.Away1 == away2 && t.Away2 == away1));
 
     /// <summary>
-    /// Mid-stream: return true when no remaining row in this match can match
-    /// any target tuple, so the rest of the file can be skipped. "Remaining"
-    /// includes the rest of the <i>current</i> game — the producer cuts the
-    /// file immediately on a true vote — whose later decisions carry the
-    /// current score in either orientation (both players roll). Strictly
+    /// Mid-stream: return true when no remaining decision in this match can
+    /// match any target tuple, so the rest of the file can be skipped.
+    /// "Remaining" includes the rest of the <i>current</i> game — the producer
+    /// cuts the file immediately on a true vote — whose later decisions carry
+    /// the current score in either orientation (both players roll). Strictly
     /// future games are covered by <see cref="IsReachable"/>, which exploits
     /// the monotonic decrease of away-scores game-to-game and the
-    /// once-per-match Crawford rule. Money rows always return false (no
-    /// "match" concept).
+    /// once-per-match Crawford rule. A money session always returns false:
+    /// it has no away scores to run down, and its rule is the same in every
+    /// game, which <see cref="ShouldSkipMatch"/> has already judged.
     /// </summary>
-    public bool ShouldAdvanceMatch(IDecisionFilterData data)
-    {
-        if (data.IsMoneyGame) return false;
-        return !_tuples.Any(t =>
-            MatchesGameScore(t, data.OnRollNeeds, data.OpponentNeeds, data.IsCrawford) ||
-            IsReachable(t, data));
-    }
+    public bool ShouldAdvanceMatch(IDecisionFilterData data) => data.Session.Match(
+        static _ => false,
+        match => !_tuples.Any(t =>
+            MatchesGameScore(t, match.OnRollNeeds, match.OpponentNeeds, match.IsCrawford) ||
+            IsReachable(t, match)));
 
     /// <summary>
     /// True if <paramref name="t"/> can match some strictly-future game
     /// reachable from <paramref name="current"/>. The current game itself is
     /// <see cref="ShouldAdvanceMatch"/>'s separate <see cref="MatchesGameScore"/>
     /// check. Tuples are constructor-validated (both sides &gt;= 1; Crawford
-    /// implies exactly one side == 1), so tuple validity is not re-checked here.
+    /// implies exactly one side == 1), and a <see cref="MatchSession"/> holds
+    /// its own away scores to the same floor, so neither is re-checked here.
     /// </summary>
     private static bool IsReachable(
         (int Away1, int Away2, bool IsCrawford) t,
-        IDecisionFilterData current)
+        MatchSession current)
     {
         int ca = current.OnRollNeeds;
         int cb = current.OpponentNeeds;
-        if (ca < 1 || cb < 1) return false;
 
         int minT = Math.Min(t.Away1, t.Away2);
         int maxT = Math.Max(t.Away1, t.Away2);

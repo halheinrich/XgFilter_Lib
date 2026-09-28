@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Patterns;
@@ -11,6 +12,65 @@ namespace XgFilter_Lib.Tests.Filtering;
 public class FilterConfigTests
 {
     // -----------------------------------------------------------------------
+    //  Records for the Build tests — each built through TestRecords and read
+    //  as its row under the default ranking (TestRecords.Row), the shape a
+    //  CSV consumer filters. The filters' own suites exercise both substrates.
+    // -----------------------------------------------------------------------
+
+    private static DecisionRow Row(BgDecisionData record) => TestRecords.Row(record);
+
+    private static DecisionRow PlayBy(string player) =>
+        Row(TestRecords.CheckerPlay(descriptive: TestRecords.Descriptive(onRollName: player)));
+
+    private static DecisionRow CheckerPlay() => Row(TestRecords.CheckerPlay());
+
+    private static DecisionRow Cube() => Row(TestRecords.Cube());
+
+    private static DecisionRow AtScore(int onRollNeeds, int opponentNeeds) =>
+        Row(TestRecords.CheckerPlay(position: TestRecords.Position(
+            session: TestRecords.MatchSession(onRollNeeds: onRollNeeds, opponentNeeds: opponentNeeds))));
+
+    /// <summary>The opening 3-1, the player's play erring by exactly <paramref name="error"/>.</summary>
+    private static DecisionRow Erred(double error) =>
+        Row(TestRecords.CheckerPlay(decision: TestRecords.CheckerPlayData(
+            plays:
+            [
+                TestRecords.Candidate(play: [new(8, 5), new(6, 5)], equity: 0.0),
+                TestRecords.Candidate(play: [new(13, 10), new(6, 5)], equity: -error),
+            ],
+            userPlayIndex: 1)));
+
+    private static DecisionRow AtMove(int moveNumber) =>
+        Row(TestRecords.CheckerPlay(id: new XgDecisionId("match.xg", Game: 1, MoveNumber: moveNumber, IsCube: false)));
+
+    private static DecisionRow OnBoard(BoardPosition board) =>
+        Row(TestRecords.CheckerPlay(position: TestRecords.Position(mop: board)));
+
+    private static DecisionRow Rolled(int first, int second) =>
+        Row(TestRecords.CheckerPlay(decision: TestRecords.CheckerPlayData(dice: [first, second])));
+
+    /// <summary>A checker play whose one candidate was analysed in <paramref name="mode"/> at <paramref name="level"/>.</summary>
+    private static DecisionRow Analysed(AnalysisMode mode, AnalysisLevel level) =>
+        Row(TestRecords.CheckerPlay(decision: TestRecords.CheckerPlayData(
+            plays: [TestRecords.Candidate(analysisMode: mode, analysisLevel: level)])));
+
+    // The boards the board facets are exercised on, each a decision position.
+    private static readonly BoardPosition RaceBoard = BoardBuilder.Build(
+        (3, 2), (2, 3), (22, -2), (23, -3));
+
+    // Holding 13-8-6 vs 20: player holds 13/8/6 with nothing above the 13;
+    // opponent anchors on the player's 5 point (its own 20) and the 12.
+    private static readonly BoardPosition HoldingBoard = BoardBuilder.Build(
+        (13, 5), (8, 3), (6, 4), (4, 2), (1, 1),
+        (5, -2), (12, -3), (19, -4), (21, -4), (23, -2));
+
+    // The opponent has two on the bar.
+    private static readonly BoardPosition VsTwoPlusUpBoard = BoardBuilder.Build(
+        (0, -2),
+        (24, 2), (13, 5), (8, 3), (6, 5),
+        (12, -5), (17, -3), (19, -3));
+
+    // -----------------------------------------------------------------------
     //  Default config — empty set, matches everything
     // -----------------------------------------------------------------------
 
@@ -19,9 +79,9 @@ public class FilterConfigTests
     {
         var set = new FilterConfig().Build();
 
-        set.Matches(new RowShape().ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(IsCube: true).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(Player: "anyone").ToDecisionRow()).Should().BeTrue();
+        set.Matches(CheckerPlay()).Should().BeTrue();
+        set.Matches(Cube()).Should().BeTrue();
+        set.Matches(PlayBy("anyone")).Should().BeTrue();
     }
 
     [Fact]
@@ -34,8 +94,8 @@ public class FilterConfigTests
         // set's filter list lean.
         var set = new FilterConfig { DecisionType = DecisionTypeOption.Both }.Build();
 
-        set.Matches(new RowShape(IsCube: true).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(IsCube: false).ToDecisionRow()).Should().BeTrue();
+        set.Matches(Cube()).Should().BeTrue();
+        set.Matches(CheckerPlay()).Should().BeTrue();
     }
 
     // -----------------------------------------------------------------------
@@ -47,15 +107,15 @@ public class FilterConfigTests
     {
         var set = new FilterConfig { Players = { "Alice" } }.Build();
 
-        set.Matches(new RowShape(Player: "Alice").ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(Player: "Bob").ToDecisionRow()).Should().BeFalse();
+        set.Matches(PlayBy("Alice")).Should().BeTrue();
+        set.Matches(PlayBy("Bob")).Should().BeFalse();
     }
 
     [Fact]
     public void Build_PlayersEmpty_SkipsPlayerFilter()
     {
         var set = new FilterConfig().Build();
-        set.Matches(new RowShape(Player: "anyone").ToDecisionRow()).Should().BeTrue();
+        set.Matches(PlayBy("anyone")).Should().BeTrue();
     }
 
     [Fact]
@@ -66,8 +126,8 @@ public class FilterConfigTests
             DecisionType = DecisionTypeOption.CheckerPlaysOnly,
         }.Build();
 
-        set.Matches(new RowShape(IsCube: false).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(IsCube: true).ToDecisionRow()).Should().BeFalse();
+        set.Matches(CheckerPlay()).Should().BeTrue();
+        set.Matches(Cube()).Should().BeFalse();
     }
 
     [Fact]
@@ -75,10 +135,8 @@ public class FilterConfigTests
     {
         var set = new FilterConfig { MatchScores = { "3a5a" } }.Build();
 
-        set.Matches(new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(OnRollNeeds: 2, OpponentNeeds: 4, IsCrawford: false).ToDecisionRow())
-            .Should().BeFalse();
+        set.Matches(AtScore(3, 5)).Should().BeTrue();
+        set.Matches(AtScore(2, 4)).Should().BeFalse();
     }
 
     [Fact]
@@ -86,19 +144,24 @@ public class FilterConfigTests
     {
         var set = new FilterConfig { ErrorMin = 0.05 }.Build();
 
-        set.Matches(new RowShape(Error: 0.10).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(Error: 0.01).ToDecisionRow()).Should().BeFalse();
+        set.Matches(Erred(0.10)).Should().BeTrue();
+        set.Matches(Erred(0.01)).Should().BeFalse();
     }
 
     [Fact]
     public void Build_ErrorBoundsBothNull_SkipsErrorRangeFilter()
     {
-        // Skipping matters because the filter would otherwise reject rows
-        // with null FilterError as a safety. The default config must not
-        // silently drop unanalysed rows.
+        // Skipping matters because the filter drops every result with no
+        // error. The default config must not silently drop a decision with no
+        // move recorded, nor — under depth first — a move the ranking does
+        // not score.
         var set = new FilterConfig().Build();
-        var unanalysedDiagram = new RowShape(Error: null).ToBgDecisionData();
-        set.Matches(unanalysedDiagram).Should().BeTrue();
+        var nothingRecorded = TestRecords.CheckerPlay(
+            decision: TestRecords.CheckerPlayData(userPlayIndex: null));
+        var notScored = RankingSplit.Played(RankingSplit.ShallowHigh);
+
+        set.Matches(nothingRecorded.ViewFor(PlayRanking.Equity)).Should().BeTrue();
+        set.Matches(notScored.ViewFor(PlayRanking.DepthFirst)).Should().BeTrue();
     }
 
     [Fact]
@@ -106,40 +169,30 @@ public class FilterConfigTests
     {
         var set = new FilterConfig { MoveNumberMax = 5 }.Build();
 
-        set.Matches(new RowShape(MoveNumber: 3).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(MoveNumber: 6).ToDecisionRow()).Should().BeFalse();
+        set.Matches(AtMove(3)).Should().BeTrue();
+        set.Matches(AtMove(6)).Should().BeFalse();
     }
 
     [Fact]
     public void Build_ContactTypesNonEmpty_AddsContactTypeFilter()
     {
-        var raceBoard = new int[26];
-        raceBoard[3] = 2; raceBoard[2] = 3;
-        raceBoard[22] = -2; raceBoard[23] = -3;
-
         var set = new FilterConfig
         {
             ContactTypes = { ContactType.Race },
         }.Build();
 
-        set.Matches(new RowShape(Board: raceBoard).ToDecisionRow()).Should().BeTrue();
+        set.Matches(OnBoard(RaceBoard)).Should().BeTrue();
     }
 
     [Fact]
     public void Build_PositionTypesNonEmpty_AddsPositionTypeFilter()
     {
-        // Holding 13-8-6 vs 20: player holds 13/8/6 with nothing above the 13;
-        // opponent anchors on the player's 5 point (its own 20) and the 12.
-        var holdingBoard = new int[26];
-        holdingBoard[13] = 5; holdingBoard[8] = 3; holdingBoard[6] = 4; holdingBoard[4] = 2; holdingBoard[1] = 1;
-        holdingBoard[5] = -2; holdingBoard[12] = -3; holdingBoard[19] = -4; holdingBoard[21] = -4; holdingBoard[23] = -2;
-
         var set = new FilterConfig
         {
             PositionTypes = { PositionType.Holding1386Vs20 },
         }.Build();
 
-        set.Matches(new RowShape(Board: holdingBoard).ToDecisionRow()).Should().BeTrue();
+        set.Matches(OnBoard(HoldingBoard)).Should().BeTrue();
     }
 
     [Fact]
@@ -149,44 +202,37 @@ public class FilterConfigTests
         // contact-type facet AND the position-type facet. A holding position
         // is Contact AND Holding → passes; the plain starting position is
         // Contact but NOT Holding → rejected by the AND.
-        var holdingBoard = new int[26];
-        holdingBoard[13] = 5; holdingBoard[8] = 3; holdingBoard[6] = 4; holdingBoard[4] = 2; holdingBoard[1] = 1;
-        holdingBoard[5] = -2; holdingBoard[12] = -3; holdingBoard[19] = -4; holdingBoard[21] = -4; holdingBoard[23] = -2;
-
-        var startingBoard = new int[26];
-        startingBoard[24] = 2; startingBoard[13] = 5; startingBoard[8] = 3; startingBoard[6] = 5;
-        startingBoard[1] = -2; startingBoard[12] = -5; startingBoard[17] = -3; startingBoard[19] = -5;
-
         var set = new FilterConfig
         {
             ContactTypes = { ContactType.Contact },
             PositionTypes = { PositionType.Holding1386Vs20 },
         }.Build();
 
-        set.Matches(new RowShape(Board: holdingBoard).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(Board: startingBoard).ToDecisionRow()).Should().BeFalse();
+        set.Matches(OnBoard(HoldingBoard)).Should().BeTrue();
+        set.Matches(OnBoard(BoardPosition.Standard)).Should().BeFalse();
     }
 
     [Fact]
     public void Build_PlayTypesNonEmpty_AddsPlayTypeFilter()
     {
-        // Make20Pt: prior board has decision-maker's 20-point empty,
-        // best play makes it (afterBest[5] = -2), player play does not.
-        var prior = new int[26];
-        var afterBest = new int[26];
-        afterBest[5] = -2;
-        var afterPlayer = new int[26];
+        // Make20Pt, on a 4-4 from the standard start: the best play,
+        // 24/20(2) 13/9(2), makes the decision-maker's 20-point; the player's,
+        // 13/9(2) 6/2(2), does not.
+        var record = TestRecords.CheckerPlay(decision: TestRecords.CheckerPlayData(
+            dice: [4, 4],
+            plays:
+            [
+                TestRecords.Candidate(play: [new(24, 20), new(24, 20), new(13, 9), new(13, 9)], equity: 0.1),
+                TestRecords.Candidate(play: [new(13, 9), new(13, 9), new(6, 2), new(6, 2)], equity: 0.0),
+            ],
+            userPlayIndex: 1));
 
         var set = new FilterConfig
         {
             PlayTypes = { PlayType.Make20Pt },
         }.Build();
 
-        set.Matches(new RowShape(
-            Board: prior,
-            AfterBestBoard: afterBest,
-            AfterPlayerBoard: afterPlayer).ToDecisionRow())
-            .Should().BeTrue();
+        set.Matches(Row(record)).Should().BeTrue();
     }
 
     // -----------------------------------------------------------------------
@@ -202,8 +248,7 @@ public class FilterConfigTests
         // All three toggles off → facet inactive → filter not added, so even
         // an Unknown-mode row (legacy data) passes.
         var set = new FilterConfig().Build();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
-            .Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Unknown, AnalysisLevel.Unknown)).Should().BeTrue();
     }
 
     [Fact]
@@ -220,10 +265,8 @@ public class FilterConfigTests
         }.Build();
 
         set.IsEmpty.Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply1).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
-            .Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply1)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Unknown, AnalysisLevel.Unknown)).Should().BeTrue();
     }
 
     [Fact]
@@ -237,12 +280,9 @@ public class FilterConfigTests
             EvaluationLevels = { AnalysisLevel.Ply4 },
         }.Build();
 
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3).ToDecisionRow())
-            .Should().BeFalse();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply4)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply3)).Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply4)).Should().BeFalse();
     }
 
     [Fact]
@@ -252,12 +292,9 @@ public class FilterConfigTests
         // inner level.
         var set = new FilterConfig { IncludeRollouts = true }.Build();
 
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.XgRoller).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply4)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.XgRoller)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply4)).Should().BeFalse();
     }
 
     [Fact]
@@ -273,12 +310,9 @@ public class FilterConfigTests
             IncludeEvaluations = true,
         }.Build();
 
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeFalse();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply1).ToDecisionRow())
-            .Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply3)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply4)).Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply1)).Should().BeTrue();
     }
 
     [Fact]
@@ -291,12 +325,9 @@ public class FilterConfigTests
             IncludeBookRollouts = true,
         }.Build();
 
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply4)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.BookRollout, AnalysisLevel.Unknown)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply4)).Should().BeFalse();
     }
 
     [Fact]
@@ -307,8 +338,7 @@ public class FilterConfigTests
         // level checked, the clause's "any level" axis lets it through.
         var set = new FilterConfig { IncludeBookRollouts = true }.Build();
 
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
-            .Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.BookRollout, AnalysisLevel.Unknown)).Should().BeTrue();
     }
 
     [Fact]
@@ -323,10 +353,8 @@ public class FilterConfigTests
             BookRolloutLevels = { AnalysisLevel.Ply4 },
         }.Build();
 
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
-            .Should().BeFalse();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.BookRollout, AnalysisLevel.Unknown)).Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.BookRollout, AnalysisLevel.Ply4)).Should().BeTrue();
     }
 
     [Fact]
@@ -335,8 +363,7 @@ public class FilterConfigTests
         // No selection produces mode Unknown, so any active facet drops legacy
         // Unknown-mode rows.
         var set = new FilterConfig { IncludeRollouts = true }.Build();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
-            .Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.Unknown, AnalysisLevel.Unknown)).Should().BeFalse();
     }
 
     [Fact]
@@ -355,18 +382,12 @@ public class FilterConfigTests
         };
         var set = config.Build();
 
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply4).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.XgRoller).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRollerPlusPlus).ToDecisionRow())
-            .Should().BeTrue();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRoller).ToDecisionRow())
-            .Should().BeFalse();
-        set.Matches(new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown).ToDecisionRow())
-            .Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply3)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply4)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Rollout, AnalysisLevel.XgRoller)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Evaluation, AnalysisLevel.XgRollerPlusPlus)).Should().BeTrue();
+        set.Matches(Analysed(AnalysisMode.Evaluation, AnalysisLevel.XgRoller)).Should().BeFalse();
+        set.Matches(Analysed(AnalysisMode.BookRollout, AnalysisLevel.Unknown)).Should().BeFalse();
     }
 
     [Fact]
@@ -375,21 +396,21 @@ public class FilterConfigTests
         // Union semantics: every further toggle or level can only admit MORE
         // rows. Pinned on a mixed sample containing a row each addition newly
         // admits, starting from the acceptance-case config.
-        var sample = new RowShape[]
+        var sample = new[]
         {
-            new(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
-            new(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.XgRoller),
-            new(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRollerPlusPlus),
-            new(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRoller),
-            new(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
-            new(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown),
-            new(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown),
+            Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Rollout, AnalysisLevel.XgRoller),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.XgRollerPlusPlus),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.XgRoller),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.BookRollout, AnalysisLevel.Unknown),
+            Analysed(AnalysisMode.Unknown, AnalysisLevel.Unknown),
         };
 
-        static int Matched(FilterConfig config, IEnumerable<RowShape> rows)
+        static int Matched(FilterConfig config, IEnumerable<DecisionRow> rows)
         {
             var set = config.Build();
-            return rows.Count(r => set.Matches(r.ToDecisionRow()));
+            return rows.Count(set.Matches);
         }
 
         var config = new FilterConfig
@@ -422,10 +443,10 @@ public class FilterConfigTests
             DiceRolls = { new DiceRoll(3, 1) },
         }.Build();
 
-        set.Matches(new RowShape(Roll: 31).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(Roll: 52).ToDecisionRow()).Should().BeFalse();
+        set.Matches(Rolled(3, 1)).Should().BeTrue();
+        set.Matches(Rolled(5, 2)).Should().BeFalse();
         // Cube rows carry no roll and never pass an active dice facet.
-        set.Matches(new RowShape(IsCube: true).ToDecisionRow()).Should().BeFalse();
+        set.Matches(Cube()).Should().BeFalse();
     }
 
     [Fact]
@@ -434,31 +455,28 @@ public class FilterConfigTests
         // Empty = facet inactive; the filter is not added, so every row passes
         // (an added empty-set DiceRollFilter would instead reject everything).
         var set = new FilterConfig().Build();
-        set.Matches(new RowShape(Roll: 52).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(IsCube: true).ToDecisionRow()).Should().BeTrue();
+        set.Matches(Rolled(5, 2)).Should().BeTrue();
+        set.Matches(Cube()).Should().BeTrue();
     }
 
     [Fact]
     public void Build_PositionPatternSet_AddsPositionPatternFilter()
     {
         // [0,,-2]: opponent two-or-more on the bar.
-        var vsTwoPlusUp = new int[26];
-        vsTwoPlusUp[0] = -2;
-
         var set = new FilterConfig
         {
             PositionPattern = BoardPattern.Parse("[0,,-2]"),
         }.Build();
 
-        set.Matches(new RowShape(Board: vsTwoPlusUp).ToDecisionRow()).Should().BeTrue();
-        set.Matches(new RowShape(Board: new int[26]).ToDecisionRow()).Should().BeFalse();
+        set.Matches(OnBoard(VsTwoPlusUpBoard)).Should().BeTrue();
+        set.Matches(OnBoard(BoardPosition.Standard)).Should().BeFalse();
     }
 
     [Fact]
     public void Build_PositionPatternNull_SkipsPositionPatternFilter()
     {
         var set = new FilterConfig().Build();
-        set.Matches(new RowShape(Board: new int[26]).ToDecisionRow()).Should().BeTrue();
+        set.Matches(OnBoard(BoardPosition.Standard)).Should().BeTrue();
     }
 
     [Fact]
@@ -467,7 +485,7 @@ public class FilterConfigTests
         // An empty pattern matches every board, so adding the filter would be a
         // no-op AND step on every row; Build skips it like the empty lists.
         var set = new FilterConfig { PositionPattern = BoardPattern.Empty }.Build();
-        set.Matches(new RowShape(Board: new int[26]).ToDecisionRow()).Should().BeTrue();
+        set.Matches(OnBoard(BoardPosition.Standard)).Should().BeTrue();
     }
 
     // -----------------------------------------------------------------------

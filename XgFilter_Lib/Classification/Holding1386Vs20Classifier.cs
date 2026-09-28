@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+
 namespace XgFilter_Lib.Classification;
 
 /// <summary>
@@ -42,7 +44,7 @@ namespace XgFilter_Lib.Classification;
 internal sealed class Holding1386Vs20Classifier : IPositionClassifier
 {
     // board[0]=opp bar (neg), board[1..24] points (pos=player, neg=opp), board[25]=player bar (pos)
-    public bool Matches(IReadOnlyList<int> board)
+    public bool Matches(BoardPosition board)
     {
         // Ordered by selectivity: lead with the rarest signal — the opponent's
         // 20-point anchor — so the common non-holding board is rejected in a

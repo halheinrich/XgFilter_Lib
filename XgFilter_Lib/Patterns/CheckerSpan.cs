@@ -1,4 +1,5 @@
 using System.Globalization;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Patterns;
 
@@ -73,7 +74,7 @@ public readonly record struct CheckerSpan
     /// non-negative number; the other side's checkers are ignored. Indexes
     /// the board directly, like a board <see cref="CheckerLocation"/>.
     /// </summary>
-    internal int CheckersOn(CheckerSides side, IReadOnlyList<int> board) =>
+    internal int CheckersOn(CheckerSides side, BoardPosition board) =>
         side.CheckersOn(board, First, Last + 1);
 
     /// <summary>

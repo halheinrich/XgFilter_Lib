@@ -1,4 +1,5 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
 using Clause = XgFilter_Lib.Filtering.AnalysisDepthFilter.Clause;
@@ -15,6 +16,18 @@ namespace XgFilter_Lib.Tests.Filtering;
 /// </summary>
 public class AnalysisDepthFilterTests
 {
+    /// <summary>
+    /// A checker play whose one candidate — so its best under either ranking —
+    /// was analysed in <paramref name="mode"/> at <paramref name="level"/>.
+    /// </summary>
+    private static CheckerPlayDecision Analysed(AnalysisMode mode, AnalysisLevel level) =>
+        TestRecords.CheckerPlay(decision: TestRecords.CheckerPlayData(
+            plays: [TestRecords.Candidate(analysisMode: mode, analysisLevel: level)]));
+
+    /// <summary>A cube decision whose cube analysis was in <paramref name="mode"/> at <paramref name="level"/>.</summary>
+    private static CubeDecision CubeAnalysed(AnalysisMode mode, AnalysisLevel level) =>
+        TestRecords.Cube(decision: TestRecords.CubeData(analysisMode: mode, analysisLevel: level));
+
     // -----------------------------------------------------------------------
     //  Single clause — mode equality AND per-clause level membership.
     // -----------------------------------------------------------------------
@@ -26,7 +39,7 @@ public class AnalysisDepthFilterTests
             [new Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply3])]);
         AssertMatchesBoth(
             filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply3),
             expected: true);
     }
 
@@ -38,7 +51,7 @@ public class AnalysisDepthFilterTests
             [new Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply3])]);
         AssertMatchesBoth(
             filter,
-            new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply3),
             expected: false);
     }
 
@@ -50,19 +63,19 @@ public class AnalysisDepthFilterTests
             [new Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply3])]);
         AssertMatchesBoth(
             filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply4),
             expected: false);
     }
 
     [Fact]
-    public void CubeRow_AdmittedByClause_Passes()
+    public void CubeDecision_AdmittedByClause_Passes()
     {
-        // Cube rows carry the (mode, level) pair too — the cube analysis.
+        // A cube decision carries the (mode, level) pair too — its cube analysis.
         var filter = new AnalysisDepthFilter(
             [new Clause(AnalysisMode.Rollout, [AnalysisLevel.XgRoller])]);
         AssertMatchesBoth(
             filter,
-            new RowShape(IsCube: true, AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.XgRoller),
+            CubeAnalysed(AnalysisMode.Rollout, AnalysisLevel.XgRoller),
             expected: true);
     }
 
@@ -73,13 +86,13 @@ public class AnalysisDepthFilterTests
             [new Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply3, AnalysisLevel.Ply4])]);
 
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply3),
             expected: true);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply4),
             expected: true);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply5),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply5),
             expected: false);
     }
 
@@ -98,13 +111,13 @@ public class AnalysisDepthFilterTests
         ]);
 
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply3),
             expected: true);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.XgRoller),
+            Analysed(AnalysisMode.BookRollout, AnalysisLevel.XgRoller),
             expected: true);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply3),
             expected: false);
     }
 
@@ -124,14 +137,14 @@ public class AnalysisDepthFilterTests
         // Rollout rows pass at any inner level — Ply3 is not in the
         // evaluation clause's set, and that set must not constrain them.
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply3),
             expected: true);
         // Evaluation rows pass only at the level checked FOR evaluations.
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.XgRollerPlusPlus),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.XgRollerPlusPlus),
             expected: true);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply3),
             expected: false);
     }
 
@@ -148,13 +161,13 @@ public class AnalysisDepthFilterTests
         ]);
 
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply3),
             expected: true);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply4),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply4),
             expected: true);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply5),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Ply5),
             expected: false);
     }
 
@@ -170,10 +183,10 @@ public class AnalysisDepthFilterTests
         var filter = new AnalysisDepthFilter([new Clause(AnalysisMode.BookRollout, [])]);
 
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.Unknown),
+            Analysed(AnalysisMode.BookRollout, AnalysisLevel.Unknown),
             expected: true);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.BookRollout, AnalysisLevel: AnalysisLevel.XgRoller),
+            Analysed(AnalysisMode.BookRollout, AnalysisLevel.XgRoller),
             expected: true);
     }
 
@@ -183,7 +196,7 @@ public class AnalysisDepthFilterTests
         // "Any level" does not mean "any mode" — the clause's mode still applies.
         var filter = new AnalysisDepthFilter([new Clause(AnalysisMode.BookRollout, [])]);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Unknown),
+            Analysed(AnalysisMode.Evaluation, AnalysisLevel.Unknown),
             expected: false);
     }
 
@@ -200,8 +213,29 @@ public class AnalysisDepthFilterTests
         // is absent — see FilterConfigTests).
         var filter = new AnalysisDepthFilter([new Clause(AnalysisMode.Evaluation, [])]);
         AssertMatchesBoth(filter,
-            new RowShape(AnalysisMode: AnalysisMode.Unknown, AnalysisLevel: AnalysisLevel.Unknown),
+            Analysed(AnalysisMode.Unknown, AnalysisLevel.Unknown),
             expected: false);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The ranking in force: a checker play's depth is its best play's under
+    //  the ranking the view was built for (SPEC-scoring §2a).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void CheckerPlay_DepthIsTheRankingsBestPlays()
+    {
+        // Equity's best is the 2-ply play; depth first's is a 4-ply one. A
+        // clause on either level admits the decision under exactly the
+        // ranking whose best was analysed at it.
+        var record = RankingSplit.Played(RankingSplit.DeepBest);
+        var fourPly = new AnalysisDepthFilter([new Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply4])]);
+        var twoPly = new AnalysisDepthFilter([new Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply2])]);
+
+        AssertMatchesBoth(fourPly, record, expected: true, PlayRanking.DepthFirst);
+        AssertMatchesBoth(fourPly, record, expected: false, PlayRanking.Equity);
+        AssertMatchesBoth(twoPly, record, expected: true, PlayRanking.Equity);
+        AssertMatchesBoth(twoPly, record, expected: false, PlayRanking.DepthFirst);
     }
 
     // -----------------------------------------------------------------------

@@ -1,4 +1,6 @@
+using BgDataTypes_Lib;
 using XgFilter_Lib.Classification;
+using XgFilter_Lib.Tests.Helpers;
 
 namespace XgFilter_Lib.Tests.Classification;
 
@@ -8,23 +10,14 @@ public class Make20PtClassifierTests
 
     // priorBoard: decision-maker on roll. Their 20-point is index 20;
     // positive counts = decision-maker's checkers, negative = opponent's.
-    private static int[] Prior(int at20)
-    {
-        var b = new int[26];
-        b[20] = at20;
-        return b;
-    }
+    private static BoardPosition Prior(int at20) => BoardBuilder.Build((20, at20));
 
     // After-board: opponent on roll after the turn-flip. The decision-
     // maker's 20-point is now index 5; their checkers are negative,
     // opponent's are positive. `decisionMakerCount` is stored as its
     // negation; `opponentCount` is stored positively.
-    private static int[] After(int decisionMakerCount, int opponentCount = 0)
-    {
-        var b = new int[26];
-        b[5] = opponentCount - decisionMakerCount;
-        return b;
-    }
+    private static BoardPosition After(int decisionMakerCount, int opponentCount = 0) =>
+        BoardBuilder.Build((5, opponentCount - decisionMakerCount));
 
     // -----------------------------------------------------------------------
     //  Positive — XOR true, 20-point not already made

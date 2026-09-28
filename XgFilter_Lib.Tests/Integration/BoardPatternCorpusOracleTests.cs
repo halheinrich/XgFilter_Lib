@@ -1,3 +1,4 @@
+using BgDataTypes_Lib;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Enums;
@@ -46,13 +47,11 @@ public class BoardPatternCorpusOracleTests
     private static readonly ILogger<FilteredDecisionIterator> NullLogger =
         NullLogger<FilteredDecisionIterator>.Instance;
 
-    /// <summary>A decision's identity across both filter runs.</summary>
-    private readonly record struct DecisionKey(string? SourceFile, int MoveNumber, bool IsCube);
-
-    private static List<DecisionKey> Run(DecisionFilterSet filters) =>
-        new FilteredDecisionIterator(filters, NullLogger)
+    /// <summary>Each decision's identity across both filter runs: its identifier.</summary>
+    private static List<DecisionId> Run(DecisionFilterSet filters) =>
+        new FilteredDecisionIterator(filters, PlayRanking.Equity, NullLogger)
             .IterateXgDirectory(FixtureDir)
-            .Select(r => new DecisionKey(r.SourceFile, r.MoveNumber, r.IsCube))
+            .Select(r => r.Id)
             .ToList();
 
     private static DecisionFilterSet Named(PositionType type) =>

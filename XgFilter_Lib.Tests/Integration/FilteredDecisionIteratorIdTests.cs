@@ -35,7 +35,7 @@ public class FilteredDecisionIteratorIdTests
         NullLogger<FilteredDecisionIterator>.Instance;
 
     private static FilteredDecisionIterator NewIterator(DecisionFilterSet filters) =>
-        new FilteredDecisionIterator(filters, NullLogger);
+        new FilteredDecisionIterator(filters, PlayRanking.Equity, NullLogger);
 
     // -----------------------------------------------------------------------
     //  Pass-all passthrough — IDs survive unchanged on every delegate entry
@@ -149,8 +149,8 @@ public class FilteredDecisionIteratorIdTests
         // rather than turning this test into a tautology.
         var producerAll = RawIterate(FixtureDir,
             (file, sf, state, callbacks) => XgDecisionIterator.Iterate(file, sf, state, callbacks)).ToList();
-        var producerKept = producerAll.Where(r => !r.IsCube).ToList();
-        var producerDropped = producerAll.Where(r => r.IsCube).ToList();
+        var producerKept = producerAll.Where(r => r.Kind == DecisionKind.CheckerPlay).ToList();
+        var producerDropped = producerAll.Where(r => r.Kind == DecisionKind.Cube).ToList();
 
         producerKept.Should().NotBeEmpty(
             "non-vacuousness gate: the corpus must yield at least one checker-play row");
@@ -175,8 +175,8 @@ public class FilteredDecisionIteratorIdTests
         // is per-entry-point.
         var producerAll = RawIterate(FixtureDir,
             (file, sf, state, callbacks) => XgDecisionIterator.IterateDiagramRequests(file, sf, state, callbacks)).ToList();
-        var producerKept = producerAll.Where(d => !d.Decision.IsCube).ToList();
-        var producerDropped = producerAll.Where(d => d.Decision.IsCube).ToList();
+        var producerKept = producerAll.Where(d => d.Kind == DecisionKind.CheckerPlay).ToList();
+        var producerDropped = producerAll.Where(d => d.Kind == DecisionKind.Cube).ToList();
 
         producerKept.Should().NotBeEmpty(
             "non-vacuousness gate: the corpus must yield at least one checker-play diagram");

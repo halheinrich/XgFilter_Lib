@@ -30,7 +30,7 @@ public class MatchScoreFilterIntegrationTests
         NullLogger<FilteredDecisionIterator>.Instance;
 
     private static FilteredDecisionIterator NewIterator(params string[] scores) =>
-        new(new DecisionFilterSet().Add(new MatchScoreFilter(scores)), NullLogger);
+        new(new DecisionFilterSet().Add(new MatchScoreFilter(scores)), PlayRanking.Equity, NullLogger);
 
     /// <summary>
     /// Serializes <paramref name="file"/> to real XG binary bytes and wraps

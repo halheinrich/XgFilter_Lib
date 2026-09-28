@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+
 namespace XgFilter_Lib.Patterns;
 
 /// <summary>
@@ -138,7 +140,7 @@ public readonly record struct CheckerSpanRange : IPatternConstraint
     /// within the bounds. Each side is counted alone; the other side's
     /// checkers in the span are ignored.
     /// </summary>
-    bool IPatternConstraint.IsSatisfiedBy(IReadOnlyList<int> board)
+    bool IPatternConstraint.IsSatisfiedBy(BoardPosition board)
     {
         var sides = ConstrainedSides;
         foreach (var side in (ReadOnlySpan<CheckerSides>)[CheckerSides.Player, CheckerSides.Opponent])

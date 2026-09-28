@@ -1,3 +1,4 @@
+using BgDataTypes_Lib;
 using XgFilter_Lib.Patterns;
 using XgFilter_Lib.Tests.Helpers;
 
@@ -10,7 +11,7 @@ namespace XgFilter_Lib.Tests.Patterns;
 /// </summary>
 public class CheckerSpanRangeTests
 {
-    private static bool Satisfies(CheckerSpanRange range, int[] board) =>
+    private static bool Satisfies(CheckerSpanRange range, BoardPosition board) =>
         ((IPatternConstraint)range).IsSatisfiedBy(board);
 
     // -----------------------------------------------------------------------
@@ -224,26 +225,47 @@ public class CheckerSpanRangeTests
         [null, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6];
 
     /// <summary>
-    /// Boards with both sides scattered over every index — so every span of the
-    /// sweep holds checkers of both signs on most boards.
+    /// Positions with both sides scattered over every index — so every span of
+    /// the sweep holds checkers of both signs on most boards. Drawn at random
+    /// and kept only when they form a position (each bar holding its own side,
+    /// at most fifteen a side), since a pattern is only ever asked about one.
     /// </summary>
-    private static IEnumerable<int[]> MixedBoards()
+    private static IEnumerable<BoardPosition> MixedBoards()
     {
         var rng = new Random(20260923);
-        for (int n = 0; n < 400; n++)
+        var counts = new int[26];
+        for (int n = 0; n < 400;)
         {
-            var board = new int[26];
             for (int i = 0; i < 26; i++)
-                board[i] = rng.Next(-3, 4);
-            yield return board;
+                counts[i] = i switch
+                {
+                    0 => rng.Next(-2, 1),
+                    25 => rng.Next(0, 3),
+                    _ => rng.Next(-2, 3),
+                };
+            if (BoardPosition.TryCreate(counts, out var board))
+            {
+                n++;
+                yield return board;
+            }
         }
+    }
+
+    /// <summary>The checkers of the side <paramref name="sign"/> names (+1 the player, -1 the opponent) on the board.</summary>
+    private static int SideTotal(BoardPosition board, int sign)
+    {
+        int total = 0;
+        for (int i = 0; i < 26; i++)
+            if (board[i] * sign > 0)
+                total += board[i] * sign;
+        return total;
     }
 
     /// <summary>
     /// The brief's rule 4 written out case by case, independently of the
     /// library's side-interval formulation.
     /// </summary>
-    private static bool ByDefinition(int[] board, int first, int last, int? min, int? max)
+    private static bool ByDefinition(BoardPosition board, int first, int last, int? min, int? max)
     {
         int p = 0, o = 0;
         for (int i = first; i <= last; i++)
@@ -286,12 +308,12 @@ public class CheckerSpanRangeTests
                 {
                     Satisfies(range, board).Should().Be(
                         ByDefinition(board, first, last, min, max),
-                        "[{0}-{1},{2},{3}] on board [{4}]", first, last, min, max, string.Join(",", board));
+                        "[{0}-{1},{2},{3}] on board [{4}]", first, last, min, max, board);
                 }
             }
 
         foreach (var board in boards)
-            if (board[7..13].Any(v => v > 0) && board[7..13].Any(v => v < 0))
+            if (Enumerable.Range(7, 6).Any(i => board[i] > 0) && Enumerable.Range(7, 6).Any(i => board[i] < 0))
                 bothSidesPresent++;
         bothSidesPresent.Should().BeGreaterThan(300, "the sweep must exercise spans holding both sides");
     }
@@ -301,9 +323,12 @@ public class CheckerSpanRangeTests
     {
         // The pin against a net count: for a span constraining one side, piling
         // the other side's checkers into the span (onto indices that side can
-        // hold) leaves the verdict alone.
+        // hold, and no more than that side has left off the board) leaves the
+        // verdict alone.
         var rng = new Random(268);
         var boards = MixedBoards().ToArray();
+        var counts = new int[26];
+        int changed = 0;
 
         foreach (var (first, last) in _spans)
             foreach (var (min, max) in ValidBoundPairs())
@@ -316,20 +341,30 @@ public class CheckerSpanRangeTests
                 var range = new CheckerSpanRange(first, last, min, max);
                 foreach (var board in boards)
                 {
-                    var added = (int[])board.Clone();
-                    for (int i = first; i <= last; i++)
+                    // The side added is the one the span does not constrain.
+                    int sign = player ? -1 : 1;
+                    int room = 15 - SideTotal(board, sign);
+                    board.CopyTo(counts);
+                    for (int i = first; i <= last && room > 0; i++)
                     {
-                        if (player && i != 25 && added[i] <= 0)
-                            added[i] -= rng.Next(1, 4);
-                        if (opponent && i != 0 && added[i] >= 0)
-                            added[i] += rng.Next(1, 4);
+                        bool canHold = sign < 0 ? i != 25 && counts[i] <= 0 : i != 0 && counts[i] >= 0;
+                        if (!canHold)
+                            continue;
+                        int more = Math.Min(rng.Next(1, 4), room);
+                        counts[i] += sign * more;
+                        room -= more;
                     }
+                    var added = new BoardPosition(counts);
+                    if (added != board)
+                        changed++;
 
                     Satisfies(range, added).Should().Be(
                         Satisfies(range, board),
                         "[{0}-{1},{2},{3}] must ignore the opposing side", first, last, min, max);
                 }
             }
+
+        changed.Should().BeGreaterThan(10_000, "the sweep must actually pile opposing checkers into the spans");
     }
 
     // -----------------------------------------------------------------------

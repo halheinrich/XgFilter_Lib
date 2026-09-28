@@ -1,4 +1,5 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
@@ -34,6 +35,31 @@ public class DecisionFilterSetTests
     }
 
     // -----------------------------------------------------------------------
+    //  Records
+    // -----------------------------------------------------------------------
+
+    private static DescriptiveData By(string player) => TestRecords.Descriptive(onRollName: player);
+
+    /// <summary>The opening 3-1 by <paramref name="player"/>, who erred by exactly <paramref name="error"/>.</summary>
+    private static CheckerPlayDecision Erred(string player, double error) =>
+        TestRecords.CheckerPlay(
+            decision: TestRecords.CheckerPlayData(
+                plays:
+                [
+                    TestRecords.Candidate(play: [new(8, 5), new(6, 5)], equity: 0.0),
+                    TestRecords.Candidate(play: [new(13, 10), new(6, 5)], equity: -error),
+                ],
+                userPlayIndex: 1),
+            descriptive: By(player));
+
+    /// <summary>The opening 3-1 by <paramref name="player"/>, its one candidate analysed in <paramref name="mode"/> at <paramref name="level"/>.</summary>
+    private static CheckerPlayDecision Analysed(string player, AnalysisMode mode, AnalysisLevel level) =>
+        TestRecords.CheckerPlay(
+            decision: TestRecords.CheckerPlayData(
+                plays: [TestRecords.Candidate(analysisMode: mode, analysisLevel: level)]),
+            descriptive: By(player));
+
+    // -----------------------------------------------------------------------
     //  Matches — empty set, single filter, AND aggregation; both substrates
     // -----------------------------------------------------------------------
 
@@ -42,8 +68,8 @@ public class DecisionFilterSetTests
     {
         var set = new DecisionFilterSet();
 
-        AssertSetMatchesBoth(set, new RowShape(Player: "Alice"), expected: true);
-        AssertSetMatchesBoth(set, new RowShape(Player: "Bob"), expected: true);
+        AssertSetMatchesBoth(set, TestRecords.CheckerPlay(descriptive: By("Alice")), expected: true);
+        AssertSetMatchesBoth(set, TestRecords.Cube(descriptive: By("Bob")), expected: true);
     }
 
     [Fact]
@@ -51,8 +77,8 @@ public class DecisionFilterSetTests
     {
         var set = new DecisionFilterSet().Add(new PlayerFilter(["Alice"]));
 
-        AssertSetMatchesBoth(set, new RowShape(Player: "Alice"), expected: true);
-        AssertSetMatchesBoth(set, new RowShape(Player: "Bob"), expected: false);
+        AssertSetMatchesBoth(set, TestRecords.CheckerPlay(descriptive: By("Alice")), expected: true);
+        AssertSetMatchesBoth(set, TestRecords.CheckerPlay(descriptive: By("Bob")), expected: false);
     }
 
     [Fact]
@@ -62,9 +88,9 @@ public class DecisionFilterSetTests
             .Add(new PlayerFilter(["Alice"]))
             .Add(new ErrorRangeFilter(min: 0.05, max: null));
 
-        AssertSetMatchesBoth(set, new RowShape(Player: "Alice", Error: 0.10), expected: true);
-        AssertSetMatchesBoth(set, new RowShape(Player: "Alice", Error: 0.02), expected: false);
-        AssertSetMatchesBoth(set, new RowShape(Player: "Bob",   Error: 0.10), expected: false);
+        AssertSetMatchesBoth(set, Erred("Alice", 0.10), expected: true);
+        AssertSetMatchesBoth(set, Erred("Alice", 0.02), expected: false);
+        AssertSetMatchesBoth(set, Erred("Bob",   0.10), expected: false);
     }
 
     [Fact]
@@ -74,9 +100,9 @@ public class DecisionFilterSetTests
             .Add(new PlayerFilter(["Alice"]))
             .Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly));
 
-        AssertSetMatchesBoth(set, new RowShape(Player: "Alice", IsCube: false), expected: true);
-        AssertSetMatchesBoth(set, new RowShape(Player: "Alice", IsCube: true),  expected: false);
-        AssertSetMatchesBoth(set, new RowShape(Player: "Bob",   IsCube: false), expected: false);
+        AssertSetMatchesBoth(set, TestRecords.CheckerPlay(descriptive: By("Alice")), expected: true);
+        AssertSetMatchesBoth(set, TestRecords.Cube(descriptive: By("Alice")),        expected: false);
+        AssertSetMatchesBoth(set, TestRecords.CheckerPlay(descriptive: By("Bob")),   expected: false);
     }
 
     [Fact]
@@ -92,14 +118,11 @@ public class DecisionFilterSetTests
                 [new AnalysisDepthFilter.Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply3])]));
 
         AssertSetMatchesBoth(set,
-            new RowShape(Player: "Alice", AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
-            expected: true);
+            Analysed("Alice", AnalysisMode.Evaluation, AnalysisLevel.Ply3), expected: true);
         AssertSetMatchesBoth(set,
-            new RowShape(Player: "Bob", AnalysisMode: AnalysisMode.Evaluation, AnalysisLevel: AnalysisLevel.Ply3),
-            expected: false);
+            Analysed("Bob", AnalysisMode.Evaluation, AnalysisLevel.Ply3), expected: false);
         AssertSetMatchesBoth(set,
-            new RowShape(Player: "Alice", AnalysisMode: AnalysisMode.Rollout, AnalysisLevel: AnalysisLevel.Ply3),
-            expected: false);
+            Analysed("Alice", AnalysisMode.Rollout, AnalysisLevel.Ply3), expected: false);
     }
 
     [Fact]
@@ -151,7 +174,7 @@ public class DecisionFilterSetTests
     [Fact]
     public void ShouldSkipMatch_EmptySet_ReturnsFalse()
     {
-        new DecisionFilterSet().ShouldSkipMatch(new FakeMatchInfo()).Should().BeFalse();
+        new DecisionFilterSet().ShouldSkipMatch(FakeMatchInfo.Match(7)).Should().BeFalse();
     }
 
     [Fact]
@@ -160,7 +183,7 @@ public class DecisionFilterSetTests
         // A filter that implements IDecisionFilter but not IMatchFilter
         // must not influence the skip decision.
         var set = new DecisionFilterSet().Add(new AlwaysMatchFilter());
-        set.ShouldSkipMatch(new FakeMatchInfo()).Should().BeFalse();
+        set.ShouldSkipMatch(FakeMatchInfo.Match(7)).Should().BeFalse();
     }
 
     [Fact]
@@ -170,7 +193,7 @@ public class DecisionFilterSetTests
             .Add(new SkipVoteFilter(skipMatch: false))
             .Add(new SkipVoteFilter(skipMatch: true));
 
-        set.ShouldSkipMatch(new FakeMatchInfo()).Should().BeTrue();
+        set.ShouldSkipMatch(FakeMatchInfo.Match(7)).Should().BeTrue();
     }
 
     [Fact]
@@ -180,7 +203,7 @@ public class DecisionFilterSetTests
             .Add(new SkipVoteFilter(skipMatch: false))
             .Add(new SkipVoteFilter(skipMatch: false));
 
-        set.ShouldSkipMatch(new FakeMatchInfo()).Should().BeFalse();
+        set.ShouldSkipMatch(FakeMatchInfo.Match(7)).Should().BeFalse();
     }
 
     [Fact]
@@ -190,7 +213,7 @@ public class DecisionFilterSetTests
             .Add(new SkipVoteFilter(skipGame: false))
             .Add(new SkipVoteFilter(skipGame: true));
 
-        set.ShouldSkipGame(new FakeGameInfo()).Should().BeTrue();
+        set.ShouldSkipGame(FakeGameInfo.Match(3, 5)).Should().BeTrue();
     }
 
     [Fact]
@@ -200,7 +223,7 @@ public class DecisionFilterSetTests
             .Add(new SkipVoteFilter(skipGame: false))
             .Add(new SkipVoteFilter(skipGame: false));
 
-        set.ShouldSkipGame(new FakeGameInfo()).Should().BeFalse();
+        set.ShouldSkipGame(FakeGameInfo.Match(3, 5)).Should().BeFalse();
     }
 
     // -----------------------------------------------------------------------
@@ -211,7 +234,7 @@ public class DecisionFilterSetTests
     [Fact]
     public void ShouldAdvanceMatch_EmptySet_ReturnsFalse_BothSubstrates()
     {
-        AssertSetShouldAdvanceMatchBoth(new DecisionFilterSet(), new RowShape(), expected: false);
+        AssertSetShouldAdvanceMatchBoth(new DecisionFilterSet(), TestRecords.CheckerPlay(), expected: false);
     }
 
     [Fact]
@@ -221,7 +244,7 @@ public class DecisionFilterSetTests
             .Add(new AdvanceVoteFilter(advanceMatch: false))
             .Add(new AdvanceVoteFilter(advanceMatch: true));
 
-        AssertSetShouldAdvanceMatchBoth(set, new RowShape(), expected: true);
+        AssertSetShouldAdvanceMatchBoth(set, TestRecords.CheckerPlay(), expected: true);
     }
 
     [Fact]
@@ -231,7 +254,7 @@ public class DecisionFilterSetTests
             .Add(new AdvanceVoteFilter(advanceMatch: false))
             .Add(new AdvanceVoteFilter(advanceMatch: false));
 
-        AssertSetShouldAdvanceMatchBoth(set, new RowShape(), expected: false);
+        AssertSetShouldAdvanceMatchBoth(set, TestRecords.CheckerPlay(), expected: false);
     }
 
     [Fact]
@@ -241,7 +264,7 @@ public class DecisionFilterSetTests
             .Add(new AdvanceVoteFilter(advanceGame: false))
             .Add(new AdvanceVoteFilter(advanceGame: true));
 
-        AssertSetShouldAdvanceGameBoth(set, new RowShape(), expected: true);
+        AssertSetShouldAdvanceGameBoth(set, TestRecords.CheckerPlay(), expected: true);
     }
 
     [Fact]
@@ -251,7 +274,7 @@ public class DecisionFilterSetTests
             .Add(new AdvanceVoteFilter(advanceGame: false))
             .Add(new AdvanceVoteFilter(advanceGame: false));
 
-        AssertSetShouldAdvanceGameBoth(set, new RowShape(), expected: false);
+        AssertSetShouldAdvanceGameBoth(set, TestRecords.CheckerPlay(), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -259,10 +282,8 @@ public class DecisionFilterSetTests
     //  buy. The header-skip surface consumes only BgDataTypes_Lib abstractions,
     //  so a real filter set decides skips from a plain IMatchInfo / IGameInfo
     //  with no parser (ConvertXgToJson_Lib) type anywhere in reach. Inputs are
-    //  statically typed as the interfaces to make that explicit, and the fakes
-    //  redeclare none of the interface's default members — proving IsMoneyGame
-    //  answers through the DIM on an interface-typed reference (a concrete-typed
-    //  reference could not call it).
+    //  statically typed as the interfaces to make that explicit; money versus
+    //  match is read from the header's own terms and standing.
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -270,8 +291,8 @@ public class DecisionFilterSetTests
     {
         var set = new DecisionFilterSet().Add(new PlayerFilter(["Alice"]));
 
-        IMatchInfo present = new FakeMatchInfo { Player1 = "Alice", Player2 = "Bob" };
-        IMatchInfo absent = new FakeMatchInfo { Player1 = "Bob", Player2 = "Charlie" };
+        IMatchInfo present = FakeMatchInfo.Match(7) with { Player1 = "Alice", Player2 = "Bob" };
+        IMatchInfo absent = FakeMatchInfo.Match(7) with { Player1 = "Bob", Player2 = "Charlie" };
 
         set.ShouldSkipMatch(present).Should().BeFalse();
         set.ShouldSkipMatch(absent).Should().BeTrue();
@@ -282,28 +303,27 @@ public class DecisionFilterSetTests
     {
         var set = new DecisionFilterSet().Add(new MoveNumberFilter(min: 1, max: 5));
 
-        IGameInfo standard = new FakeGameInfo { IsStandardStart = true };
-        IGameInfo custom = new FakeGameInfo { IsStandardStart = false };
+        IGameInfo standard = FakeGameInfo.Match(3, 5) with { IsStandardStart = true };
+        IGameInfo custom = FakeGameInfo.Match(3, 5) with { IsStandardStart = false };
 
         set.ShouldSkipGame(standard).Should().BeFalse();
         set.ShouldSkipGame(custom).Should().BeTrue();
     }
 
     [Fact]
-    public void ShouldSkipMatch_MoneyPredicate_AnswersThroughDimOnPlainIMatchInfo()
+    public void ShouldSkipMatch_MoneyVerdict_ReadsTheTermsOfAPlainIMatchInfo()
     {
-        // money-token-only filter: skips a match session, admits a money
-        // session (a header carries no Jacoby fact, so either money token
-        // admits it and Matches rules per decision).
-        // The verdict turns on IMatchInfo.IsMoneyGame — a default interface
-        // member the fake never restates — so this only compiles and passes
-        // because the input is interface-typed.
+        // A moneyJ-only filter skips a match session and a money session
+        // without the Jacoby rule, and admits one with it: the verdict turns
+        // on IMatchInfo.Terms' kind and, for money, its rule.
         var set = new DecisionFilterSet().Add(new MatchScoreFilter(["moneyJ"]));
 
-        IMatchInfo money = new FakeMatchInfo { MatchLength = 0 };
-        IMatchInfo match = new FakeMatchInfo { MatchLength = 7 };
+        IMatchInfo jacoby = FakeMatchInfo.Money(isJacoby: true);
+        IMatchInfo noJacoby = FakeMatchInfo.Money(isJacoby: false);
+        IMatchInfo match = FakeMatchInfo.Match(7);
 
-        set.ShouldSkipMatch(money).Should().BeFalse();
+        set.ShouldSkipMatch(jacoby).Should().BeFalse();
+        set.ShouldSkipMatch(noJacoby).Should().BeTrue();
         set.ShouldSkipMatch(match).Should().BeTrue();
     }
 }

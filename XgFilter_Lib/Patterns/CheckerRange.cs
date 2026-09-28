@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+
 namespace XgFilter_Lib.Patterns;
 
 /// <summary>
@@ -134,7 +136,7 @@ public readonly record struct CheckerRange : IPatternConstraint
     /// location's value on the board — read directly for a board location,
     /// derived for a borne-off count — checked against the range.
     /// </summary>
-    bool IPatternConstraint.IsSatisfiedBy(IReadOnlyList<int> board) => Contains(Location.ValueOn(board));
+    bool IPatternConstraint.IsSatisfiedBy(BoardPosition board) => Contains(Location.ValueOn(board));
 
     /// <summary>
     /// Renders this range in the <c>[location,min,max]</c> bracket-token form

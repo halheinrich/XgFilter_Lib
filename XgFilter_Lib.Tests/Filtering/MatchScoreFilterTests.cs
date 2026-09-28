@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
@@ -7,6 +9,34 @@ namespace XgFilter_Lib.Tests.Filtering;
 public class MatchScoreFilterTests
 {
     // -----------------------------------------------------------------------
+    //  Records — each session built as a producer builds one
+    //  (TestRecords.MatchSession / MoneySession, through Session.Create), so
+    //  every standing here is one a real record can hold.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A checker play in a match of <paramref name="length"/> points, standing
+    /// from the player on roll's side: the player on roll needs
+    /// <paramref name="onRollNeeds"/>, the opponent
+    /// <paramref name="opponentNeeds"/>.
+    /// </summary>
+    private static CheckerPlayDecision AtScore(
+        int onRollNeeds, int opponentNeeds, bool isCrawford = false, int length = 7) =>
+        TestRecords.CheckerPlay(position: TestRecords.Position(
+            session: TestRecords.MatchSession(length, onRollNeeds, opponentNeeds, isCrawford)));
+
+    /// <summary>A checker play in a money session under <paramref name="isJacoby"/>.</summary>
+    private static CheckerPlayDecision Money(bool isJacoby, int onRollScore = 0, int opponentScore = 0) =>
+        TestRecords.CheckerPlay(position: TestRecords.Position(
+            session: TestRecords.MoneySession(
+                isJacoby: isJacoby, onRollScore: onRollScore, opponentScore: opponentScore)));
+
+    /// <summary>A cube decision in a money session under <paramref name="isJacoby"/>.</summary>
+    private static CubeDecision MoneyCube(bool isJacoby) =>
+        TestRecords.Cube(position: TestRecords.Position(
+            session: TestRecords.MoneySession(isJacoby: isJacoby)));
+
+    // -----------------------------------------------------------------------
     //  Matches
     // -----------------------------------------------------------------------
 
@@ -14,61 +44,44 @@ public class MatchScoreFilterTests
     public void Matches_WhenScoreInList_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["1a5aC", "moneyJ"]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
-            expected: true);
+        AssertMatchesBoth(filter, AtScore(1, 5, isCrawford: true), expected: true);
     }
 
     [Fact]
     public void Matches_WhenScoreNotInList_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 2, OpponentNeeds: 4, IsCrawford: false),
-            expected: false);
+        AssertMatchesBoth(filter, AtScore(2, 4), expected: false);
     }
 
     [Fact]
     public void Matches_MoneyNotInList_ReturnsFalse()
     {
-        // A match-score-only filter admits no money record, whatever its rule.
+        // A match-score-only filter admits no money session, whatever its rule.
         var filter = new MatchScoreFilter(["3a5a"]);
-        foreach (bool? rule in new bool?[] { true, false, null })
-        {
-            AssertMatchesBoth(filter, MoneyRow(rule), expected: false);
-        }
+        AssertMatchesBoth(filter, Money(isJacoby: true), expected: false);
+        AssertMatchesBoth(filter, Money(isJacoby: false), expected: false);
     }
 
     [Fact]
     public void Matches_WhenListIsEmpty_ReturnsFalse()
     {
         var filter = new MatchScoreFilter([]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertMatchesBoth(filter, AtScore(3, 5), expected: false);
     }
 
     [Fact]
     public void Matches_NonCrawfordScore()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
-            expected: true);
+        AssertMatchesBoth(filter, AtScore(3, 5), expected: true);
     }
 
     [Fact]
     public void Matches_CrawfordMismatch_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertMatchesBoth(filter, AtScore(1, 5, isCrawford: false), expected: false);
     }
 
     [Fact]
@@ -77,14 +90,30 @@ public class MatchScoreFilterTests
         // MaNa is on-roll anchored: 4a5a means the player on roll needs 4
         // and the opponent needs 5. 4a5a and 5a4a are distinct targets.
         var filter = new MatchScoreFilter(["4a5a"]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 4, OpponentNeeds: 5, IsCrawford: false),
-            expected: true);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 5, OpponentNeeds: 4, IsCrawford: false),
-            expected: false);
+        AssertMatchesBoth(filter, AtScore(4, 5), expected: true);
+        AssertMatchesBoth(filter, AtScore(5, 4), expected: false);
+    }
+
+    [Fact]
+    public void Matches_MatchLength_IsNotPartOfTheTarget()
+    {
+        // A score token names the standing, not the terms: 3a5a is 3a5a in a
+        // 5-point match and in a 25-point one alike.
+        var filter = new MatchScoreFilter(["3a5a"]);
+        AssertMatchesBoth(filter, AtScore(3, 5, length: 5), expected: true);
+        AssertMatchesBoth(filter, AtScore(3, 5, length: 25), expected: true);
+    }
+
+    [Fact]
+    public void Matches_MoneySessionsScores_AreNeverReadAsAwayScores()
+    {
+        // Money versus match is the session's kind (halheinrich/backgammon#273):
+        // a money session at 3-5 won points is not a 3a5a match standing, and
+        // a filter reading a stand-in off it — its scores as away scores —
+        // would admit it here.
+        var filter = new MatchScoreFilter(["3a5a", "5a3a"]);
+        AssertMatchesBoth(filter, Money(isJacoby: true, onRollScore: 3, opponentScore: 5), expected: false);
+        AssertMatchesBoth(filter, Money(isJacoby: false, onRollScore: 3, opponentScore: 5), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -95,45 +124,41 @@ public class MatchScoreFilterTests
     public void ShouldSkipMatch_MoneySession_FilterHasNoMoney_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
 
-        filter.ShouldSkipMatch(match).Should().BeTrue();
+        filter.ShouldSkipMatch(FakeMatchInfo.Money(isJacoby: true)).Should().BeTrue();
+        filter.ShouldSkipMatch(FakeMatchInfo.Money(isJacoby: false)).Should().BeTrue();
     }
 
     [Fact]
-    public void ShouldSkipMatch_MoneySession_FilterIncludesMoney_ReturnsFalse()
+    public void ShouldSkipMatch_MoneySession_FilterIncludesItsRule_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["moneyJ"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
 
-        filter.ShouldSkipMatch(match).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Money(isJacoby: true)).Should().BeFalse();
     }
 
     [Fact]
     public void ShouldSkipMatch_MatchSession_FilterIsMoneyOnly_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["moneyJ", "moneyNJ"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
 
-        filter.ShouldSkipMatch(match).Should().BeTrue();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(7)).Should().BeTrue();
     }
 
     [Fact]
     public void ShouldSkipMatch_MatchSession_TargetsExceedMatchLength_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["7a7a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
-        filter.ShouldSkipMatch(match).Should().BeTrue();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(5)).Should().BeTrue();
     }
 
     [Fact]
     public void ShouldSkipMatch_MatchSession_AtLeastOneTargetReachable_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
 
-        filter.ShouldSkipMatch(match).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(7)).Should().BeFalse();
     }
 
     [Fact]
@@ -142,9 +167,8 @@ public class MatchScoreFilterTests
         // The length bound is orientation-free: 5a3a fits a 5-point match
         // exactly as 3a5a does.
         var filter = new MatchScoreFilter(["5a3a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
-        filter.ShouldSkipMatch(match).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(5)).Should().BeFalse();
     }
 
     [Fact]
@@ -155,18 +179,16 @@ public class MatchScoreFilterTests
         // occur in a 5-point match; the naive "both sides <= L" bound
         // over-admitted it.
         var filter = new MatchScoreFilter(["1a5a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
-        filter.ShouldSkipMatch(match).Should().BeTrue();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(5)).Should().BeTrue();
     }
 
     [Fact]
     public void ShouldSkipMatch_PostCrawfordTargetBelowMatchLength_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a4a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
-        filter.ShouldSkipMatch(match).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(5)).Should().BeFalse();
     }
 
     [Fact]
@@ -176,9 +198,8 @@ public class MatchScoreFilterTests
         // the trailer still needs the full match length. Only the
         // non-Crawford 1-away family is capped at L - 1.
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 5 };
 
-        filter.ShouldSkipMatch(match).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(5)).Should().BeFalse();
     }
 
     [Fact]
@@ -186,16 +207,11 @@ public class MatchScoreFilterTests
     {
         // The one exception to the "max <= L - 1" rule for 1-away targets:
         // a 1-point match's only game is (1, 1, false) with no Crawford game
-        // before it. 1a1a is never Crawford — the substrate rule settled in
-        // BgGame_Lib: a (1,1) game is cubeless. Empirical note: whether XG
-        // stamps CrawfordApplies on a 1-point match's game header is unpinned
-        // (no 1-point fixture in the corpus at time of writing); if it does,
-        // those rows carry IsCrawford=true and match no valid token, so this
-        // header-level admit stays harmless.
+        // before it. 1a1a is never Crawford — a match session refuses a
+        // Crawford game with both sides 1-away.
         var filter = new MatchScoreFilter(["1a1a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 1 };
 
-        filter.ShouldSkipMatch(match).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(1)).Should().BeFalse();
     }
 
     [Fact]
@@ -204,18 +220,16 @@ public class MatchScoreFilterTests
         // In a 2-point match the post-Crawford family is only (1,1):
         // (1, 2, false) would need a Crawford game at (1, k) with k > 2 > L.
         var filter = new MatchScoreFilter(["1a2a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 2 };
 
-        filter.ShouldSkipMatch(match).Should().BeTrue();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(2)).Should().BeTrue();
     }
 
     [Fact]
     public void ShouldSkipMatch_TwoPointMatch_1a1a_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a1a"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 2 };
 
-        filter.ShouldSkipMatch(match).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(2)).Should().BeFalse();
     }
 
     // -----------------------------------------------------------------------
@@ -226,54 +240,48 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_MoneyGame_FilterHasNoMoney_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var game = new FakeGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
 
-        filter.ShouldSkipGame(game).Should().BeTrue();
+        filter.ShouldSkipGame(FakeGameInfo.Money()).Should().BeTrue();
     }
 
     [Fact]
     public void ShouldSkipGame_MoneyGame_FilterIncludesMoney_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["moneyJ"]);
-        var game = new FakeGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
 
-        filter.ShouldSkipGame(game).Should().BeFalse();
+        filter.ShouldSkipGame(FakeGameInfo.Money()).Should().BeFalse();
     }
 
     [Fact]
     public void ShouldSkipGame_ScoreMatchesTarget_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var game = new FakeGameInfo { Away1 = 3, Away2 = 5, IsCrawfordGame = false };
 
-        filter.ShouldSkipGame(game).Should().BeFalse();
+        filter.ShouldSkipGame(FakeGameInfo.Match(3, 5)).Should().BeFalse();
     }
 
     [Fact]
     public void ShouldSkipGame_ScoreMissesTarget_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["3a5a"]);
-        var game = new FakeGameInfo { Away1 = 2, Away2 = 4, IsCrawfordGame = false };
 
-        filter.ShouldSkipGame(game).Should().BeTrue();
+        filter.ShouldSkipGame(FakeGameInfo.Match(2, 4)).Should().BeTrue();
     }
 
     [Fact]
     public void ShouldSkipGame_CrawfordMismatch_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var game = new FakeGameInfo { Away1 = 1, Away2 = 5, IsCrawfordGame = false };
 
-        filter.ShouldSkipGame(game).Should().BeTrue();
+        filter.ShouldSkipGame(FakeGameInfo.Match(1, 5, isCrawford: false)).Should().BeTrue();
     }
 
     [Fact]
     public void ShouldSkipGame_CrawfordMatch_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var game = new FakeGameInfo { Away1 = 1, Away2 = 5, IsCrawfordGame = true };
 
-        filter.ShouldSkipGame(game).Should().BeFalse();
+        filter.ShouldSkipGame(FakeGameInfo.Match(1, 5, isCrawford: true)).Should().BeFalse();
     }
 
     [Fact]
@@ -285,18 +293,16 @@ public class MatchScoreFilterTests
         // (4,5). The game gate must admit either orientation; Matches stays
         // the per-decision arbiter.
         var filter = new MatchScoreFilter(["4a5a"]);
-        var game = new FakeGameInfo { Away1 = 5, Away2 = 4, IsCrawfordGame = false };
 
-        filter.ShouldSkipGame(game).Should().BeFalse();
+        filter.ShouldSkipGame(FakeGameInfo.Match(5, 4)).Should().BeFalse();
     }
 
     [Fact]
     public void ShouldSkipGame_SwappedOrientationCrawford_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var game = new FakeGameInfo { Away1 = 5, Away2 = 1, IsCrawfordGame = true };
 
-        filter.ShouldSkipGame(game).Should().BeFalse();
+        filter.ShouldSkipGame(FakeGameInfo.Match(5, 1, isCrawford: true)).Should().BeFalse();
     }
 
     [Fact]
@@ -305,9 +311,8 @@ public class MatchScoreFilterTests
         // Orientation is projected loosely (either order) but the Crawford
         // flag stays exact — it is game-level information the header knows.
         var filter = new MatchScoreFilter(["1a5aC"]);
-        var game = new FakeGameInfo { Away1 = 5, Away2 = 1, IsCrawfordGame = false };
 
-        filter.ShouldSkipGame(game).Should().BeTrue();
+        filter.ShouldSkipGame(FakeGameInfo.Match(5, 1, isCrawford: false)).Should().BeTrue();
     }
 
     // -----------------------------------------------------------------------
@@ -315,13 +320,10 @@ public class MatchScoreFilterTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void ShouldAdvanceMatch_MoneyRow_ReturnsFalse()
+    public void ShouldAdvanceMatch_MoneySession_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["moneyJ"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(MatchLength: 0, OnRollNeeds: 0, OpponentNeeds: 0, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, Money(isJacoby: true), expected: false);
     }
 
     [Fact]
@@ -329,10 +331,7 @@ public class MatchScoreFilterTests
     {
         // Current (5,5). Tuple (3,5) reachable if on-roll side wins the next game.
         var filter = new MatchScoreFilter(["3a5a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 5, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(5, 5), expected: false);
     }
 
     [Fact]
@@ -340,10 +339,7 @@ public class MatchScoreFilterTests
     {
         // Current (2,2). Tuple (5,5) unreachable — both axes exceed current.
         var filter = new MatchScoreFilter(["5a5a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 2, OpponentNeeds: 2, IsCrawford: false),
-            expected: true);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(2, 2), expected: true);
     }
 
     [Fact]
@@ -351,10 +347,7 @@ public class MatchScoreFilterTests
     {
         // Current (5,3). Tuple (2,4) fits only with swap: 4 <= 5, 2 <= 3, sum 6 < 8.
         var filter = new MatchScoreFilter(["2a4a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 5, OpponentNeeds: 3, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(5, 3), expected: false);
     }
 
     [Fact]
@@ -362,60 +355,42 @@ public class MatchScoreFilterTests
     {
         // The producer cuts the file immediately on a true vote — including
         // the rest of the CURRENT game, whose later decisions carry this
-        // exact score. Advancing here would drop them. (Previously expected
-        // true: the old reachability was future-games-only and forgot the
-        // current game's remaining rows.)
+        // exact score. Advancing here would drop them.
         var filter = new MatchScoreFilter(["3a5a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(3, 5), expected: false);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_PreCrawford_CurrentGameMirrorOrientation_ReturnsFalse()
     {
-        // Current row is (5,4), but the same game's later decisions include
-        // the mirror (4,5) whenever the other player is on roll — the 4a5a
-        // orientation bug in its mid-.xg form.
+        // Current decision is (5,4), but the same game's later decisions
+        // include the mirror (4,5) whenever the other player is on roll — the
+        // 4a5a orientation bug in its mid-.xg form.
         var filter = new MatchScoreFilter(["4a5a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 5, OpponentNeeds: 4, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(5, 4), expected: false);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_PreCrawford_CrawfordTupleReachable_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a3aC"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(3, 5), expected: false);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_PreCrawford_CrawfordTupleOutOfRange_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["1a7aC"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
-            expected: true);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(3, 5), expected: true);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_InCrawford_CrawfordTupleMatchesCurrentGame_ReturnsFalse()
     {
         // The current game IS the Crawford game the tuple names; its
-        // remaining decisions can still match. (Previously expected true —
-        // same future-games-only oversight as the pre-Crawford case.)
+        // remaining decisions can still match.
         var filter = new MatchScoreFilter(["1a5aC"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(1, 5, isCrawford: true), expected: false);
     }
 
     [Fact]
@@ -424,70 +399,49 @@ public class MatchScoreFilterTests
         // Mirror orientation of the current Crawford game: the leader's
         // decisions score (1,5,C), the trailer's (5,1,C).
         var filter = new MatchScoreFilter(["5a1aC"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(1, 5, isCrawford: true), expected: false);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_InCrawford_PostCrawfordTupleReachable_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a3a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(1, 5, isCrawford: true), expected: false);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_PostCrawford_CrawfordRequired_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["1a5aC"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: false),
-            expected: true);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(1, 5), expected: true);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_PostCrawford_SmallerReachable_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a2a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(1, 5), expected: false);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_PostCrawford_NonPostCrawfordTuple_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["2a3a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: false),
-            expected: true);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(1, 5), expected: true);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_MultipleTuples_AnyReachable_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["3a5a", "10a10a", "1a2a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(3, 5), expected: false);
     }
 
     [Fact]
-    public void ShouldAdvanceMatch_MoneyFilterWithMatchRow_ReturnsTrue()
+    public void ShouldAdvanceMatch_MoneyFilterWithMatchSession_ReturnsTrue()
     {
         var filter = new MatchScoreFilter(["moneyJ", "moneyNJ"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
-            expected: true);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(3, 5), expected: true);
     }
 
     [Fact]
@@ -498,10 +452,7 @@ public class MatchScoreFilterTests
         // would need a Crawford game at (1, k > 5), impossible. The old
         // generic fits/strict-sum path admitted it (1 <= 2, 5 <= 5, 6 < 7).
         var filter = new MatchScoreFilter(["1a5a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 2, OpponentNeeds: 5, IsCrawford: false),
-            expected: true);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(2, 5), expected: true);
     }
 
     [Fact]
@@ -509,10 +460,7 @@ public class MatchScoreFilterTests
     {
         // (1,4,false) from (2,5): Crawford at (1,5), trailer wins one point.
         var filter = new MatchScoreFilter(["1a4a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 2, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(2, 5), expected: false);
     }
 
     [Fact]
@@ -521,20 +469,14 @@ public class MatchScoreFilterTests
         // (1,1,false) is reachable from any pre-Crawford state: Crawford at
         // (1,2), then the trailer wins a point.
         var filter = new MatchScoreFilter(["1a1a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 2, OpponentNeeds: 2, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(2, 2), expected: false);
     }
 
     [Fact]
     public void ShouldAdvanceMatch_AtOneAwayOneAway_TupleIsCurrentGame_ReturnsFalse()
     {
         var filter = new MatchScoreFilter(["1a1a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 1, IsCrawford: false),
-            expected: false);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(1, 1), expected: false);
     }
 
     [Fact]
@@ -543,10 +485,7 @@ public class MatchScoreFilterTests
         // From (1,1) the match ends with the current game; no future game
         // exists and the current game's score is not the target.
         var filter = new MatchScoreFilter(["1a2a"]);
-        AssertShouldAdvanceMatchBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 1, IsCrawford: false),
-            expected: true);
+        AssertShouldAdvanceMatchBoth(filter, AtScore(1, 1), expected: true);
     }
 
     // -----------------------------------------------------------------------
@@ -590,11 +529,11 @@ public class MatchScoreFilterTests
     public void Constructor_NonPositiveAwayScore_Throws(string bad)
     {
         // A well-formed token (grammar accepts the digits) whose away score is
-        // 0 previously parsed into a dead tuple that could never match a row —
-        // exactly the silent "filter does nothing" failure the fail-loud
-        // philosophy exists to prevent. This routes through the ≥ 1 semantic
-        // message, distinct from the format rejection above (a negative sign
-        // never reaches here — \d+ makes it a format error).
+        // 0 would otherwise parse into a dead tuple that could never match a
+        // decision — exactly the silent "filter does nothing" failure the
+        // fail-loud philosophy exists to prevent. This routes through the ≥ 1
+        // semantic message, distinct from the format rejection above (a
+        // negative sign never reaches here — \d+ makes it a format error).
         var act = () => new MatchScoreFilter([bad]);
         act.Should().Throw<ArgumentException>().WithMessage($"*{bad}*");
     }
@@ -637,16 +576,11 @@ public class MatchScoreFilterTests
     {
         // The grammar is case-insensitive and trims incidental whitespace, so
         // each variant is equivalent in effect to its canonical "4a5a" form —
-        // it admits exactly the (OnRoll 4, Opp 5) row and rejects the mirror.
+        // it admits exactly the (OnRoll 4, Opp 5) standing and rejects the
+        // mirror.
         var filter = new MatchScoreFilter([variant]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 4, OpponentNeeds: 5, IsCrawford: false),
-            expected: true);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 5, OpponentNeeds: 4, IsCrawford: false),
-            expected: false);
+        AssertMatchesBoth(filter, AtScore(4, 5), expected: true);
+        AssertMatchesBoth(filter, AtScore(5, 4), expected: false);
     }
 
     [Theory]
@@ -655,138 +589,95 @@ public class MatchScoreFilterTests
     public void ParseScore_MixedCaseCrawfordVariants_MatchSameAsCanonical(string variant)
     {
         // Equivalent in effect to the canonical "1a5aC": admits the Crawford
-        // (OnRoll 1, Opp 5) row, rejects the same score with the Crawford flag
-        // off.
+        // (OnRoll 1, Opp 5) standing, rejects the same score with the
+        // Crawford flag off.
         var filter = new MatchScoreFilter([variant]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
-            expected: true);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
+        AssertMatchesBoth(filter, AtScore(1, 5, isCrawford: true), expected: true);
+        AssertMatchesBoth(filter, AtScore(1, 5, isCrawford: false), expected: false);
     }
 
     // -----------------------------------------------------------------------
     //  The money tokens: moneyJ / moneyNJ (halheinrich/backgammon#121)
     //
-    //  The record classes a score filter must tell apart — a moneyJ record, a
-    //  moneyNJ record, an unknown-rule money record, and a match record (with
-    //  its Crawford variant) — swept against every money-token selection. The
-    //  table below is the whole contract in one place: moneyJ admits
-    //  IsMoneyGame && IsJacoby == true, moneyNJ admits IsMoneyGame &&
-    //  IsJacoby == false, an unknown rule is admitted by neither, and no
-    //  money token ever admits a match record.
+    //  The sessions a score filter must tell apart — money under the Jacoby
+    //  rule, money without it, and a match (with its Crawford variant) —
+    //  swept against every money-token selection. Every money session states
+    //  its rule (MoneyTerms.IsJacoby is a required bool), so there is no
+    //  unknown-rule session to place: the type makes it unrepresentable.
     // -----------------------------------------------------------------------
 
-    /// <summary>A money row carrying <paramref name="isJacoby"/> as its rule.</summary>
-    private static RowShape MoneyRow(bool? isJacoby) => new(
-        MatchLength: 0, OnRollNeeds: 0, OpponentNeeds: 0,
-        IsCrawford: false, IsJacoby: isJacoby);
-
-    public static TheoryData<string[], bool?, bool> MoneyTokenMatrix() => new()
+    public static TheoryData<string[], bool, bool> MoneyTokenMatrix() => new()
     {
-        // moneyJ alone: the Jacoby record only.
+        // moneyJ alone: the Jacoby session only.
         { ["moneyJ"],            true,  true  },
         { ["moneyJ"],            false, false },
-        { ["moneyJ"],            null,  false },
 
-        // moneyNJ alone: the no-Jacoby record only.
+        // moneyNJ alone: the no-Jacoby session only.
         { ["moneyNJ"],           true,  false },
         { ["moneyNJ"],           false, true  },
-        { ["moneyNJ"],           null,  false },
 
         // Both listed — "money under either rule", which is what the old bare
-        // token used to mean. Still not the unknown-rule record.
+        // token used to mean.
         { ["moneyJ", "moneyNJ"], true,  true  },
         { ["moneyJ", "moneyNJ"], false, true  },
-        { ["moneyJ", "moneyNJ"], null,  false },
     };
 
     [Theory]
     [MemberData(nameof(MoneyTokenMatrix))]
-    public void Matches_MoneyRecords_AdmittedByRuleBearingTokenOnly(
-        string[] tokens, bool? isJacoby, bool expected)
+    public void Matches_MoneySessions_AdmittedByTheirRulesTokenOnly(
+        string[] tokens, bool isJacoby, bool expected)
     {
         var filter = new MatchScoreFilter(tokens);
-        AssertMatchesBoth(filter, MoneyRow(isJacoby), expected);
+        AssertMatchesBoth(filter, Money(isJacoby), expected);
+    }
+
+    [Theory]
+    [MemberData(nameof(MoneyTokenMatrix))]
+    public void ShouldSkipMatch_MoneySession_JudgedByItsRule_ExactlyAsMatches(
+        string[] tokens, bool isJacoby, bool admitted)
+    {
+        // The match header states the terms — the Jacoby rule among them — so
+        // the match gate is the exact projection of Matches onto them: it
+        // skips a money session exactly when no decision of it could pass.
+        var filter = new MatchScoreFilter(tokens);
+
+        filter.ShouldSkipMatch(FakeMatchInfo.Money(isJacoby)).Should().Be(!admitted);
     }
 
     [Theory]
     [InlineData("moneyJ")]
     [InlineData("moneyNJ")]
-    public void Matches_MoneyToken_NeverAdmitsAMatchRecord(string token)
+    public void Matches_MoneyToken_NeverAdmitsAMatchSession(string token)
     {
         // Match scores are untouched by the money tokens, and vice versa:
-        // neither token admits a match row at any score, Crawford or not.
+        // neither token admits a match standing, Crawford or not.
         var filter = new MatchScoreFilter([token]);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 3, OpponentNeeds: 5, IsCrawford: false),
-            expected: false);
-        AssertMatchesBoth(
-            filter,
-            new RowShape(OnRollNeeds: 1, OpponentNeeds: 5, IsCrawford: true),
-            expected: false);
+        AssertMatchesBoth(filter, AtScore(3, 5), expected: false);
+        AssertMatchesBoth(filter, AtScore(1, 5, isCrawford: true), expected: false);
     }
 
     [Theory]
     [InlineData("moneyJ", true)]
     [InlineData("moneyNJ", false)]
-    public void Matches_MoneyToken_IsIndifferentToCubeAndPlayRows(string token, bool rule)
+    public void Matches_MoneyToken_IsIndifferentToCubeAndPlayDecisions(string token, bool rule)
     {
-        // The score facet reads only the score axis; the decision-type axis is
-        // DecisionTypeFilter's, composed by AND at the set. A money record's
+        // The score facet reads only the session; the decision-type axis is
+        // DecisionTypeFilter's, composed by AND at the set. A money session's
         // verdict is therefore the same for a cube decision and a checker
-        // play — the existing per-facet independence, restated for the new
-        // tokens so a future money-only special case cannot quietly break it.
+        // play — the per-facet independence, restated for the money tokens so
+        // a future money-only special case cannot quietly break it.
         var filter = new MatchScoreFilter([token]);
 
-        AssertMatchesBoth(filter, MoneyRow(rule) with { IsCube = false }, expected: true);
-        AssertMatchesBoth(filter, MoneyRow(rule) with { IsCube = true }, expected: true);
+        AssertMatchesBoth(filter, Money(rule), expected: true);
+        AssertMatchesBoth(filter, MoneyCube(rule), expected: true);
     }
 
     // -----------------------------------------------------------------------
-    //  The near-miss pins. IDecisionFilterData.IsJacoby names `!= false` and
-    //  `!= true` as the spellings that silently admit an unknown-rule record
-    //  into one side. These are the tests that fail if Matches is ever written
-    //  that way — and nothing else in the matrix above would.
+    //  Header gates: a game header's standing carries no rule, so a money
+    //  game is admissible iff EITHER money token is listed — exact for the
+    //  information that header carries; the match gate and Matches judge
+    //  the rule.
     // -----------------------------------------------------------------------
-
-    [Fact]
-    public void Matches_UnknownRuleMoneyRecord_AdmittedByNeitherToken()
-    {
-        // `_includesMoneyWithJacoby && IsJacoby != false` would pass this
-        // record; the `== true` spelling is what rejects it.
-        AssertMatchesBoth(new MatchScoreFilter(["moneyJ"]), MoneyRow(null), expected: false);
-
-        // ...and the mirror: `!= true` would pass it here.
-        AssertMatchesBoth(new MatchScoreFilter(["moneyNJ"]), MoneyRow(null), expected: false);
-
-        // Not even both tokens together admit it. An unknown rule is never
-        // guessed into a side (halheinrich/backgammon#142 — the illegal state
-        // is upstream's to prevent; the filter simply never admits it).
-        AssertMatchesBoth(
-            new MatchScoreFilter(["moneyJ", "moneyNJ"]), MoneyRow(null), expected: false);
-    }
-
-    // -----------------------------------------------------------------------
-    //  Header gates: IMatchInfo / IGameInfo carry no Jacoby fact, so a money
-    //  header is admissible iff EITHER money token is listed. Exact for the
-    //  information those headers carry; Matches stays the rule arbiter.
-    // -----------------------------------------------------------------------
-
-    [Theory]
-    [InlineData("moneyJ")]
-    [InlineData("moneyNJ")]
-    public void ShouldSkipMatch_MoneySession_EitherMoneyToken_ReturnsFalse(string token)
-    {
-        var filter = new MatchScoreFilter([token]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 0 };
-
-        filter.ShouldSkipMatch(match).Should().BeFalse();
-    }
 
     [Theory]
     [InlineData("moneyJ")]
@@ -794,20 +685,18 @@ public class MatchScoreFilterTests
     public void ShouldSkipGame_MoneyGame_EitherMoneyToken_ReturnsFalse(string token)
     {
         var filter = new MatchScoreFilter([token]);
-        var game = new FakeGameInfo { Away1 = 0, Away2 = 0, IsCrawfordGame = false };
 
-        filter.ShouldSkipGame(game).Should().BeFalse();
+        filter.ShouldSkipGame(FakeGameInfo.Money()).Should().BeFalse();
     }
 
     [Fact]
     public void ShouldSkipMatch_MatchSession_SingleMoneyToken_ReturnsTrue()
     {
         // A money-token-only filter carries no tuples, so no match session can
-        // satisfy it — unchanged by the token split.
+        // satisfy it.
         var filter = new MatchScoreFilter(["moneyNJ"]);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
 
-        filter.ShouldSkipMatch(match).Should().BeTrue();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(7)).Should().BeTrue();
     }
 
     // -----------------------------------------------------------------------
@@ -823,7 +712,7 @@ public class MatchScoreFilterTests
         // Never a silent no-match and never a silent reinterpretation as one
         // of the two rule-bearing tokens: the retired spelling is rejected the
         // way any other unusable token is, so no filter is ever built from it
-        // and no money row of any rule can ride through on it.
+        // and no money session of any rule can ride through on it.
         var act = () => new MatchScoreFilter([retired]);
         act.Should().Throw<ArgumentException>();
     }
@@ -882,57 +771,58 @@ public class MatchScoreFilterTests
     //  behaviour carries the alias with it instead of splitting the two.
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// Whether a match standing at these away scores exists: each at least 1
+    /// and at most the length, and in the Crawford game exactly one side
+    /// 1-away — the match session's own rules, which a sweep must respect to
+    /// build a record at all.
+    /// </summary>
+    private static bool IsStanding(int length, int onRoll, int opponent, bool isCrawford) =>
+        onRoll <= length && opponent <= length
+        && (!isCrawford || (Math.Min(onRoll, opponent) == 1 && Math.Max(onRoll, opponent) >= 2));
+
     [Fact]
     public void DoubleMatchPoint_FiltersExactlyAs1a1a()
     {
         var alias = new MatchScoreFilter([MatchScoreToken.DoubleMatchPoint]);
         var score = new MatchScoreFilter(["1a1a"]);
 
-        // Decisions: every small score in both orientations, Crawford or not,
-        // at match lengths the gates treat differently, plus money under each
-        // rule.
-        var rows = new List<RowShape>();
+        // Decisions: every small standing in both orientations, Crawford or
+        // not, at match lengths the gates treat differently, plus money under
+        // each rule.
+        var decisions = new List<BgDecisionData>();
         foreach (int length in new[] { 1, 2, 5 })
             for (int onRoll = 1; onRoll <= length; onRoll++)
                 for (int opp = 1; opp <= length; opp++)
                     foreach (bool crawford in new[] { false, true })
-                        rows.Add(new RowShape(
-                            MatchLength: length, OnRollNeeds: onRoll,
-                            OpponentNeeds: opp, IsCrawford: crawford));
-        foreach (bool? rule in new bool?[] { true, false, null })
-            rows.Add(MoneyRow(rule));
+                        if (IsStanding(length, onRoll, opp, crawford))
+                            decisions.Add(AtScore(onRoll, opp, crawford, length));
+        decisions.Add(Money(isJacoby: true));
+        decisions.Add(Money(isJacoby: false));
 
-        foreach (var row in rows)
+        foreach (var decision in decisions)
         {
-            AssertMatchesBoth(alias, row, expected: score.Matches(row.ToDecisionRow()));
-            AssertShouldAdvanceMatchBoth(
-                alias, row, expected: score.ShouldAdvanceMatch(row.ToDecisionRow()));
+            var row = DecisionRow.From(decision, PlayRanking.Equity);
+            AssertMatchesBoth(alias, decision, expected: score.Matches(row));
+            AssertShouldAdvanceMatchBoth(alias, decision, expected: score.ShouldAdvanceMatch(row));
         }
 
         // Header gates.
-        foreach (int length in new[] { 0, 1, 2, 5 })
-        {
-            var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = length };
-            alias.ShouldSkipMatch(match).Should().Be(
-                score.ShouldSkipMatch(match), "match length {0}", length);
-        }
+        var matches = new[] { FakeMatchInfo.Money(isJacoby: true), FakeMatchInfo.Money(isJacoby: false) }
+            .Concat(new[] { 1, 2, 5 }.Select(FakeMatchInfo.Match));
+        foreach (var match in matches)
+            alias.ShouldSkipMatch(match).Should().Be(score.ShouldSkipMatch(match), "match header {0}", match);
 
-        for (int away1 = 0; away1 <= 3; away1++)
-            for (int away2 = 0; away2 <= 3; away2++)
+        var games = new List<FakeGameInfo> { FakeGameInfo.Money() };
+        for (int away1 = 1; away1 <= 3; away1++)
+            for (int away2 = 1; away2 <= 3; away2++)
                 foreach (bool crawford in new[] { false, true })
-                {
-                    var game = new FakeGameInfo
-                    {
-                        Away1 = away1, Away2 = away2, IsCrawfordGame = crawford,
-                    };
-                    alias.ShouldSkipGame(game).Should().Be(
-                        score.ShouldSkipGame(game), "game header {0}", game);
-                }
+                    if (IsStanding(3, away1, away2, crawford))
+                        games.Add(FakeGameInfo.Match(away1, away2, crawford));
+        foreach (var game in games)
+            alias.ShouldSkipGame(game).Should().Be(score.ShouldSkipGame(game), "game header {0}", game);
 
         // Not vacuous: the sweep contains the decision both admit.
-        AssertMatchesBoth(
-            alias,
-            new RowShape(MatchLength: 5, OnRollNeeds: 1, OpponentNeeds: 1, IsCrawford: false),
-            expected: true);
+        AssertMatchesBoth(alias, AtScore(1, 1, length: 5), expected: true);
     }
 }

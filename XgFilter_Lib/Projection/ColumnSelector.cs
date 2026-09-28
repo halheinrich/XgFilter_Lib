@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using BgDataTypes_Lib;
 using XgFilter_Lib.Enums;
@@ -10,6 +11,16 @@ namespace XgFilter_Lib.Projection;
 /// enum values; the header text comes from each member's
 /// <c>[Description]</c> label. Default construction selects every
 /// column in declaration order.
+///
+/// <para>
+/// A cell is written as the row's own CSV writes it
+/// (<see cref="DecisionRow.ToCsvLine"/>): a <see langword="null"/> column —
+/// the other decision kind's, the other session kind's, or a fact that does
+/// not apply, such as a standalone position's game and move number — is an
+/// empty cell, never 0; and every number is written with the invariant
+/// culture, whatever the ambient one, since a decimal comma would split a cell
+/// in two.
+/// </para>
 /// </summary>
 public sealed class ColumnSelector
 {
@@ -51,22 +62,33 @@ public sealed class ColumnSelector
     private static string GetValue(DecisionRow row, Column column) => column switch
     {
         Column.Xgid          => CsvEscape(row.Xgid),
-        Column.Error         => row.Error.ToString("G6"),
+        Column.Error         => Cell(row.Error),
         Column.MatchScore    => CsvEscape(row.MatchScore),
-        Column.MatchLength   => row.MatchLength.ToString(),
+        Column.MatchLength   => Cell(row.MatchLength),
         Column.Player        => CsvEscape(row.Player),
-        Column.SourceFile    => CsvEscape(row.SourceFile ?? string.Empty),
-        Column.Game          => row.Game.ToString(),
-        Column.MoveNumber    => row.MoveNumber.ToString(),
-        Column.Roll          => row.Roll.ToString(),
+        Column.SourceFile    => CsvEscape(row.SourceFile),
+        Column.Game          => Cell(row.Game),
+        Column.MoveNumber    => Cell(row.MoveNumber),
+        Column.Roll          => Cell(row.Roll),
         Column.AnalysisDepth => CsvEscape(row.AnalysisDepth),
-        Column.Equity        => row.Equity.ToString("G6"),
+        Column.Equity        => Cell(row.Equity),
         _ => throw new ArgumentOutOfRangeException(
             nameof(column), column, "Unknown Column"),
     };
 
-    private static string CsvEscape(string value)
+    /// <summary>A real-valued cell: <c>G6</c> in the invariant culture; empty for <see langword="null"/>.</summary>
+    private static string Cell(double? value) =>
+        value?.ToString("G6", CultureInfo.InvariantCulture) ?? string.Empty;
+
+    /// <summary>An integer cell: plain digits in the invariant culture; empty for <see langword="null"/>.</summary>
+    private static string Cell(int? value) =>
+        value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+
+    /// <summary>A text cell, quoted when it holds a separator; empty for <see langword="null"/> (none recorded).</summary>
+    private static string CsvEscape(string? value)
     {
+        if (value is null)
+            return string.Empty;
         if (value.Contains(',') || value.Contains('"') ||
             value.Contains('\n') || value.Contains('\r'))
             return $"\"{value.Replace("\"", "\"\"")}\"";

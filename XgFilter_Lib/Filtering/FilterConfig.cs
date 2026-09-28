@@ -41,6 +41,15 @@ namespace XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
+/// <b>No ranking.</b> Which play is best — and so the error
+/// <see cref="ErrorMin"/> / <see cref="ErrorMax"/> bound — is decided by the
+/// ranking in force (<see cref="PlayRanking"/>, SPEC-scoring §2a), which is the
+/// application's one setting, not a property of a saved filter. So a config
+/// carries none: the ranking is stated where records are filtered, and the
+/// built filters read it off each view or row they are handed.
+/// </para>
+///
+/// <para>
 /// Validity is separate from activity, and is a query rather than a gate on
 /// assignment. Every setter accepts whatever it is given — a stored document
 /// written before a rule existed must still load, so that a consumer can show

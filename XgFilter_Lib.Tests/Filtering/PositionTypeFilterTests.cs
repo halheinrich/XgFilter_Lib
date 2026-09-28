@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
@@ -6,14 +8,18 @@ namespace XgFilter_Lib.Tests.Filtering;
 
 public class PositionTypeFilterTests
 {
+    /// <summary>A checker play made on <paramref name="board"/>, the player on roll's position.</summary>
+    private static CheckerPlayDecision OnBoard(BoardPosition board) =>
+        TestRecords.CheckerPlay(position: TestRecords.Position(mop: board));
+
     // Starting-position fixture — a contact position that carries none of the
     // structural types below
-    private static readonly int[] _startingPosition = BoardBuilder.Build(
+    private static readonly BoardPosition _startingPosition = BoardBuilder.Build(
         (24, 2), (13, 5), (8, 3), (6, 5),
         (1, -2), (12, -5), (17, -3), (19, -5));
 
     // Contact fixture with two opponent checkers on the bar
-    private static readonly int[] _vsTwoPlusUpPosition = BoardBuilder.Build(
+    private static readonly BoardPosition _vsTwoPlusUpPosition = BoardBuilder.Build(
         (0, -2),
         (24, 2), (13, 5), (8, 3), (6, 5),
         (12, -5), (17, -3), (19, -3));
@@ -21,7 +27,7 @@ public class PositionTypeFilterTests
     // Holding fixture — 20-point holding game: player holds 13/8/6, opponent
     // anchors on the 20 (board[5]) and the player's 12; nothing on-roll above
     // the 13. See Holding1386Vs20Classifier for the full predicate.
-    private static readonly int[] _holding1386Vs20Position = BoardBuilder.Build(
+    private static readonly BoardPosition _holding1386Vs20Position = BoardBuilder.Build(
         (13, 5), (8, 3), (6, 4), (4, 2), (1, 1),          // on-roll player (15)
         (5, -2), (12, -3), (19, -4), (21, -4), (23, -2)); // opponent (-15)
 
@@ -33,14 +39,14 @@ public class PositionTypeFilterTests
     public void VsTwoPlusUpFilter_OpponentTwoOnBar_Passes()
     {
         var filter = new PositionTypeFilter([PositionType.VsTwoPlusUp]);
-        AssertMatchesBoth(filter, new RowShape(Board: _vsTwoPlusUpPosition), expected: true);
+        AssertMatchesBoth(filter, OnBoard(_vsTwoPlusUpPosition), expected: true);
     }
 
     [Fact]
     public void VsTwoPlusUpFilter_StartingPosition_DoesNotPass()
     {
         var filter = new PositionTypeFilter([PositionType.VsTwoPlusUp]);
-        AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: false);
+        AssertMatchesBoth(filter, OnBoard(_startingPosition), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -51,14 +57,14 @@ public class PositionTypeFilterTests
     public void Holding1386Vs20Filter_HoldingPosition_Passes()
     {
         var filter = new PositionTypeFilter([PositionType.Holding1386Vs20]);
-        AssertMatchesBoth(filter, new RowShape(Board: _holding1386Vs20Position), expected: true);
+        AssertMatchesBoth(filter, OnBoard(_holding1386Vs20Position), expected: true);
     }
 
     [Fact]
     public void Holding1386Vs20Filter_StartingPosition_DoesNotPass()
     {
         var filter = new PositionTypeFilter([PositionType.Holding1386Vs20]);
-        AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: false);
+        AssertMatchesBoth(filter, OnBoard(_startingPosition), expected: false);
     }
 
     [Fact]
@@ -78,15 +84,15 @@ public class PositionTypeFilterTests
     {
         var filter = new PositionTypeFilter([PositionType.VsTwoPlusUp, PositionType.Holding1386Vs20]);
 
-        AssertMatchesBoth(filter, new RowShape(Board: _vsTwoPlusUpPosition), expected: true);
-        AssertMatchesBoth(filter, new RowShape(Board: _holding1386Vs20Position), expected: true);
+        AssertMatchesBoth(filter, OnBoard(_vsTwoPlusUpPosition), expected: true);
+        AssertMatchesBoth(filter, OnBoard(_holding1386Vs20Position), expected: true);
     }
 
     [Fact]
     public void EmptyTypeList_NothingPasses()
     {
         var filter = new PositionTypeFilter([]);
-        AssertMatchesBoth(filter, new RowShape(Board: _holding1386Vs20Position), expected: false);
+        AssertMatchesBoth(filter, OnBoard(_holding1386Vs20Position), expected: false);
     }
 
     // -----------------------------------------------------------------------

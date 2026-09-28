@@ -1,54 +1,65 @@
+using BgDataTypes_Lib;
 using XgFilter_Lib.Filtering;
 
 namespace XgFilter_Lib.Tests.Helpers;
 
 /// <summary>
 /// Assertion helpers for <see cref="IDecisionFilter"/> that exercise both
-/// <c>IDecisionFilterData</c> substrates (<c>DecisionRow</c> and
-/// <c>BgDecisionData</c>) in one call. Every row-level filter assertion
-/// should go through one of these — catches substrate-specific regressions
-/// that a single-substrate assertion would miss.
+/// <see cref="IDecisionFilterData"/> substrates of one record under one
+/// ranking in one call: the record's view (<see cref="BgDecisionData.ViewFor"/>)
+/// and its row (<see cref="DecisionRow.From"/>). Every row-level filter
+/// assertion goes through one of these — it catches a filter that reads a
+/// member the two substrates answer differently, which a single-substrate
+/// assertion would miss.
+/// <para>
+/// The ranking defaults to <see cref="PlayRanking.Equity"/>, the one an
+/// application without the setting uses; a test whose subject is the ranking
+/// states it.
+/// </para>
 /// </summary>
 internal static class DecisionFilterAsserts
 {
     /// <summary>
     /// Asserts <see cref="IDecisionFilter.Matches"/> returns
-    /// <paramref name="expected"/> on both substrates produced from
-    /// <paramref name="shape"/>. Fails with a substrate-identifying message
-    /// on disagreement.
+    /// <paramref name="expected"/> on both substrates of
+    /// <paramref name="record"/> under <paramref name="ranking"/>. Fails with a
+    /// substrate-identifying message on disagreement.
     /// </summary>
-    public static void AssertMatchesBoth(IDecisionFilter filter, RowShape shape, bool expected)
+    public static void AssertMatchesBoth(
+        IDecisionFilter filter, BgDecisionData record, bool expected, PlayRanking ranking = PlayRanking.Equity)
     {
-        filter.Matches(shape.ToDecisionRow())
-              .Should().Be(expected, "DecisionRow substrate");
-        filter.Matches(shape.ToBgDecisionData())
-              .Should().Be(expected, "BgDecisionData substrate");
+        filter.Matches(record.ViewFor(ranking))
+              .Should().Be(expected, "the record's view under {0}", ranking);
+        filter.Matches(DecisionRow.From(record, ranking))
+              .Should().Be(expected, "the record's row under {0}", ranking);
     }
 
     /// <summary>
     /// Asserts <see cref="IDecisionFilter.ShouldAdvanceMatch"/> returns
-    /// <paramref name="expected"/> on both substrates produced from
-    /// <paramref name="shape"/>.
+    /// <paramref name="expected"/> on both substrates of
+    /// <paramref name="record"/> under <paramref name="ranking"/>.
     /// </summary>
-    public static void AssertShouldAdvanceMatchBoth(IDecisionFilter filter, RowShape shape, bool expected)
+    public static void AssertShouldAdvanceMatchBoth(
+        IDecisionFilter filter, BgDecisionData record, bool expected, PlayRanking ranking = PlayRanking.Equity)
     {
-        filter.ShouldAdvanceMatch(shape.ToDecisionRow())
-              .Should().Be(expected, "DecisionRow substrate");
-        filter.ShouldAdvanceMatch(shape.ToBgDecisionData())
-              .Should().Be(expected, "BgDecisionData substrate");
+        filter.ShouldAdvanceMatch(record.ViewFor(ranking))
+              .Should().Be(expected, "the record's view under {0}", ranking);
+        filter.ShouldAdvanceMatch(DecisionRow.From(record, ranking))
+              .Should().Be(expected, "the record's row under {0}", ranking);
     }
 
     /// <summary>
     /// Asserts <see cref="IDecisionFilter.ShouldAdvanceGame"/> returns
-    /// <paramref name="expected"/> on both substrates produced from
-    /// <paramref name="shape"/>.
+    /// <paramref name="expected"/> on both substrates of
+    /// <paramref name="record"/> under <paramref name="ranking"/>.
     /// </summary>
-    public static void AssertShouldAdvanceGameBoth(IDecisionFilter filter, RowShape shape, bool expected)
+    public static void AssertShouldAdvanceGameBoth(
+        IDecisionFilter filter, BgDecisionData record, bool expected, PlayRanking ranking = PlayRanking.Equity)
     {
-        filter.ShouldAdvanceGame(shape.ToDecisionRow())
-              .Should().Be(expected, "DecisionRow substrate");
-        filter.ShouldAdvanceGame(shape.ToBgDecisionData())
-              .Should().Be(expected, "BgDecisionData substrate");
+        filter.ShouldAdvanceGame(record.ViewFor(ranking))
+              .Should().Be(expected, "the record's view under {0}", ranking);
+        filter.ShouldAdvanceGame(DecisionRow.From(record, ranking))
+              .Should().Be(expected, "the record's row under {0}", ranking);
     }
 
     // -----------------------------------------------------------------------
@@ -59,40 +70,43 @@ internal static class DecisionFilterAsserts
 
     /// <summary>
     /// Asserts <see cref="DecisionFilterSet.Matches"/> returns
-    /// <paramref name="expected"/> on both substrates produced from
-    /// <paramref name="shape"/>.
+    /// <paramref name="expected"/> on both substrates of
+    /// <paramref name="record"/> under <paramref name="ranking"/>.
     /// </summary>
-    public static void AssertSetMatchesBoth(DecisionFilterSet set, RowShape shape, bool expected)
+    public static void AssertSetMatchesBoth(
+        DecisionFilterSet set, BgDecisionData record, bool expected, PlayRanking ranking = PlayRanking.Equity)
     {
-        set.Matches(shape.ToDecisionRow())
-           .Should().Be(expected, "DecisionRow substrate");
-        set.Matches(shape.ToBgDecisionData())
-           .Should().Be(expected, "BgDecisionData substrate");
+        set.Matches(record.ViewFor(ranking))
+           .Should().Be(expected, "the record's view under {0}", ranking);
+        set.Matches(DecisionRow.From(record, ranking))
+           .Should().Be(expected, "the record's row under {0}", ranking);
     }
 
     /// <summary>
     /// Asserts <see cref="DecisionFilterSet.ShouldAdvanceMatch"/> returns
-    /// <paramref name="expected"/> on both substrates produced from
-    /// <paramref name="shape"/>.
+    /// <paramref name="expected"/> on both substrates of
+    /// <paramref name="record"/> under <paramref name="ranking"/>.
     /// </summary>
-    public static void AssertSetShouldAdvanceMatchBoth(DecisionFilterSet set, RowShape shape, bool expected)
+    public static void AssertSetShouldAdvanceMatchBoth(
+        DecisionFilterSet set, BgDecisionData record, bool expected, PlayRanking ranking = PlayRanking.Equity)
     {
-        set.ShouldAdvanceMatch(shape.ToDecisionRow())
-           .Should().Be(expected, "DecisionRow substrate");
-        set.ShouldAdvanceMatch(shape.ToBgDecisionData())
-           .Should().Be(expected, "BgDecisionData substrate");
+        set.ShouldAdvanceMatch(record.ViewFor(ranking))
+           .Should().Be(expected, "the record's view under {0}", ranking);
+        set.ShouldAdvanceMatch(DecisionRow.From(record, ranking))
+           .Should().Be(expected, "the record's row under {0}", ranking);
     }
 
     /// <summary>
     /// Asserts <see cref="DecisionFilterSet.ShouldAdvanceGame"/> returns
-    /// <paramref name="expected"/> on both substrates produced from
-    /// <paramref name="shape"/>.
+    /// <paramref name="expected"/> on both substrates of
+    /// <paramref name="record"/> under <paramref name="ranking"/>.
     /// </summary>
-    public static void AssertSetShouldAdvanceGameBoth(DecisionFilterSet set, RowShape shape, bool expected)
+    public static void AssertSetShouldAdvanceGameBoth(
+        DecisionFilterSet set, BgDecisionData record, bool expected, PlayRanking ranking = PlayRanking.Equity)
     {
-        set.ShouldAdvanceGame(shape.ToDecisionRow())
-           .Should().Be(expected, "DecisionRow substrate");
-        set.ShouldAdvanceGame(shape.ToBgDecisionData())
-           .Should().Be(expected, "BgDecisionData substrate");
+        set.ShouldAdvanceGame(record.ViewFor(ranking))
+           .Should().Be(expected, "the record's view under {0}", ranking);
+        set.ShouldAdvanceGame(DecisionRow.From(record, ranking))
+           .Should().Be(expected, "the record's row under {0}", ranking);
     }
 }

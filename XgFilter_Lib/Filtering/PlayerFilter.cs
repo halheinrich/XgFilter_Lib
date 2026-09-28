@@ -3,8 +3,11 @@ using BgDataTypes_Lib;
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Passes rows where <see cref="DecisionRow.Player"/> matches any entry in the include list.
-/// Comparison is case-insensitive.
+/// Passes decisions whose player — <see cref="IDecisionFilterData.Player"/>,
+/// the name of the player on roll — matches any entry in the include list.
+/// Comparison is case-insensitive. A decision whose source recorded no name
+/// (<see cref="IDecisionFilterData.Player"/> is <see langword="null"/>) never
+/// passes: there is no name to match.
 /// </summary>
 internal sealed class PlayerFilter : IDecisionFilter, IMatchFilter
 {
@@ -20,7 +23,8 @@ internal sealed class PlayerFilter : IDecisionFilter, IMatchFilter
     }
 
     /// <inheritdoc/>
-    public bool Matches(IDecisionFilterData data) => _players.Contains(data.Player);
+    public bool Matches(IDecisionFilterData data) =>
+        data.Player is { } player && _players.Contains(player);
 
     /// <summary>
     /// Skip the match if neither player is in the include list.

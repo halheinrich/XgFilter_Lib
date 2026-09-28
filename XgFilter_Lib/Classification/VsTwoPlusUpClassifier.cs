@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+
 namespace XgFilter_Lib.Classification;
 
 /// <summary>
@@ -9,5 +11,5 @@ namespace XgFilter_Lib.Classification;
 /// </summary>
 internal sealed class VsTwoPlusUpClassifier : IPositionClassifier
 {
-    public bool Matches(IReadOnlyList<int> board) => board[0] <= -2;
+    public bool Matches(BoardPosition board) => board[0] <= -2;
 }

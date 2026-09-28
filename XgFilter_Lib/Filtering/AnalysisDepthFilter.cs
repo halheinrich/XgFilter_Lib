@@ -7,10 +7,12 @@ namespace XgFilter_Lib.Filtering;
 /// two-axis analysis taxonomy (<see cref="AnalysisMode"/> ×
 /// <see cref="AnalysisLevel"/>) that replaced the retired flat depth class.
 /// Each <see cref="Clause"/> admits one mode, qualified by its own level set;
-/// a row passes iff <em>any</em> clause admits it. Depth is a scalar pair the
-/// producer already stamped on each decision (the cube analysis for cube rows,
-/// the best-by-equity candidate for checker rows), so this is a direct
-/// membership test with no classifier dispatch and no board reads.
+/// a row passes iff <em>any</em> clause admits it. Depth is a pair of typed
+/// facts the producer states on each decision (the cube analysis for a cube
+/// decision; for a checker play, the best candidate under the ranking the view
+/// was built for — <see cref="IDecisionFilterData.AnalysisMode"/>), so this is
+/// a direct membership test with no classifier dispatch and no board reads.
+/// The filter holds no ranking: which candidate is best is the view's.
 ///
 /// <para>
 /// The union-of-clauses shape exists because a level selection qualifies only

@@ -1,3 +1,4 @@
+using BgDataTypes_Lib;
 using XgFilter_Lib.Patterns;
 using XgFilter_Lib.Tests.Helpers;
 
@@ -71,7 +72,7 @@ public class BoardPatternTests
 
     // The standard starting position: fifteen checkers per side on the board,
     // so nobody is off.
-    private static int[] FullBoard() => BoardBuilder.Build(
+    private static BoardPosition FullBoard() => BoardBuilder.Build(
         (24, 2), (13, 5), (8, 3), (6, 5),
         (1, -2), (12, -5), (17, -3), (19, -5));
 
@@ -170,13 +171,6 @@ public class BoardPatternTests
     public void Ctor_NullRanges_Throws()
     {
         var act = () => new BoardPattern(null!);
-        act.Should().Throw<ArgumentNullException>();
-    }
-
-    [Fact]
-    public void Matches_NullBoard_Throws()
-    {
-        var act = () => BoardPattern.Empty.Matches(null!);
         act.Should().Throw<ArgumentNullException>();
     }
 

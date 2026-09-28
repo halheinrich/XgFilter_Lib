@@ -1,4 +1,5 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Filtering;
 
 namespace XgFilter_Lib.Tests.Helpers;
@@ -25,6 +26,12 @@ public class DecisionFilterAssertsTests
         public bool Matches(IDecisionFilterData data) => data is DecisionRow;
     }
 
+    /// <summary>Matches only a view built for depth first — simulates a filter that reads the wrong ranking.</summary>
+    private sealed class OnlyDepthFirstFilter : IDecisionFilter
+    {
+        public bool Matches(IDecisionFilterData data) => data.Ranking == PlayRanking.DepthFirst;
+    }
+
     private sealed class ShouldAdvanceMatchFilter(bool result) : IDecisionFilter
     {
         public bool Matches(IDecisionFilterData data) => true;
@@ -45,7 +52,7 @@ public class DecisionFilterAssertsTests
     public void AssertMatchesBoth_BothAgreeTrue_DoesNotThrow()
     {
         var act = () => DecisionFilterAsserts.AssertMatchesBoth(
-            new AlwaysTrueFilter(), new RowShape(), expected: true);
+            new AlwaysTrueFilter(), TestRecords.CheckerPlay(), expected: true);
         act.Should().NotThrow();
     }
 
@@ -53,7 +60,7 @@ public class DecisionFilterAssertsTests
     public void AssertMatchesBoth_BothAgreeFalse_DoesNotThrow()
     {
         var act = () => DecisionFilterAsserts.AssertMatchesBoth(
-            new AlwaysFalseFilter(), new RowShape(), expected: false);
+            new AlwaysFalseFilter(), TestRecords.CheckerPlay(), expected: false);
         act.Should().NotThrow();
     }
 
@@ -65,7 +72,7 @@ public class DecisionFilterAssertsTests
     public void AssertMatchesBoth_BothAgreeButExpectationWrong_Throws()
     {
         var act = () => DecisionFilterAsserts.AssertMatchesBoth(
-            new AlwaysTrueFilter(), new RowShape(), expected: false);
+            new AlwaysTrueFilter(), TestRecords.CheckerPlay(), expected: false);
         act.Should().Throw<Exception>();
     }
 
@@ -76,9 +83,9 @@ public class DecisionFilterAssertsTests
     [Fact]
     public void AssertMatchesBoth_SubstratesDisagree_ExpectedTrue_Throws()
     {
-        // DecisionRow returns true, BgDecisionData returns false.
+        // The row returns true, the view false.
         var act = () => DecisionFilterAsserts.AssertMatchesBoth(
-            new OnlyDecisionRowFilter(), new RowShape(), expected: true);
+            new OnlyDecisionRowFilter(), TestRecords.CheckerPlay(), expected: true);
         act.Should().Throw<Exception>();
     }
 
@@ -86,27 +93,51 @@ public class DecisionFilterAssertsTests
     public void AssertMatchesBoth_SubstratesDisagree_ExpectedFalse_Throws()
     {
         var act = () => DecisionFilterAsserts.AssertMatchesBoth(
-            new OnlyDecisionRowFilter(), new RowShape(), expected: false);
+            new OnlyDecisionRowFilter(), TestRecords.CheckerPlay(), expected: false);
         act.Should().Throw<Exception>();
     }
 
     // -----------------------------------------------------------------------
-    //  AssertMatchesBoth — cube and empty-afterboard paths resolve cleanly
+    //  AssertMatchesBoth — both substrates are built for the stated ranking
     // -----------------------------------------------------------------------
 
-    [Fact]
-    public void AssertMatchesBoth_CubeShape_WorksWithoutAfterBoards()
+    [Theory]
+    [InlineData(PlayRanking.Equity, false)]
+    [InlineData(PlayRanking.DepthFirst, true)]
+    public void AssertMatchesBoth_BuildsBothSubstratesForTheStatedRanking(PlayRanking ranking, bool expected)
     {
         var act = () => DecisionFilterAsserts.AssertMatchesBoth(
-            new AlwaysTrueFilter(), new RowShape(IsCube: true), expected: true);
+            new OnlyDepthFirstFilter(), TestRecords.CheckerPlay(), expected, ranking);
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void AssertMatchesBoth_CheckerShape_WithEmptyAfterBoards_DoesNotThrow()
+    public void AssertMatchesBoth_DefaultsToTheEquityRanking()
     {
         var act = () => DecisionFilterAsserts.AssertMatchesBoth(
-            new AlwaysTrueFilter(), new RowShape(IsCube: false), expected: true);
+            new OnlyDepthFirstFilter(), TestRecords.CheckerPlay(), expected: false);
+        act.Should().NotThrow();
+    }
+
+    // -----------------------------------------------------------------------
+    //  AssertMatchesBoth — cube and off-list paths resolve cleanly
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void AssertMatchesBoth_CubeDecision_WorksWithoutAfterBoards()
+    {
+        var act = () => DecisionFilterAsserts.AssertMatchesBoth(
+            new AlwaysTrueFilter(), TestRecords.Cube(), expected: true);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void AssertMatchesBoth_OffListPlay_WithNoPlayerAfterBoard_DoesNotThrow()
+    {
+        var offList = TestRecords.CheckerPlay(
+            decision: TestRecords.CheckerPlayData(userPlayIndex: null, unlistedPlayError: 0.1));
+        var act = () => DecisionFilterAsserts.AssertMatchesBoth(
+            new AlwaysTrueFilter(), offList, expected: true);
         act.Should().NotThrow();
     }
 
@@ -118,7 +149,7 @@ public class DecisionFilterAssertsTests
     public void AssertShouldAdvanceMatchBoth_BothAgreeTrue_DoesNotThrow()
     {
         var act = () => DecisionFilterAsserts.AssertShouldAdvanceMatchBoth(
-            new ShouldAdvanceMatchFilter(true), new RowShape(), expected: true);
+            new ShouldAdvanceMatchFilter(true), TestRecords.CheckerPlay(), expected: true);
         act.Should().NotThrow();
     }
 
@@ -126,7 +157,7 @@ public class DecisionFilterAssertsTests
     public void AssertShouldAdvanceMatchBoth_BothAgreeFalse_DoesNotThrow()
     {
         var act = () => DecisionFilterAsserts.AssertShouldAdvanceMatchBoth(
-            new ShouldAdvanceMatchFilter(false), new RowShape(), expected: false);
+            new ShouldAdvanceMatchFilter(false), TestRecords.CheckerPlay(), expected: false);
         act.Should().NotThrow();
     }
 
@@ -134,7 +165,7 @@ public class DecisionFilterAssertsTests
     public void AssertShouldAdvanceMatchBoth_ExpectationWrong_Throws()
     {
         var act = () => DecisionFilterAsserts.AssertShouldAdvanceMatchBoth(
-            new ShouldAdvanceMatchFilter(true), new RowShape(), expected: false);
+            new ShouldAdvanceMatchFilter(true), TestRecords.CheckerPlay(), expected: false);
         act.Should().Throw<Exception>();
     }
 
@@ -146,7 +177,7 @@ public class DecisionFilterAssertsTests
     public void AssertShouldAdvanceGameBoth_BothAgreeTrue_DoesNotThrow()
     {
         var act = () => DecisionFilterAsserts.AssertShouldAdvanceGameBoth(
-            new ShouldAdvanceGameFilter(true), new RowShape(), expected: true);
+            new ShouldAdvanceGameFilter(true), TestRecords.CheckerPlay(), expected: true);
         act.Should().NotThrow();
     }
 
@@ -154,7 +185,7 @@ public class DecisionFilterAssertsTests
     public void AssertShouldAdvanceGameBoth_BothAgreeFalse_DoesNotThrow()
     {
         var act = () => DecisionFilterAsserts.AssertShouldAdvanceGameBoth(
-            new ShouldAdvanceGameFilter(false), new RowShape(), expected: false);
+            new ShouldAdvanceGameFilter(false), TestRecords.CheckerPlay(), expected: false);
         act.Should().NotThrow();
     }
 
@@ -162,7 +193,7 @@ public class DecisionFilterAssertsTests
     public void AssertShouldAdvanceGameBoth_ExpectationWrong_Throws()
     {
         var act = () => DecisionFilterAsserts.AssertShouldAdvanceGameBoth(
-            new ShouldAdvanceGameFilter(true), new RowShape(), expected: false);
+            new ShouldAdvanceGameFilter(true), TestRecords.CheckerPlay(), expected: false);
         act.Should().Throw<Exception>();
     }
 }

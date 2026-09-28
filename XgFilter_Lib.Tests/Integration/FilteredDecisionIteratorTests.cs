@@ -3,6 +3,7 @@ using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using XgFilter_Lib.Classification;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Projection;
@@ -12,6 +13,8 @@ namespace XgFilter_Lib.Tests.Integration;
 /// <summary>
 /// Integration test that reads real .xg files and filters by player name.
 /// Requires .xg files in TestData\xg relative to the test output directory.
+/// Every iterator here runs under the default ranking; the ranking in force is
+/// pinned on synthesized files by <see cref="FilteredDecisionIteratorRankingTests"/>.
 /// </summary>
 public class FilteredDecisionIteratorTests
 {
@@ -24,7 +27,7 @@ public class FilteredDecisionIteratorTests
         NullLogger<FilteredDecisionIterator>.Instance;
 
     private static FilteredDecisionIterator NewIterator(DecisionFilterSet filters) =>
-        new FilteredDecisionIterator(filters, NullLogger);
+        new FilteredDecisionIterator(filters, PlayRanking.Equity, NullLogger);
 
     [Fact]
     public void TestDataDirectory_Exists_AndContainsXgFiles()
@@ -46,7 +49,7 @@ public class FilteredDecisionIteratorTests
         var rows = iterator.IterateXgDirectory(FixtureDir).ToList();
 
         rows.Should().NotBeEmpty("expected at least one decision by halheinrich in the test files");
-        rows.Should().OnlyContain(r => r.Player.Equals("halheinrich", StringComparison.OrdinalIgnoreCase));
+        rows.Should().OnlyContain(r => string.Equals(r.Player, "halheinrich", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -74,7 +77,7 @@ public class FilteredDecisionIteratorTests
 
         var rows = iterator.IterateXgDirectory(XgDir).ToList();
 
-        rows.Should().OnlyContain(r => r.Board.Count == 26);
+        rows.Should().OnlyContain(r => new RaceClassifier().Matches(r.Board));
     }
 
     [Fact]
@@ -85,7 +88,7 @@ public class FilteredDecisionIteratorTests
 
         var rows = iterator.IterateXgDirectory(XgDir).ToList();
 
-        rows.Should().OnlyContain(r => r.Board.Count == 26);
+        rows.Should().OnlyContain(r => new ContactClassifier().Matches(r.Board));
     }
 
     [Fact]
@@ -141,7 +144,7 @@ public class FilteredDecisionIteratorTests
         diagrams.Should().NotBeEmpty(
             "expected at least one decision by halheinrich in the test files");
         diagrams.Should().OnlyContain(d =>
-            d.Descriptive.OnRollName.Equals("halheinrich", StringComparison.OrdinalIgnoreCase));
+            string.Equals(d.Player, "halheinrich", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -149,34 +152,33 @@ public class FilteredDecisionIteratorTests
     {
         // The diagram form's whole purpose is the per-candidate Plays list.
         // No filter — take everything in the fixture corpus and assert that
-        // some checker-play decision yields a non-empty Plays list. Cube
-        // decisions may have empty Plays by contract; we just need one
-        // non-cube decision to populate.
+        // some checker-play decision yields its candidates. A cube decision
+        // has no candidates at all — the other kind.
         var iterator = NewIterator(new DecisionFilterSet());
 
         var diagrams = iterator.IterateXgDirectoryDiagrams(FixtureDir).ToList();
 
         diagrams.Should().NotBeEmpty();
-        diagrams.Should().Contain(d => d.Decision.Plays.Count > 0,
+        diagrams.Should().Contain(d => d is CheckerPlayDecision && ((CheckerPlayDecision)d).Decision.Plays.Count > 0,
             "diagram form must populate Plays for checker-play decisions");
     }
 
     [Fact]
     public void IterateXgDirectoryDiagrams_RowVariant_AndDiagramVariant_AgreeOnPassingDecisions()
     {
-        // Same fixture corpus, same filter set, both shapes implement
-        // IDecisionFilterData identically — the pass/fail outcome must be
-        // identical decision-for-decision. Compare on (SourceFile, MoveNumber,
-        // IsCube) which both shapes carry.
+        // Same fixture corpus, same filter set: a row and its record's view
+        // are one decision under one ranking — the pass/fail outcome must be
+        // identical decision-for-decision. Compare on the identifier both
+        // shapes carry.
         var iterator = NewIterator(
             new DecisionFilterSet().Add(new PlayerFilter(["halheinrich"])));
 
         var rowKeys = iterator.IterateXgDirectory(FixtureDir)
-            .Select(r => (r.SourceFile, r.MoveNumber, r.IsCube))
+            .Select(r => r.Id)
             .ToList();
 
         var diagramKeys = iterator.IterateXgDirectoryDiagrams(FixtureDir)
-            .Select(d => (d.Descriptive.SourceFile, d.Descriptive.MoveNumber, d.Decision.IsCube))
+            .Select(d => d.Id)
             .ToList();
 
         diagramKeys.Should().Equal(rowKeys,
@@ -233,7 +235,7 @@ public class FilteredDecisionIteratorTests
 
             rows.Should().NotBeEmpty(
                 "an XG-format directory walk must include .xgp position files");
-            rows.Should().OnlyContain(r => xgpBaseNames.Contains(r.SourceFile!),
+            rows.Should().OnlyContain(r => xgpBaseNames.Contains(r.SourceFile),
                 "every row must trace back to one of the .xgp fixtures placed in the temp dir");
         }
         finally
@@ -265,7 +267,7 @@ public class FilteredDecisionIteratorTests
             diagrams.Should().NotBeEmpty(
                 "the diagram-shape iterator must mirror the row-shape iterator's .xgp parity");
             diagrams.Should().OnlyContain(
-                d => xgpBaseNames.Contains(d.Descriptive.SourceFile!));
+                d => xgpBaseNames.Contains(d.SourceFile));
         }
         finally
         {
@@ -299,11 +301,11 @@ public class FilteredDecisionIteratorTests
         var iterator = NewIterator(new DecisionFilterSet());
 
         var fromDir = iterator.IterateXgDirectory(FixtureDir)
-            .Select(r => (r.SourceFile, r.MoveNumber, r.IsCube, r.Player))
+            .Select(r => (r.Id, r.Player))
             .ToList();
 
         var fromStreams = iterator.IterateXgStreams(LoadStreams(FixtureDir))
-            .Select(r => (r.SourceFile, r.MoveNumber, r.IsCube, r.Player))
+            .Select(r => (r.Id, r.Player))
             .ToList();
 
         fromStreams.Should().NotBeEmpty(
@@ -318,13 +320,11 @@ public class FilteredDecisionIteratorTests
         var iterator = NewIterator(new DecisionFilterSet());
 
         var fromDir = iterator.IterateXgDirectoryDiagrams(FixtureDir)
-            .Select(d => (d.Descriptive.SourceFile, d.Descriptive.MoveNumber,
-                          d.Decision.IsCube, d.Descriptive.OnRollName))
+            .Select(d => (d.Id, d.Player))
             .ToList();
 
         var fromStreams = iterator.IterateXgStreamDiagrams(LoadStreams(FixtureDir))
-            .Select(d => (d.Descriptive.SourceFile, d.Descriptive.MoveNumber,
-                          d.Decision.IsCube, d.Descriptive.OnRollName))
+            .Select(d => (d.Id, d.Player))
             .ToList();
 
         fromStreams.Should().NotBeEmpty();
@@ -360,7 +360,7 @@ public class FilteredDecisionIteratorTests
         rows.Should().NotBeEmpty(
             "expected at least one decision by halheinrich in the fixture corpus");
         rows.Should().OnlyContain(
-            r => r.Player.Equals("halheinrich", StringComparison.OrdinalIgnoreCase));
+            r => string.Equals(r.Player, "halheinrich", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -418,7 +418,7 @@ public class FilteredDecisionIteratorTests
         // malformed NAME) is skipped+logged, never thrown. Mix one garbage
         // .xg stream with the real corpus and assert survival + a warning.
         var spyLogger = new ListLogger<FilteredDecisionIterator>();
-        var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), spyLogger);
+        var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
 
         var streams = LoadStreams(FixtureDir);
         streams.Add(new XgFileStream("malformed.xg", new MemoryStream([])));
@@ -447,14 +447,14 @@ public class FilteredDecisionIteratorTests
     [Fact]
     public void Constructor_NullFilters_Throws()
     {
-        var act = () => new FilteredDecisionIterator(null!, NullLogger);
+        var act = () => new FilteredDecisionIterator(null!, PlayRanking.Equity, NullLogger);
         act.Should().Throw<ArgumentNullException>();
     }
 
     [Fact]
     public void Constructor_NullLogger_Throws()
     {
-        var act = () => new FilteredDecisionIterator(new DecisionFilterSet(), null!);
+        var act = () => new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, null!);
         act.Should().Throw<ArgumentNullException>();
     }
 
@@ -484,7 +484,7 @@ public class FilteredDecisionIteratorTests
             File.WriteAllBytes(badPath, []);
 
             var spyLogger = new ListLogger<FilteredDecisionIterator>();
-            var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), spyLogger);
+            var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
 
             var rows = iterator.IterateXgDirectory(tempDir).ToList();
 
@@ -535,7 +535,7 @@ public class FilteredDecisionIteratorTests
             File.WriteAllText(Path.Combine(tempDir, "illegal.json"), json);
 
             var spyLogger = new ListLogger<FilteredDecisionIterator>();
-            var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), spyLogger);
+            var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
 
             _ = iterator.IterateJsonDirectory(tempDir).ToList();
 
@@ -561,7 +561,7 @@ public class FilteredDecisionIteratorTests
             "Avi Cohen (6.86) - Max Stockslager (10.55) 2023-02-09_18122.xg";
 
         var spyLogger = new ListLogger<FilteredDecisionIterator>();
-        var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), spyLogger);
+        var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
 
         _ = iterator.IterateXgDirectory(FixtureDir).ToList();
 
@@ -584,7 +584,7 @@ public class FilteredDecisionIteratorTests
         // ShouldSkipMatch before walking any file's rows; if it doesn't,
         // we'll see rows in the output. Zero rows is the contract.
         var iterator = new FilteredDecisionIterator(
-            new DecisionFilterSet().Add(new SkipAllMatchesFilter()), NullLogger);
+            new DecisionFilterSet().Add(new SkipAllMatchesFilter()), PlayRanking.Equity, NullLogger);
 
         iterator.IterateXgDirectory(FixtureDir).Should().BeEmpty(
             "ShouldSkipMatch=true must short-circuit the file before any row is yielded");
@@ -594,7 +594,7 @@ public class FilteredDecisionIteratorTests
     public void ShouldSkipGame_VotedByFilter_IteratorSkipsEveryGame()
     {
         var iterator = new FilteredDecisionIterator(
-            new DecisionFilterSet().Add(new SkipAllGamesFilter()), NullLogger);
+            new DecisionFilterSet().Add(new SkipAllGamesFilter()), PlayRanking.Equity, NullLogger);
 
         iterator.IterateXgDirectory(FixtureDir).Should().BeEmpty(
             "ShouldSkipGame=true on every game must keep any row from being yielded");
@@ -608,7 +608,7 @@ public class FilteredDecisionIteratorTests
         // per file should reach the consumer. Pin via SourceFile-uniqueness
         // — content-agnostic, robust against fixture corpus changes.
         var iterator = new FilteredDecisionIterator(
-            new DecisionFilterSet().Add(new AdvanceMatchOnAnyRowFilter()), NullLogger);
+            new DecisionFilterSet().Add(new AdvanceMatchOnAnyRowFilter()), PlayRanking.Equity, NullLogger);
 
         var rows = iterator.IterateXgDirectory(FixtureDir).ToList();
 
@@ -623,7 +623,7 @@ public class FilteredDecisionIteratorTests
     public void ShouldAdvanceGame_VotedByFilter_AtMostOneRowPerGame()
     {
         var iterator = new FilteredDecisionIterator(
-            new DecisionFilterSet().Add(new AdvanceGameOnAnyRowFilter()), NullLogger);
+            new DecisionFilterSet().Add(new AdvanceGameOnAnyRowFilter()), PlayRanking.Equity, NullLogger);
 
         var rows = iterator.IterateXgDirectory(FixtureDir).ToList();
 

@@ -1,3 +1,4 @@
+using BgDataTypes_Lib;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Patterns;
 using XgFilter_Lib.Tests.Helpers;
@@ -44,26 +45,44 @@ public class BoardPatternCompatibilityTests
         (head == "0" && (min > 0 || max > 0)) || (head == "25" && (min < 0 || max < 0));
 
     /// <summary>Pre-change signed value at a head: the board entry, or a derived off count.</summary>
-    private static int LegacyValue(string head, int[] board) => head switch
+    private static int LegacyValue(string head, BoardPosition board)
     {
-        "off" => 15 - board.Where(v => v > 0).Sum(),
-        "opp-off" => -(15 + board.Where(v => v < 0).Sum()),
-        _ => board[int.Parse(head, System.Globalization.CultureInfo.InvariantCulture)],
-    };
+        var slots = Enumerable.Range(0, 26).Select(i => board[i]);
+        return head switch
+        {
+            "off" => 15 - slots.Where(v => v > 0).Sum(),
+            "opp-off" => -(15 + slots.Where(v => v < 0).Sum()),
+            _ => board[int.Parse(head, System.Globalization.CultureInfo.InvariantCulture)],
+        };
+    }
 
-    private static IEnumerable<int[]> SampleBoards()
+    /// <summary>
+    /// The standard start, a bar-heavy position, the empty board, and random
+    /// positions — drawn at random and kept only when they form a position,
+    /// since a pattern is only ever asked about one.
+    /// </summary>
+    private static IEnumerable<BoardPosition> SampleBoards()
     {
-        yield return BoardBuilder.Build((24, 2), (13, 5), (8, 3), (6, 5), (1, -2), (12, -5), (17, -3), (19, -5));
+        yield return BoardPosition.Standard;
         yield return BoardBuilder.Build((25, 2), (6, 4), (0, -3), (19, -12));
-        yield return BoardBuilder.Build();
+        yield return BoardPosition.Empty;
 
         var rng = new Random(7);
-        for (int n = 0; n < 40; n++)
+        var counts = new int[26];
+        for (int n = 0; n < 40;)
         {
-            var board = new int[26];
             for (int i = 0; i < 26; i++)
-                board[i] = rng.Next(-4, 5);
-            yield return board;
+                counts[i] = i switch
+                {
+                    0 => rng.Next(-2, 1),
+                    25 => rng.Next(0, 3),
+                    _ => rng.Next(-2, 3),
+                };
+            if (BoardPosition.TryCreate(counts, out var board))
+            {
+                n++;
+                yield return board;
+            }
         }
     }
 
@@ -99,7 +118,7 @@ public class BoardPatternCompatibilityTests
                     {
                         int value = LegacyValue(head, board);
                         bool legacyVerdict = (min ?? int.MinValue) <= value && value <= (max ?? int.MaxValue);
-                        pattern.Matches(board).Should().Be(legacyVerdict, "'{0}' on board [{1}]", text, string.Join(",", board));
+                        pattern.Matches(board).Should().Be(legacyVerdict, "'{0}' on board [{1}]", text, board);
                     }
 
                     kept++;

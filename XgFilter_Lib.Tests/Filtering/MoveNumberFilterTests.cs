@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
 
@@ -5,8 +7,25 @@ namespace XgFilter_Lib.Tests.Filtering;
 
 public class MoveNumberFilterTests
 {
+    /// <summary>
+    /// A checker play at move <paramref name="moveNumber"/> of game 1 of a
+    /// match, in a game that did or did not start from the standard position.
+    /// </summary>
+    private static CheckerPlayDecision AtMove(int moveNumber, bool isStandardStart = true) =>
+        TestRecords.CheckerPlay(
+            id: new XgDecisionId("match.xg", Game: 1, MoveNumber: moveNumber, IsCube: false),
+            descriptive: TestRecords.Descriptive(isStandardStart: isStandardStart));
+
+    /// <summary>
+    /// A checker play in a standalone position (an <c>.xgp</c> file): it
+    /// belongs to no game, so its move number and standard start are "not
+    /// applicable" — both null.
+    /// </summary>
+    private static CheckerPlayDecision Standalone() =>
+        TestRecords.CheckerPlay(id: new XgpDecisionId("position.xgp"));
+
     // -----------------------------------------------------------------------
-    //  Matches — bounded range, both substrates via RowShape
+    //  Matches — bounded range, both substrates of one record
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -15,7 +34,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 3, max: 10);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 5, IsStandardStart: true),
+            AtMove(5),
             expected: true);
     }
 
@@ -25,7 +44,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 3, max: 10);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 2, IsStandardStart: true),
+            AtMove(2),
             expected: false);
     }
 
@@ -35,7 +54,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 3, max: 10);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 11, IsStandardStart: true),
+            AtMove(11),
             expected: false);
     }
 
@@ -45,7 +64,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 3, max: 10);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 3, IsStandardStart: true),
+            AtMove(3),
             expected: true);
     }
 
@@ -55,7 +74,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 3, max: 10);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 10, IsStandardStart: true),
+            AtMove(10),
             expected: true);
     }
 
@@ -65,7 +84,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 3, max: 10);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 5, IsStandardStart: false),
+            AtMove(5, isStandardStart: false),
             expected: false);
     }
 
@@ -75,7 +94,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: null, max: null);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 42, IsStandardStart: true),
+            AtMove(42),
             expected: true);
     }
 
@@ -85,7 +104,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: null, max: 10);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 1, IsStandardStart: true),
+            AtMove(1),
             expected: true);
     }
 
@@ -95,7 +114,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 3, max: null);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 99, IsStandardStart: true),
+            AtMove(99),
             expected: true);
     }
 
@@ -105,8 +124,38 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: null, max: 10);
         AssertMatchesBoth(
             filter,
-            new RowShape(MoveNumber: 1, IsStandardStart: false),
+            AtMove(1, isStandardStart: false),
             expected: false);
+    }
+
+    // -----------------------------------------------------------------------
+    //  A standalone position (halheinrich/backgammon#124): no game, no move
+    //  number, no standard start — "not applicable", never a stamped value.
+    //  The filter decides explicitly: such a position never passes.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Matches_StandalonePosition_NeverPasses()
+    {
+        // Whatever the bounds — even [1, 1], which a stamped move 1 would
+        // satisfy — a position that belongs to no game has no move to bound.
+        foreach (var filter in new[]
+        {
+            new MoveNumberFilter(min: 1, max: 1),
+            new MoveNumberFilter(min: 1, max: null),
+            new MoveNumberFilter(min: null, max: int.MaxValue),
+        })
+        {
+            AssertMatchesBoth(filter, Standalone(), expected: false);
+        }
+    }
+
+    [Fact]
+    public void ShouldAdvanceGame_StandalonePosition_ReturnsFalse()
+    {
+        // No move number, so never "past max": a standalone position belongs to
+        // no game and has nothing to advance past.
+        AssertShouldAdvanceGameBoth(new MoveNumberFilter(min: 1, max: 1), Standalone(), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -117,7 +166,7 @@ public class MoveNumberFilterTests
     public void ShouldSkipGame_StandardStart_ReturnsFalse()
     {
         var filter = new MoveNumberFilter(min: 1, max: 5);
-        var game = new FakeGameInfo { IsStandardStart = true };
+        var game = FakeGameInfo.Match(3, 5) with { IsStandardStart = true };
 
         filter.ShouldSkipGame(game).Should().BeFalse();
     }
@@ -126,7 +175,7 @@ public class MoveNumberFilterTests
     public void ShouldSkipGame_NonStandardStart_ReturnsTrue()
     {
         var filter = new MoveNumberFilter(min: 1, max: 5);
-        var game = new FakeGameInfo { IsStandardStart = false };
+        var game = FakeGameInfo.Money() with { IsStandardStart = false };
 
         filter.ShouldSkipGame(game).Should().BeTrue();
     }
@@ -135,9 +184,9 @@ public class MoveNumberFilterTests
     public void ShouldSkipMatch_AlwaysReturnsFalse()
     {
         var filter = new MoveNumberFilter(min: 1, max: 5);
-        var match = new FakeMatchInfo { Player1 = "A", Player2 = "B", MatchLength = 7 };
 
-        filter.ShouldSkipMatch(match).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Match(7)).Should().BeFalse();
+        filter.ShouldSkipMatch(FakeMatchInfo.Money(isJacoby: true)).Should().BeFalse();
     }
 
     // -----------------------------------------------------------------------
@@ -150,7 +199,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 1, max: 5);
         AssertShouldAdvanceGameBoth(
             filter,
-            new RowShape(MoveNumber: 5, IsStandardStart: true),
+            AtMove(5),
             expected: false);
     }
 
@@ -160,7 +209,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 1, max: 5);
         AssertShouldAdvanceGameBoth(
             filter,
-            new RowShape(MoveNumber: 6, IsStandardStart: true),
+            AtMove(6),
             expected: true);
     }
 
@@ -170,7 +219,7 @@ public class MoveNumberFilterTests
         var filter = new MoveNumberFilter(min: 3, max: null);
         AssertShouldAdvanceGameBoth(
             filter,
-            new RowShape(MoveNumber: 9999, IsStandardStart: true),
+            AtMove(9999),
             expected: false);
     }
 
@@ -278,9 +327,7 @@ public class MoveNumberFilterTests
         // [1, 1] is the opening-decision filter, and it is not empty.
         var filter = new MoveNumberFilter(min: 1, max: 1);
 
-        AssertMatchesBoth(
-            filter, new RowShape(MoveNumber: 1, IsStandardStart: true), expected: true);
-        AssertMatchesBoth(
-            filter, new RowShape(MoveNumber: 2, IsStandardStart: true), expected: false);
+        AssertMatchesBoth(filter, AtMove(1), expected: true);
+        AssertMatchesBoth(filter, AtMove(2), expected: false);
     }
 }

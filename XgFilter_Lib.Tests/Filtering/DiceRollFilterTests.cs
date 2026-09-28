@@ -1,14 +1,19 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Filtering;
-using XgFilter_Lib.Tests.Helpers;
 
 namespace XgFilter_Lib.Tests.Filtering;
 
 public class DiceRollFilterTests
 {
-    // RowShape.Roll is the two-digit form the producer stamps (high/low order is
-    // irrelevant — DiceRoll canonicalizes); 0 means "no roll" and is only used
-    // by the cube path, which routes through IsCube rather than the roll.
+    /// <summary>
+    /// A checker play from the standard start whose roll is
+    /// <paramref name="first"/> then <paramref name="second"/>, in rolled order
+    /// (the order is irrelevant to the filter — <see cref="DiceRoll"/>
+    /// canonicalizes). A cube decision has no roll at all.
+    /// </summary>
+    private static CheckerPlayDecision Rolled(int first, int second) =>
+        TestRecords.CheckerPlay(decision: TestRecords.CheckerPlayData(dice: [first, second]));
 
     // -----------------------------------------------------------------------
     //  Match / non-match
@@ -18,14 +23,14 @@ public class DiceRollFilterTests
     public void RollInSet_ReturnsTrue()
     {
         var filter = new DiceRollFilter([new DiceRoll(3, 1)]);
-        AssertMatchesBoth(filter, new RowShape(Roll: 31), expected: true);
+        AssertMatchesBoth(filter, Rolled(3, 1), expected: true);
     }
 
     [Fact]
     public void RollNotInSet_ReturnsFalse()
     {
         var filter = new DiceRollFilter([new DiceRoll(3, 1)]);
-        AssertMatchesBoth(filter, new RowShape(Roll: 52), expected: false);
+        AssertMatchesBoth(filter, Rolled(5, 2), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -37,9 +42,9 @@ public class DiceRollFilterTests
     {
         var filter = new DiceRollFilter([new DiceRoll(3, 1), new DiceRoll(6, 6)]);
 
-        AssertMatchesBoth(filter, new RowShape(Roll: 31), expected: true);
-        AssertMatchesBoth(filter, new RowShape(Roll: 66), expected: true);
-        AssertMatchesBoth(filter, new RowShape(Roll: 42), expected: false);
+        AssertMatchesBoth(filter, Rolled(3, 1), expected: true);
+        AssertMatchesBoth(filter, Rolled(6, 6), expected: true);
+        AssertMatchesBoth(filter, Rolled(4, 2), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -50,39 +55,39 @@ public class DiceRollFilterTests
     public void Double_InSet_ReturnsTrue()
     {
         var filter = new DiceRollFilter([new DiceRoll(5, 5)]);
-        AssertMatchesBoth(filter, new RowShape(Roll: 55), expected: true);
+        AssertMatchesBoth(filter, Rolled(5, 5), expected: true);
     }
 
     [Fact]
     public void Double_NotInSet_ReturnsFalse()
     {
         var filter = new DiceRollFilter([new DiceRoll(5, 5)]);
-        AssertMatchesBoth(filter, new RowShape(Roll: 51), expected: false);
+        AssertMatchesBoth(filter, Rolled(5, 1), expected: false);
     }
 
     // -----------------------------------------------------------------------
     //  Unordered value-equality — the producer's canonicalization makes the
-    //  dice order in the row and in the include-set irrelevant. Here the row's
-    //  parser-order roll is low-first (13) while the include-set roll is built
-    //  high-first (3,1); they must still match.
+    //  dice order in the record and in the include-set irrelevant. Here the
+    //  record's rolled order is low-first (1, 3) while the include-set roll is
+    //  built high-first (3,1); they must still match.
     // -----------------------------------------------------------------------
 
     [Fact]
     public void UnorderedRoll_LowFirstRow_MatchesHighFirstSet()
     {
         var filter = new DiceRollFilter([new DiceRoll(3, 1)]);
-        AssertMatchesBoth(filter, new RowShape(Roll: 13), expected: true);
+        AssertMatchesBoth(filter, Rolled(1, 3), expected: true);
     }
 
     // -----------------------------------------------------------------------
-    //  Cube rows carry no roll — always excluded by an active dice filter
+    //  A cube decision carries no roll — always excluded by an active dice filter
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void CubeRow_ReturnsFalse()
+    public void CubeDecision_ReturnsFalse()
     {
         var filter = new DiceRollFilter([new DiceRoll(3, 1)]);
-        AssertMatchesBoth(filter, new RowShape(IsCube: true), expected: false);
+        AssertMatchesBoth(filter, TestRecords.Cube(), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -91,9 +96,9 @@ public class DiceRollFilterTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void EmptySet_CheckerRow_ReturnsFalse()
+    public void EmptySet_CheckerPlay_ReturnsFalse()
     {
         var filter = new DiceRollFilter([]);
-        AssertMatchesBoth(filter, new RowShape(Roll: 31), expected: false);
+        AssertMatchesBoth(filter, Rolled(3, 1), expected: false);
     }
 }

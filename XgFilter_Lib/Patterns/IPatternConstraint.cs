@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+
 namespace XgFilter_Lib.Patterns;
 
 /// <summary>
@@ -31,8 +33,8 @@ public interface IPatternConstraint
     internal object Place { get; }
 
     /// <summary>
-    /// Tests whether <paramref name="board"/>, the on-roll-relative board
-    /// array, satisfies this constraint.
+    /// Tests whether <paramref name="board"/>, a position in the player on
+    /// roll's frame, satisfies this constraint.
     /// </summary>
-    internal bool IsSatisfiedBy(IReadOnlyList<int> board);
+    internal bool IsSatisfiedBy(BoardPosition board);
 }

@@ -52,18 +52,18 @@ public static partial class MatchScoreToken
 {
     /// <summary>
     /// The money-session token for sessions played <b>with</b> the Jacoby
-    /// rule in force: matches a money record whose
-    /// <see cref="BgDataTypes_Lib.IDecisionFilterData.IsJacoby"/> is
-    /// <see langword="true"/>, and nothing else. Exported so a consumer
+    /// rule in force: matches a money session whose terms state it
+    /// (<see cref="BgDataTypes_Lib.MoneyTerms.IsJacoby"/> is
+    /// <see langword="true"/>), and nothing else. Exported so a consumer
     /// renders the spelling this grammar accepts rather than its own literal.
     /// </summary>
     public const string MoneyWithJacoby = "moneyJ";
 
     /// <summary>
     /// The money-session token for sessions played <b>without</b> the Jacoby
-    /// rule: matches a money record whose
-    /// <see cref="BgDataTypes_Lib.IDecisionFilterData.IsJacoby"/> is
-    /// <see langword="false"/>, and nothing else. Exported for the same
+    /// rule: matches a money session whose terms do not state it
+    /// (<see cref="BgDataTypes_Lib.MoneyTerms.IsJacoby"/> is
+    /// <see langword="false"/>), and nothing else. Exported for the same
     /// reason as <see cref="MoneyWithJacoby"/>.
     /// </summary>
     public const string MoneyWithoutJacoby = "moneyNJ";
@@ -92,12 +92,12 @@ public static partial class MatchScoreToken
     /// silently matching nothing.
     /// <para>
     /// It survives as a constant because it is still recognized — that is
-    /// what makes the rejection specific — and because
-    /// <see cref="BgDataTypes_Lib.DecisionRow.MatchScore"/> still
-    /// <em>writes</em> it, for the one case that has no rule to state: a
-    /// money row whose Jacoby fact was never stamped. Written out it is an
-    /// honest "unknown"; read back in as a filter target it is retired
-    /// vocabulary, and the asymmetry is deliberate.
+    /// what makes the rejection specific: a filter saved before the split may
+    /// still hold it, and it must be reported rather than reinterpreted.
+    /// Nothing writes it any more — every money session states its Jacoby
+    /// rule, so <see cref="BgDataTypes_Lib.DecisionRow.MatchScore"/> spells
+    /// every money row with one of the two rule-bearing tokens
+    /// (halheinrich/backgammon#273).
     /// </para>
     /// </summary>
     public const string RetiredMoney = "money";

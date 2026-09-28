@@ -1,8 +1,10 @@
-﻿namespace XgFilter_Lib.Classification;
+using BgDataTypes_Lib;
+
+namespace XgFilter_Lib.Classification;
 
 internal sealed class RaceClassifier : IPositionClassifier
 {
-    public bool Matches(IReadOnlyList<int> board)
+    public bool Matches(BoardPosition board)
     {
         int playerLast = -1;
         int opponentFirst = 26;

@@ -3,19 +3,41 @@ using BgDataTypes_Lib;
 namespace XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Passes rows where <see cref="IDecisionFilterData.FilterError"/> falls within
-/// [min, max] (inclusive). Either bound may be omitted (null) to leave that end open.
-/// Rows with a null <c>FilterError</c> (unanalysed positions) do not pass.
+/// Passes decisions whose player erred by an amount within [min, max]
+/// (inclusive): the error of the player's result
+/// (<see cref="IDecisionFilterData.PlayerResult"/>) under the ranking the
+/// view was built for (<see cref="IDecisionFilterData.Ranking"/>). Either bound
+/// may be omitted (null) to leave that end open.
 ///
 /// <para>
-/// Bounds are constrained, because the quantity filtered is a magnitude:
-/// <see cref="IDecisionFilterData.FilterError"/> is documented as an error
-/// magnitude (≥ 0), so a negative lower bound is a no-op dressed as a filter and
-/// a negative upper bound admits nothing at all, while <c>min &gt; max</c> is
+/// <b>Only a result with an error passes</b> (SPEC-scoring §2a): a scored move
+/// (<see cref="PlayerResultKind.Scored"/>) with its error, and a move the
+/// record does not state (<see cref="PlayerResultKind.Unstated"/>) with the
+/// analyser's. A move the ranking does not score
+/// (<see cref="PlayerResultKind.NotScored"/>, under depth first) has no error
+/// and never passes, however the bounds are set; nor does a decision with no
+/// move recorded (<see cref="PlayerResultKind.NotRecorded"/>). Which cases
+/// carry an error is the producer's to say — <see cref="PlayerResult.TryGetError"/>
+/// is read, never restated here.
+/// </para>
+///
+/// <para>
+/// <b>The filter holds no ranking.</b> A view or a row is built for one
+/// ranking and carries it, so "erred by more than x" under a ranking is this
+/// filter over views, or rows, built for that ranking — the caller states it
+/// where it builds them (<see cref="FilteredDecisionIterator"/>, or
+/// <see cref="BgDecisionData.ViewFor"/> directly).
+/// </para>
+///
+/// <para>
+/// Bounds are constrained, because the quantity filtered is a magnitude — a
+/// scored error is never negative (<see cref="PlayerResult.Scored"/> refuses
+/// one) — so a negative lower bound is a no-op dressed as a filter and a
+/// negative upper bound admits nothing at all, while <c>min &gt; max</c> is
 /// empty by construction. None of the three is a filter a user could mean, so
-/// each is a construction error rather than a range that silently never matches
-/// — the same posture <see cref="Patterns.CheckerRange"/> takes towards a
-/// wrong-signed borne-off bound. <see cref="IsBoundNonNegative"/> and
+/// each is a construction error rather than a range that silently never
+/// matches — the same posture <see cref="Patterns.CheckerRange"/> takes towards
+/// a wrong-signed borne-off bound. <see cref="IsBoundNonNegative"/> and
 /// <see cref="AreBoundsOrdered"/> state that rule once for the whole library;
 /// this constructor enforces it and
 /// <see cref="FilterConfig.GetInvalidFields"/> reports it, so a consumer can
@@ -68,8 +90,9 @@ internal sealed class ErrorRangeFilter : IDecisionFilter
         min is null || max is null || min.Value <= max.Value;
 
     /// <summary>
-    /// Creates a filter passing rows whose <see cref="IDecisionFilterData.FilterError"/>
-    /// is in <c>[min, max]</c> inclusive. Either bound may be null to leave that end open.
+    /// Creates a filter passing decisions whose player's error
+    /// (<see cref="IDecisionFilterData.PlayerResult"/>) is in <c>[min, max]</c>
+    /// inclusive. Either bound may be null to leave that end open.
     /// </summary>
     /// <param name="min">Inclusive lower bound, or null for an open lower end.</param>
     /// <param name="max">Inclusive upper bound, or null for an open upper end.</param>
@@ -105,13 +128,16 @@ internal sealed class ErrorRangeFilter : IDecisionFilter
     /// identically whichever end the user got wrong.
     /// </summary>
     private const string NonNegativeBoundMessage =
-        "Bound must be a real number of zero or greater: filter error is a magnitude.";
+        "Bound must be a real number of zero or greater: a player's error is a magnitude.";
 
-    /// <inheritdoc/>
-    public bool Matches(IDecisionFilterData data)
-    {
-        if (data.FilterError is not double error) return false;
-        return (_min is null || error >= _min.Value) &&
-               (_max is null || error <= _max.Value);
-    }
+    /// <summary>
+    /// Returns <see langword="true"/> iff the player's result under the view's
+    /// ranking has an error (<see cref="PlayerResult.TryGetError"/>) and that
+    /// error lies within the bounds. A result with no error — not scored, or
+    /// not recorded — never passes.
+    /// </summary>
+    public bool Matches(IDecisionFilterData data) =>
+        data.PlayerResult.TryGetError(out double error)
+        && (_min is null || error >= _min.Value)
+        && (_max is null || error <= _max.Value);
 }

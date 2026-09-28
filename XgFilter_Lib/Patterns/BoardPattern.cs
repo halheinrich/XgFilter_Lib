@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
+using BgDataTypes_Lib;
 
 namespace XgFilter_Lib.Patterns;
 
@@ -17,10 +18,11 @@ namespace XgFilter_Lib.Patterns;
 ///
 /// <para>
 /// Board convention (shared with <c>IDecisionFilterData.Board</c>): a
-/// 26-element array where <c>[0]</c> is the opponent's bar, <c>[1..24]</c> the
-/// points, and <c>[25]</c> the on-roll player's bar; positive values are the
-/// on-roll player's checkers and negative the opponent's. The two borne-off
-/// locations are <em>derived</em> from that array (fifteen minus the side's
+/// <see cref="BoardPosition"/> in the player on roll's frame, where slot
+/// <c>[0]</c> is the opponent's bar, <c>[1..24]</c> the points, and
+/// <c>[25]</c> the on-roll player's bar; positive values are the on-roll
+/// player's checkers and negative the opponent's. The two borne-off
+/// locations are <em>derived</em> from the position (fifteen minus the side's
 /// on-board sum, bars included — see <see cref="CheckerLocation"/>), so a
 /// pattern can constrain off counts with no extra data plumbed in.
 /// </para>
@@ -126,17 +128,15 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
     /// <summary>
     /// Tests whether <paramref name="board"/> satisfies every constraint.
     /// Unconstrained places are ignored; an empty pattern matches all. Board
-    /// locations and spans index the array directly, so it must be long enough
-    /// to index every constrained index — it always is for the canonical
-    /// 26-element on-roll-relative array; borne-off locations only sum the
-    /// elements the list actually has, never indexing beyond it.
+    /// locations and spans read the position's slots directly; borne-off
+    /// locations derive their count from all 26 slots.
     /// </summary>
-    /// <param name="board">The on-roll-relative board array.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="board"/> is null.</exception>
-    public bool Matches(IReadOnlyList<int> board)
+    /// <param name="board">
+    /// The position in the player on roll's frame
+    /// (<see cref="BgDataTypes_Lib.IDecisionFilterData.Board"/>).
+    /// </param>
+    public bool Matches(BoardPosition board)
     {
-        ArgumentNullException.ThrowIfNull(board);
-
         foreach (var constraint in _constraints)
             if (!constraint.IsSatisfiedBy(board))
                 return false;

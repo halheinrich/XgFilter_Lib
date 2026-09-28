@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+
 namespace XgFilter_Lib.Classification;
 
 /// <summary>
@@ -13,7 +15,7 @@ internal sealed class InnerBoard54321Classifier : IPositionClassifier
 {
     private static readonly RaceClassifier _race = new();
 
-    public bool Matches(IReadOnlyList<int> board)
+    public bool Matches(BoardPosition board)
     {
         if (_race.Matches(board)) return false;
 

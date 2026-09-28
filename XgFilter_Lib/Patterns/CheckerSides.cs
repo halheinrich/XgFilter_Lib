@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+
 namespace XgFilter_Lib.Patterns;
 
 /// <summary>
@@ -75,7 +77,7 @@ internal static class CheckerSidesExtensions
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="side"/> is not exactly one side.
     /// </exception>
-    internal static int CheckersOn(this CheckerSides side, IReadOnlyList<int> board, int start, int end)
+    internal static int CheckersOn(this CheckerSides side, BoardPosition board, int start, int end)
     {
         int sign = side.Signed(1);
         int count = 0;

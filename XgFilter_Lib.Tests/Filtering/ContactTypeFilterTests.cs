@@ -1,3 +1,5 @@
+using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Tests.Helpers;
@@ -6,13 +8,17 @@ namespace XgFilter_Lib.Tests.Filtering;
 
 public class ContactTypeFilterTests
 {
+    /// <summary>A checker play made on <paramref name="board"/>, the player on roll's position.</summary>
+    private static CheckerPlayDecision OnBoard(BoardPosition board) =>
+        TestRecords.CheckerPlay(position: TestRecords.Position(mop: board));
+
     // Starting-position fixture — clear contact position
-    private static readonly int[] _startingPosition = BoardBuilder.Build(
+    private static readonly BoardPosition _startingPosition = BoardBuilder.Build(
         (24, 2), (13, 5), (8, 3), (6, 5),
         (1, -2), (12, -5), (17, -3), (19, -5));
 
     // Race fixture — all player checkers past all opponent checkers
-    private static readonly int[] _racePosition = BoardBuilder.Build(
+    private static readonly BoardPosition _racePosition = BoardBuilder.Build(
         (3, 2), (2, 3), (22, -2), (23, -3));
 
     // -----------------------------------------------------------------------
@@ -23,14 +29,14 @@ public class ContactTypeFilterTests
     public void RaceFilter_RacePosition_Passes()
     {
         var filter = new ContactTypeFilter([ContactType.Race]);
-        AssertMatchesBoth(filter, new RowShape(Board: _racePosition), expected: true);
+        AssertMatchesBoth(filter, OnBoard(_racePosition), expected: true);
     }
 
     [Fact]
     public void RaceFilter_ContactPosition_DoesNotPass()
     {
         var filter = new ContactTypeFilter([ContactType.Race]);
-        AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: false);
+        AssertMatchesBoth(filter, OnBoard(_startingPosition), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -41,14 +47,14 @@ public class ContactTypeFilterTests
     public void ContactFilter_ContactPosition_Passes()
     {
         var filter = new ContactTypeFilter([ContactType.Contact]);
-        AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: true);
+        AssertMatchesBoth(filter, OnBoard(_startingPosition), expected: true);
     }
 
     [Fact]
     public void ContactFilter_RacePosition_DoesNotPass()
     {
         var filter = new ContactTypeFilter([ContactType.Contact]);
-        AssertMatchesBoth(filter, new RowShape(Board: _racePosition), expected: false);
+        AssertMatchesBoth(filter, OnBoard(_racePosition), expected: false);
     }
 
     // -----------------------------------------------------------------------
@@ -61,16 +67,16 @@ public class ContactTypeFilterTests
     {
         var filter = new ContactTypeFilter([ContactType.Race, ContactType.Contact]);
 
-        AssertMatchesBoth(filter, new RowShape(Board: _racePosition), expected: true);
-        AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: true);
+        AssertMatchesBoth(filter, OnBoard(_racePosition), expected: true);
+        AssertMatchesBoth(filter, OnBoard(_startingPosition), expected: true);
     }
 
     [Fact]
     public void EmptyTypeList_NothingPasses()
     {
         var filter = new ContactTypeFilter([]);
-        AssertMatchesBoth(filter, new RowShape(Board: _racePosition), expected: false);
-        AssertMatchesBoth(filter, new RowShape(Board: _startingPosition), expected: false);
+        AssertMatchesBoth(filter, OnBoard(_racePosition), expected: false);
+        AssertMatchesBoth(filter, OnBoard(_startingPosition), expected: false);
     }
 
     // -----------------------------------------------------------------------

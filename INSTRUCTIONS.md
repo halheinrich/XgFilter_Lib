@@ -20,15 +20,22 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
 ## Depends on
 
 * **BgDataTypes_Lib** — `IDecisionFilterData` (the substrate filters operate
-  on), `DecisionRow`, `BgDecisionData`, `PositionData`, `DecisionData`,
-  `DescriptiveData`.
+  on: a `DecisionRow`, or a `BgDecisionData`'s view built for a
+  `PlayRanking`), the two decision kinds, `BoardPosition`, `PlayerResult`,
+  the session kinds with their terms and standings, the header contracts
+  `IMatchInfo` / `IGameInfo`, `DiceRoll`, the depth taxonomy, and the
+  named-document machinery (`IJsonDocument`, `NamedCollection`). Tests build
+  every record through its test-support project
+  (`BgDataTypes_Lib.TestSupport`'s `TestRecords`).
 * **ConvertXgToJson_Lib** — `XgDecisionIterator`, `XgIteratorCallbacks`,
+  `XgIteratorOptions` (the ranking the producer builds rows for),
   `XgMatchInfo`, `XgGameInfo`, `XgFileReader`, `Models.XgFile`. Used by
   `FilteredDecisionIterator` to walk `.xg` files and drive early-exit
   via callback registration on the producer. Tests additionally use
   `XgFileBuilder` / `XgGameBuilder` — the producer's one public path to an
-  in-memory `XgFile` — to synthesize integration fixtures; the XG record
-  model behind it is internal to the producer and cannot be hand-built.
+  in-memory `XgFile` — and `XgFileWriter` to synthesize integration
+  fixtures; the XG record model behind them is internal to the producer and
+  cannot be hand-built.
 
 ## Layout
 
@@ -81,21 +88,50 @@ chain builds from this solution rather than from packages.
 test class per type (and `BoardPatternCompatibilityTests`, the pre-span
 grammar written out as an oracle), plus two folders the library has no
 counterpart for:
-`Helpers/` (the `BgDecisionDataBuilder` / `DecisionRowBuilder` fixture
-builders, `BoardBuilder`, the shared `DecisionFilterAsserts`, and the
-`FakeGameInfo` / `FakeMatchInfo` headers) and `Integration/` (end-to-end
-iterator runs and the corpus oracles). Reaches the library's `internal`
-surface via `InternalsVisibleTo` and the umbrella corpus at `..\..\TestData`
-via a `Link` item — see the TestData pitfall.
+`Helpers/` (`BoardBuilder`, the shared `DecisionFilterAsserts` over one
+record's view and row under one ranking, `RankingSplit` — a record whose best
+play differs by ranking — and the `FakeGameInfo` / `FakeMatchInfo` headers;
+the records themselves come from `BgDataTypes_Lib.TestSupport`) and
+`Integration/` (end-to-end iterator runs, synthesized or over the corpus, and
+the corpus oracles). Reaches the library's `internal` surface via
+`InternalsVisibleTo` and the umbrella corpus at `..\..\TestData` via a `Link`
+item — see the TestData pitfall.
 
 ## Architecture
 
 ### Substrate
 
 All row-level filters operate on `IDecisionFilterData`, defined in
-`BgDataTypes_Lib` and implemented by both `DecisionRow` (CSV-shaped) and
-`BgDecisionData` (diagram-shaped). A single filter instance applies to either
-type — no parallel hierarchies, no conversion at the filter boundary.
+`BgDataTypes_Lib`: a `DecisionRow` (CSV-shaped) is one, and a
+`BgDecisionData` (diagram-shaped) gives one through `ViewFor(ranking)`. A
+single filter instance applies to either — no parallel hierarchies, no
+conversion at the filter boundary. Every fact is read where the producer
+states it — the decision's `Kind`, its `Session` (a `MoneySession` or a
+`MatchSession`, matched exhaustively), `Board` and the after-boards as
+`BoardPosition`s, the player's result — and nothing the producer derives is
+derived again here. A fact that does not apply is `null` on the view, and
+each filter's doc says whether such a decision passes.
+
+### The ranking in force
+
+Which play is best — and so a checker play's error, the best play's depth
+and its after-board — is a ranking's (SPEC-scoring §2a). A view or a row is
+built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
+
+* **A filter holds no ranking.** It reads the ranking of the data it is
+  handed: "erred by more than x" under a ranking is `ErrorRangeFilter` over
+  views, or rows, built for that ranking.
+* **`FilterConfig` holds no ranking.** A saved filter is the user's
+  selection; the ranking is the application's one setting (§2a), so the
+  persisted form does not carry it and did not change with it.
+* **The caller states it where records are filtered.** Where this library
+  builds views and rows itself — `FilteredDecisionIterator` — the ranking is
+  a required constructor argument beside the filters. A caller filtering
+  records it holds builds the views itself (`set.Matches(record.ViewFor(ranking))`).
+  An application without a ranking setting passes `PlayRanking.Equity`, the
+  default; the argument is required rather than defaulted, as the
+  producer's `ViewFor` and `DecisionRow.From` are, so an application with
+  the setting cannot silently fall back to the default.
 
 ### Enums
 
@@ -376,9 +412,11 @@ surface, and are reachable from the test project via
     can name it — so those rows pass only when the facet is inactive.
 * `PlayerFilter` — implements both interfaces. `Matches` admits rows where
   the on-roll player is in the include list; `ShouldSkipMatch` drops the
-  whole file when neither player is in the list.
+  whole file when neither player is in the list. A decision whose source
+  recorded no name (`Player` `null`) never passes: there is no name to
+  match.
 * `DecisionTypeFilter` — checker play, cube, or both. Dispatches on
-  `data.IsCube`.
+  `data.Kind`.
 * `MatchScoreFilter` — implements both interfaces. Score tokens are
   **on-roll anchored**: `MaNa` means the player on roll needs M points
   and the opponent needs N, so `"4a5a"` and `"5a4a"` are distinct
@@ -391,14 +429,15 @@ surface, and are reachable from the test project via
   grammar** below). Downstream gates rely on the resulting constructor
   invariants instead of re-validating. Each gate is the exact
   projection of `Matches` onto its information granularity:
-  `ShouldSkipMatch` detects money-vs-match mismatches and tuples no
-  game of an L-point match can carry — orientation-free `max ≤ L`,
+  `ShouldSkipMatch` reads the header's terms — money terms by their Jacoby
+  rule (below), a match's length against tuples no game of an L-point
+  match can carry — orientation-free `max ≤ L`,
   tightened to `max ≤ L − 1` for non-Crawford 1-away tuples (a
   post-Crawford `(1, m)` needs a preceding Crawford `(1, k)` with
   `m < k ≤ L`), with `1a1a` exempt (valid at every L, including the
   1-point match whose only game is `(1, 1, false)`).
   `ShouldSkipGame` compares tuples against the player1/player2-anchored
-  game header in **either orientation** (both players roll within a
+  game standing in **either orientation** (both players roll within a
   game), Crawford flag exact; `Matches` stays the per-decision arbiter
   of orientation. `ShouldAdvanceMatch` cuts the rest of the file only
   when no tuple matches the *current* game (either orientation — the
@@ -412,29 +451,30 @@ surface, and are reachable from the test project via
   (false): a matching decision can be followed by mirror-orientation
   decisions in the same game, so there is no sound game-level cut.
 
+  **Money and match are the session's kind** (halheinrich/backgammon#273).
+  Every gate reads the kind the producer states — a decision's `Session`, a
+  match header's `Terms`, a game header's `Standing` — through its
+  exhaustive `Match`, so no match fact (away scores, Crawford) is read off
+  money, no money fact off a match, and no stand-in (a length of 0, away
+  scores of 0) is consulted anywhere.
+
   **Money sessions and the Jacoby rule** (halheinrich/backgammon#121).
   The two money tokens are separate targets, each admitting money
-  records under one rule — `moneyJ` admits
-  `IsMoneyGame && IsJacoby == true`, `moneyNJ` admits
-  `IsMoneyGame && IsJacoby == false`. Wanting money under either rule
-  means **listing both**, exactly as admitting a score regardless of
-  who is on roll means listing both orientations. A money record whose
-  Jacoby fact is unknown (`IsJacoby` `null`) matches **neither** — an
-  unknown rule is never guessed into a side (the illegal state is
-  upstream's to prevent, halheinrich/backgammon#142; the filter simply
-  never admits it). The `== true` / `== false` spellings are
-  load-bearing against the tri-state: the near-misses `!= false` /
-  `!= true` each admit the unknown record into one side, which is what
-  the unknown-side pins in `MatchScoreFilterTests` exist to catch.
-  Match scores are untouched by the money tokens and vice versa.
+  sessions under one rule — `moneyJ` a money session whose terms state
+  the Jacoby rule, `moneyNJ` one whose terms do not. Wanting money under
+  either rule means **listing both**, exactly as admitting a score
+  regardless of who is on roll means listing both orientations. Every
+  money session states its rule (the producer's `MoneyTerms.IsJacoby`),
+  so there is no unknown rule to place. Match scores are untouched by the
+  money tokens and vice versa.
 
-  The header gates cannot see the fact — `IMatchInfo` / `IGameInfo`
-  carry no Jacoby member, by their "members are added on demand"
-  minimalism — so at header scope a money session is admissible iff
-  **either** money token is listed. That is still the exact projection
-  onto the information those headers carry (a header cannot distinguish
-  the two rules, both occur under it, `Matches` stays the arbiter) —
-  the same shape as the orientation projection above.
+  A match header states the terms, the rule among them, so
+  `ShouldSkipMatch` judges a money session by its rule exactly as
+  `Matches` does — every decision's session carries its header's terms. A
+  game header's standing states no rule, so at game scope a money game is
+  admissible iff **either** money token is listed: still the exact
+  projection onto the information that header carries, the same shape as
+  the orientation projection above.
 * `MatchScoreToken` — **the score-token grammar**, and the one public
   type in `Filtering/` besides `FilterConfig`, `DecisionFilterSet`,
   `NamedFilterCollection`, and `IDecisionFilter`. It states once, for
@@ -492,19 +532,29 @@ surface, and are reachable from the test project via
     verdict is loud instead, and messageless: the lib rules, the
     consumer words it (the halheinrich/backgammon#39 posture, extended with a typed fault and
     replacement data rather than prose). The token survives as a
-    constant because `DecisionRow.MatchScore` still *writes* it, for
-    the one money row that has no rule to state; written out it is an
-    honest "unknown", read back in as a target it is retired. That
-    asymmetry is deliberate.
-* `ErrorRangeFilter` — `double?` min / max on `FilterError`. Returns `false`
-  when `FilterError` is `null`, i.e. unanalyzed rows are excluded, not
-  passed through.
+    constant because it is still recognized — a filter saved before the
+    split may hold it, and it is reported rather than reinterpreted.
+    Nothing writes it any more: every money session states its rule, so
+    `DecisionRow.MatchScore` spells every money row with one of the two
+    rule-bearing tokens.
+* `ErrorRangeFilter` — "erred by more than x": `double?` min / max on the
+  error of the player's result (`IDecisionFilterData.PlayerResult`) under
+  the ranking the view was built for. Only a result with an error passes —
+  a scored move with its error, a move the record does not state with the
+  analyser's — read through the producer's `PlayerResult.TryGetError`,
+  never restated here. A move the ranking does not score (under depth
+  first) and a decision with no move recorded have no error and never
+  pass, however the bounds are set.
 * `MoveNumberFilter` — implements both interfaces. `int?` min / max on
   `MoveNumber`, gated by `IsStandardStart`. Non-standard-start games
   (custom problem positions, Bg960, etc.) have no canonical move
   numbering, so `ShouldSkipGame` drops them wholesale via
-  `XgGameInfo.IsStandardStart` before any rows are yielded; `Matches`
-  rejects any row whose `IsStandardStart` is false as a safety net.
+  `IGameInfo.IsStandardStart` before any rows are yielded; `Matches`
+  rejects any row whose `IsStandardStart` is not true as a safety net. A
+  standalone position (an `.xgp` decision) belongs to no game, so its
+  move number and standard start are "not applicable" — `null`, never a
+  stamped value (halheinrich/backgammon#124) — and with no move to bound
+  it never passes an active move-number filter, nor votes to advance.
   Overrides `ShouldAdvanceGame`: once a row past `max` is seen, no
   later row in the same game can match, since move numbers increase
   monotonically per game.
@@ -544,25 +594,26 @@ surface, and are reachable from the test project via
   without a dedicated `PositionType`. An empty pattern matches every
   board.
 * `PlayTypeFilter` — include list of `PlayType`. Reads `data.Board`,
-  `data.AfterBestBoard`, and `data.AfterPlayerBoard` and dispatches
-  each selected type to its matching `IPlayTypeClassifier` via the
-  same private-registry pattern as `PositionTypeFilter`. OR
-  semantics: a row passes when any selected type matches. Cube rows
-  always fail — no play was made, so no play-type applies, and the
-  after-boards are empty on cube rows by contract. Checker rows whose
-  after-boards are empty also fail — the producer emits empty
-  `AfterBestBoard` / `AfterPlayerBoard` as a sentinel for "no analyzed
-  after-state available" (e.g. the player's move was not in XG's
-  analyzed candidate set). Empty type set → always false (empty OR).
-  The enum→classifier correspondence is owned by the filter, not the
+  `data.AfterBestBoard` (the best play's under the view's ranking), and
+  `data.AfterPlayerBoard`, and dispatches each selected type to its
+  matching `IPlayTypeClassifier` via the same private-registry pattern as
+  `PositionTypeFilter`. OR semantics: a row passes when any selected type
+  matches. **A play needs both after-boards, and none is ever
+  substituted**: a cube decision has neither (`null` — no play is made),
+  and a checker play whose player's move is off the candidate list has no
+  after-board of its own (`null`, halheinrich/backgammon#15); both always
+  fail, since reading another board in the missing one's place would
+  classify a play that was not made. Empty type set → always false (empty
+  OR). The enum→classifier correspondence is owned by the filter, not the
   caller. Unknown enum values are rejected at construction.
 * `AnalysisDepthFilter` — the depth facet as a **union of per-mode clauses**
   over the two-axis analysis taxonomy (`AnalysisMode` × `AnalysisLevel`) that
   replaced the retired flat `AnalysisDepthClass`. Unlike the board-reading
   facets, depth is a scalar pair the producer already stamped on each decision
   (`IDecisionFilterData.AnalysisMode` / `AnalysisLevel` — the cube analysis
-  for cube rows, the best-by-equity candidate for checker rows), so this is
-  a direct membership test: no classifier dispatch, no board reads.
+  for a cube decision, the best candidate under the view's ranking for a
+  checker play), so this is a direct membership test: no classifier
+  dispatch, no board reads.
   Constructed with a non-empty set of `Clause`s (a nested validated record:
   one `AnalysisMode` plus that mode's own level set); a row passes iff any
   clause admits it — mode equality AND (clause levels empty || level ∈ clause
@@ -668,8 +719,9 @@ on the public surface; they do not appear in the Public API block.
 `InternalsVisibleTo("XgFilter_Lib.Tests")` makes them reachable from
 the test project.
 
-* `IPositionClassifier` — `bool Matches(IReadOnlyList<int> board)`. Board
-  is the 26-element on-roll-relative layout from `ConvertXgToJson_Lib`.
+* `IPositionClassifier` — `bool Matches(BoardPosition board)`: the board at
+  the decision, in the frame the producer states on
+  `IDecisionFilterData.Board`.
 * `RaceClassifier` — true when no contact exists between the two checker
   blocks. Backs `ContactType.Race`.
 * `ContactClassifier` — `!RaceClassifier`; backs `ContactType.Contact`.
@@ -694,15 +746,12 @@ the test project.
   No race guard needed; the opponent anchor implies contact. Backs
   `PositionType.Holding1386Vs20`.
 * `IPlayTypeClassifier` —
-  `bool Matches(IReadOnlyList<int> priorBoard,
-  IReadOnlyList<int> afterBestBoard,
-  IReadOnlyList<int> afterPlayerBoard)`. Three 26-element boards, each
-  from the on-roll player's perspective at that moment: priorBoard has
-  the decision-maker on roll; the two after-boards have the opponent on
-  roll (the turn has flipped). Consequence: what was the
-  decision-maker's point X in priorBoard is point `(25 - X)` in the
-  after-boards, with their checkers stored negatively. Implementations
-  classify one `PlayType` each.
+  `bool Matches(BoardPosition priorBoard, BoardPosition afterBestBoard,
+  BoardPosition afterPlayerBoard)`: the view's `Board`, `AfterBestBoard`
+  and `AfterPlayerBoard`, each in the frame the producer states on that
+  member (the after-boards in the next mover's, reached through
+  `BoardPosition.Flipped`). A classifier is only asked about a play whose
+  after-boards both exist. Implementations classify one `PlayType` each.
 * `Make20PtClassifier` — `IPlayTypeClassifier` implementation. True
   when the decision-maker's 20-point is not already made
   (`priorBoard[20] < 2`) and exactly one of the two plays makes it —
@@ -799,9 +848,9 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   valid, unconstraining `[0-1,,]`. The `(first, last, min, max)` ctor is
   sugar for the span form.
 * `BoardPattern` — an immutable, validated set of `IPatternConstraint`
-  elements over the on-roll-relative board (`[0]` opponent bar,
-  `[1..24]` points, `[25]` on-roll bar; positive = on-roll player),
-  exposed in construction order as `Constraints`. A place named by no
+  elements over a `BoardPosition` in the frame of `IDecisionFilterData.Board`
+  (its slots are the grammar's board indices), exposed in construction
+  order as `Constraints`. A place named by no
   constraint is unconstrained; the empty pattern (`Empty`, `IsEmpty`)
   matches every board (vacuous truth). The one cross-element invariant
   the constructor enforces is **no two constraints on the same place**
@@ -809,9 +858,8 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   spans numeric locations, named locations and spans alike; a null
   element is refused too); each element is already self-valid.
   **Overlap is not duplication**: `[7,1,] [7-12,3,] [5-8,,-2]` is three
-  conditions. `Matches(board)` ANDs every constraint; borne-off values
-  are derived per element (see the derivation pitfall), and board
-  indexing never exceeds the real 26 elements.
+  conditions. `Matches(BoardPosition)` ANDs every constraint; borne-off
+  values are derived per element (see the derivation pitfall).
   * **Text form** — the bracket list: whitespace-separated
     `[head,min,max]` tokens, each field comma-separated with an empty
     bound field meaning "unbounded". The head is a board index, a named
@@ -877,21 +925,32 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   `[Description]` label. Typed to `DecisionRow` because the projection
   target is CSV; `Board` is deliberately not exposed as a column. The
   internal `GetValue` switch is exhaustive, throwing
-  `ArgumentOutOfRangeException` on undefined `Column` values.
+  `ArgumentOutOfRangeException` on undefined `Column` values. Each cell is
+  written as the row's own CSV writes it (`DecisionRow.ToCsvLine`): a
+  column whose fact does not apply — the other decision kind's, the other
+  session kind's, a standalone position's game and move, an error the
+  result does not have — is an empty cell, never 0, and every number is
+  written in the invariant culture. The cell formatting is restated here
+  because the producer exposes the row's CSV only as a whole line;
+  `EveryColumn_WritesTheCellTheRowsOwnCsvWrites` holds the two to
+  agreement.
 
 ### Iteration
 
 The top-level integration point. A sealed instance class constructed
-with `(DecisionFilterSet, ILogger<FilteredDecisionIterator>)` — both
-required, null-guarded. Filters are configuration; the directory is
-the per-call argument. Walks XG-format files (`*.xg` match files plus
-`*.xgp` position files) or `*.json` files, yielding only the rows
-that pass the configured filter set.
+with `(DecisionFilterSet, PlayRanking, ILogger<FilteredDecisionIterator>)`
+— all required: the filters and null logger are refused, and so is an
+undefined ranking. The filters and the ranking are configuration (see
+**The ranking in force**); the directory is the per-call argument. Walks
+XG-format files (`*.xg` match files plus `*.xgp` position files) or
+`*.json` files, yielding only the decisions that pass the configured
+filter set under the configured ranking.
 
-Two output shapes are exposed: `DecisionRow` (CSV-flat) via
-`IterateXgDirectory` / `IterateJsonDirectory`, and `BgDecisionData`
-(diagram-shaped — full `Plays` list, after-boards) via
-`IterateXgDirectoryDiagrams`. The JSON-directory source offers only the
+Two output shapes are exposed: `DecisionRow` (CSV-flat, built for the
+ranking) via `IterateXgDirectory` / `IterateJsonDirectory`, and
+`BgDecisionData` (diagram-shaped — the full candidate list, after-boards —
+and depending on no ranking; each is filtered through its view for the
+ranking) via `IterateXgDirectoryDiagrams`. The JSON-directory source offers only the
 row shape — its diagram variant (`IterateJsonDirectoryDiagrams`) was
 deleted as dead code (zero consumers umbrella-wide).
 
@@ -920,10 +979,11 @@ Only the terminal yield and the per-source mapping differ:
 * streams map `XgFileStream → (FileName, () => ReadStream(Data))` via
   `ToSources`, after `RequireValid` enforces the name contract.
 
-The output shape is selected by passing `XgDecisionIterator.Iterate` or
-`XgDecisionIterator.IterateDiagramRequests` as the source delegate; the
-`where T : IDecisionFilterData` constraint binds the filter calls
-identically for either shape.
+The output shape is selected by passing the producer's row surface or its
+record surface as the source delegate (the private `Rows` / `Records`,
+the one place each is called), together with the shape's view: a row is
+its own view, a record is filtered through `ViewFor(ranking)`. So the
+filter calls bind identically for either shape, under the one ranking.
 
 The read is always deferred into the thunk and invoked inside
 `IterateSources`'s try/catch, so a malformed *file/stream content* is
@@ -943,14 +1003,13 @@ exception (type, stack, inner) is captured on the log entry, not
 stringified. Iteration continues with the next file rather than
 aborting the run.
 
-The constructor-injected logger is also **forwarded into the producer**:
-every `XgDecisionIterator.Iterate` / `IterateDiagramRequests` call passes
-`_logger` as the named `logger:` argument (the producer's signature grew an
-optional `XgIteratorOptions? options` leg between `callbacks` and `logger`,
-which this consumer leaves defaulted — it supplies no opening book), so
-per-decision warnings the producer raises — notably an illegal-play skip —
-surface through this same pipeline alongside the file-level skip warnings
-above, rather than being swallowed inside the producer.
+The constructor-injected logger is also **forwarded into the producer**,
+beside the iterator's `XgIteratorOptions` — the ranking, and no opening
+book: every `XgDecisionIterator.Iterate` / `IterateDiagramRequests` call
+passes both, so each row is built for the ranking, and per-decision
+warnings the producer raises — notably an illegal-play skip — surface
+through this same pipeline alongside the file-level skip warnings above,
+rather than being swallowed inside the producer.
 
 XG-format file discovery (`*.xg` then `*.xgp`) is delegated to the
 producer's public `XgFileReader.EnumerateXgFormatFiles`, the single
@@ -970,7 +1029,9 @@ StopMatchAfter ← DecisionFilterSet.ShouldAdvanceMatch  (IDecisionFilterData)
 
 The producer evaluates each predicate at its declared boundary (match
 header, game header, post-yield) and short-circuits its own iteration
-when the predicate returns `true`. The consumer's loop is reduced to
+when the predicate returns `true`. The post-yield predicates see each
+decision through a view for the options' ranking — the same ranking the
+iterator filters under. The consumer's loop is reduced to
 a filter-and-yield: every item produced by `source(...)` is gated by
 `DecisionFilterSet.Matches` and yielded if it passes. No iterator
 state is observed; `XgIteratorState` is passed as `null`. The
@@ -1149,7 +1210,8 @@ public sealed class FilteredDecisionIterator
 {
     public FilteredDecisionIterator(
         DecisionFilterSet filters,
-        ILogger<FilteredDecisionIterator> logger);
+        PlayRanking ranking,                  // required; Equity is the default an
+        ILogger<FilteredDecisionIterator> logger);   // app without the setting passes
 
     // Directory sources
     public IEnumerable<DecisionRow>      IterateXgDirectory          (string xgDir);
@@ -1247,7 +1309,7 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
                                                         // duplicate place or null element
     public IReadOnlyList<IPatternConstraint> Constraints { get; }
     public bool IsEmpty { get; }
-    public bool Matches(IReadOnlyList<int> board);
+    public bool Matches(BoardPosition board);
 
     public static BoardPattern Parse(string text);
     public static bool TryParse(string? text, out BoardPattern? pattern);
@@ -1289,13 +1351,25 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
 ## Pitfalls
 
 * **`PositionTypeFilter` reads `data.Board`, never the XGID.** The board
-  array is already in on-roll-relative form; parsing the XGID would
-  re-derive it and risk perspective bugs. Classifiers must keep taking
-  `IReadOnlyList<int>`.
-* **`ErrorRangeFilter` drops unanalyzed rows.** When `FilterError` is
-  `null` the filter returns `false` — unanalyzed `.xgp` positions are
-  excluded, not admitted as "zero error". Changing that silently regresses
-  CSV exports.
+  is already a `BoardPosition` in the player on roll's frame; parsing the
+  XGID would re-derive it and risk perspective bugs. Classifiers take
+  `BoardPosition`.
+* **`ErrorRangeFilter` drops results with no error.** A decision with no
+  move recorded, and a move the view's ranking does not score, have no
+  error (`PlayerResult.TryGetError` is false) and fail an active error
+  range — never admitted as "zero error". Reading such a result as 0
+  silently changes what "erred by more than x" means under depth first.
+* **A filter never chooses a ranking.** It reads the one the view or row
+  was built for. Building a view inside a filter, or giving `FilterConfig`
+  a ranking, would let one run judge "best" and "error" two ways; the
+  ranking enters where views and rows are built (see **The ranking in
+  force**).
+* **A missing after-board is never substituted.** `AfterPlayerBoard` is
+  `null` exactly when the player's play is off the candidate list, and
+  both after-boards are `null` on a cube decision. Reading another board
+  in the missing one's place — the board before the play, the best play's,
+  `BoardPosition.Empty` — classifies a play that was not made;
+  `OffListPlay_NoPlayerAfterBoard_ReturnsFalse` is the pin.
 * **Facet activation gates live only in `FilterConfig`'s `FacetRules`
   table.** `Build()` and `GetActiveFacets()` both iterate the one private
   table of `(facet, predicate, factory)` triples; that shared predicate is
@@ -1330,16 +1404,17 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   construction), so any active depth facet excludes legacy/unstamped rows
   (`AnalysisMode.Unknown`) — they pass only when the facet is inactive and
   `AnalysisDepthFilter` is absent from the set. This is the same
-  drop-don't-pass posture `ErrorRangeFilter` applies to a null
-  `FilterError`. Separately, a clause's level axis is unconstrained when its
+  drop-don't-pass posture `ErrorRangeFilter` applies to a result with no
+  error. Separately, a clause's level axis is unconstrained when its
   list is empty (any level, including `Unknown`), so an unenriched book hit
   rides through on the Book-rollouts toggle alone; checking any concrete
   book-rollout level then excludes those `Unknown`-level hits — intended,
   not a bug.
 * **`MatchScoreFilter` tokens are on-roll anchored; game headers are
   player-anchored.** `MaNa` means the *player on roll* needs M — `4a5a`
-  and `5a4a` are different targets — but `XgGameInfo.Away1/Away2` are
-  anchored to the file's player 1/player 2, and both players roll within
+  and `5a4a` are different targets — but a game header's
+  `MatchStanding.Away1/Away2` are anchored to the file's player 1/player 2,
+  and both players roll within
   a game. Any game-level (or coarser) gate must therefore admit a tuple
   in **either orientation** and leave the orientation verdict to
   `Matches`; comparing the header orientation only silently eats every
@@ -1349,21 +1424,13 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   the *current* game's score (either orientation) as still-matchable,
   not just future games.
 * **`MatchScoreFilter` has coupled constraints.** A money token matches
-  only if `matchLength == 0`; a Crawford target requires exactly one
+  only a money session (the session's kind, never a length); a Crawford
+  target requires exactly one
   side at 1-away and the other at `≥ 2`; away scores below 1 are
   impossible. `MatchScoreToken.ParseScore` enforces all of these
   fail-loud, and the gates rely on those invariants — adding parse
   shortcuts that bypass validation will let impossible targets through
   unchecked.
-* **The Jacoby fact is tri-state, and `!= false` / `!= true` are the
-  trap.** `IDecisionFilterData.IsJacoby` is `bool?`: `true` / `false` on
-  a money record, `null` when the rule was never stamped (and `null` on
-  a match record, where the question does not arise). `moneyJ` /
-  `moneyNJ` must be spelled `IsMoneyGame && IsJacoby == true` /
-  `== false`. The near-miss spellings each silently admit the
-  unknown-rule record into one side — a wrong answer that no
-  known-rule test would catch, which is why the unknown-side pins are
-  called out by name in `MatchScoreFilterTests`.
 * **Adding a validity rule means adding it in one place, not two.** A
   facet's rule belongs on the facet that owns the semantic
   (`ErrorRangeFilter.IsBoundNonNegative`,
@@ -1389,12 +1456,12 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   `[opp-off,…]` locations compute a side's off count as 15 minus its
   on-board sum **with bars included** (`board[0]` / `board[25]` count as
   on-board), the opponent's value signed negative. Don't plumb off-count
-  data into `IDecisionFilterData` or grow the board past 26 elements to
-  support them — the derivation in `CheckerLocation.ValueOn` is the SSOT.
-  A malformed board carrying more than 15 checkers a side yields an
-  out-of-interval derived value that simply fails any off constraint
-  (garbage in, no throw — same posture as `Matches` on any other absurd
-  board). Related: wrong-signed off bounds (`[off,-2,]`, `[opp-off,,2]`)
+  data into `IDecisionFilterData` or grow the board past its 26 slots to
+  support them — the derivation in `CheckerLocation.ValueOn` is the SSOT
+  (halheinrich/backgammon#295 books a public borne-off count upstream).
+  A `BoardPosition` never holds more than fifteen checkers a side, so the
+  derived count always lies within the location's interval. Related:
+  wrong-signed off bounds (`[off,-2,]`, `[opp-off,,2]`)
   are construction/parse **errors**, not empty ranges — a consumer must not
   "helpfully" flip signs before handing text to `Parse`; the sign rule is
   validated here, and `TryParse` already absorbs the rejection.
@@ -1495,15 +1562,6 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
 
 ## Subproject-internal next steps
 
-* Test builders (`BgDecisionDataBuilder`, `DecisionRowBuilder`) currently stamp
-  every constructed instance with the same fixed placeholder
-  `XgpDecisionId("test.xgp")`. Acceptable today because no filter test asserts
-  on `Id`, but encapsulation-suboptimal: identical-Id instances become a
-  silent collision risk the moment Id assertions enter the test surface.
-  Promote to deriving `Id` from existing builder state (the row builder's
-  `sourceFile` parameter; add a matching parameter to the diagram builder)
-  when an Id-asserting test lands. Documented inline on both builders'
-  XML doc.
 * **`DecisionFilterSet` immutability.** `Add()` currently mutates and returns
   `this`; an immutable variant (returns a new set) would eliminate the class of
   caller-mutation bugs paid down in BgQuiz_Blazor's filter-pipeline
