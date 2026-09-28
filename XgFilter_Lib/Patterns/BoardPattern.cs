@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
@@ -74,10 +75,10 @@ namespace XgFilter_Lib.Patterns;
 [JsonConverter(typeof(BoardPatternJsonConverter))]
 public sealed class BoardPattern : IEquatable<BoardPattern>
 {
-    private readonly IPatternConstraint[] _constraints;
+    private readonly ImmutableArray<IPatternConstraint> _constraints;
 
     /// <summary>The shared empty pattern, which matches every board.</summary>
-    public static BoardPattern Empty { get; } = new(Array.Empty<IPatternConstraint>());
+    public static BoardPattern Empty { get; } = new([]);
 
     /// <summary>
     /// Creates a validated pattern from <paramref name="constraints"/>. Each
@@ -98,7 +99,8 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
     {
         ArgumentNullException.ThrowIfNull(constraints);
 
-        _constraints = constraints.ToArray();
+        _constraints = [.. constraints];
+        Constraints = _constraints;
 
         var seen = new HashSet<object>(_constraints.Length);
         foreach (var constraint in _constraints)
@@ -114,9 +116,11 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
 
     /// <summary>
     /// The constraints making up this pattern, in construction order — each a
-    /// <see cref="CheckerRange"/> or a <see cref="CheckerSpanRange"/>.
+    /// <see cref="CheckerRange"/> or a <see cref="CheckerSpanRange"/>. An
+    /// immutable list: the pattern is immutable, so what it hands out can
+    /// neither be written through nor cast back to a mutable collection.
     /// </summary>
-    public IReadOnlyList<IPatternConstraint> Constraints => _constraints;
+    public IReadOnlyList<IPatternConstraint> Constraints { get; }
 
     /// <summary>
     /// True when the pattern carries no constraints, in which case

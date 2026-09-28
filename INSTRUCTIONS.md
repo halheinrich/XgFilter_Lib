@@ -850,7 +850,8 @@ reintroduction-ready alternative to the named `PositionType` machinery.
 * `BoardPattern` — an immutable, validated set of `IPatternConstraint`
   elements over a `BoardPosition` in the frame of `IDecisionFilterData.Board`
   (its slots are the grammar's board indices), exposed in construction
-  order as `Constraints`. A place named by no
+  order as `Constraints` — an immutable list, so the pattern's
+  immutability holds through what it hands out. A place named by no
   constraint is unconstrained; the empty pattern (`Empty`, `IsEmpty`)
   matches every board (vacuous truth). The one cross-element invariant
   the constructor enforces is **no two constraints on the same place**
@@ -921,8 +922,9 @@ reintroduction-ready alternative to the named `PositionType` machinery.
 ### Projection
 
 * `ColumnSelector` — enum-driven column selection. Constructor takes
-  `IEnumerable<Column>`; header text comes from each member's
-  `[Description]` label. Typed to `DecisionRow` because the projection
+  `IEnumerable<Column>` and keeps an immutable copy (`SelectedColumns`,
+  like the shared `AllColumns`, is immutable); header text comes from each
+  member's `[Description]` label. Typed to `DecisionRow` because the projection
   target is CSV; `Board` is deliberately not exposed as a column. The
   internal `GetValue` switch is exhaustive, throwing
   `ArgumentOutOfRangeException` on undefined `Column` values. Each cell is
@@ -1229,12 +1231,12 @@ namespace XgFilter_Lib.Projection;
 
 public sealed class ColumnSelector
 {
-    public static readonly IReadOnlyList<Column> AllColumns;
+    public static IReadOnlyList<Column> AllColumns { get; }       // immutable
 
     public ColumnSelector();
     public ColumnSelector(IEnumerable<Column> columns);
 
-    public IReadOnlyList<Column> SelectedColumns { get; }
+    public IReadOnlyList<Column> SelectedColumns { get; }        // immutable copy
     public string Header { get; }
     public string Serialize(DecisionRow row);
     public string BuildCsv (IEnumerable<DecisionRow> rows);
@@ -1307,7 +1309,7 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
 
     public BoardPattern(IEnumerable<IPatternConstraint> constraints);   // rejects a
                                                         // duplicate place or null element
-    public IReadOnlyList<IPatternConstraint> Constraints { get; }
+    public IReadOnlyList<IPatternConstraint> Constraints { get; }   // immutable
     public bool IsEmpty { get; }
     public bool Matches(BoardPosition board);
 
@@ -1543,6 +1545,17 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   Changing either is a file migration. The base's `Get` / `TryGet` are the only
   get pair: the domain-spelled `GetConfig` / `TryGetConfig` are gone and got no
   forwarder, by ruling (2026-09-09, `halheinrich/backgammon#190`).
+* **No public member hands out a live mutable collection or array** (the
+  collection rider, Hal 2026-09-26 on halheinrich/backgammon#273). A list
+  behind `IReadOnlyList<T>` that is really the type's own `List<T>` or
+  array can be cast back and written, silently changing the object that
+  handed it out. Hand out an `ImmutableArray<T>`, boxed once, as
+  `BoardPattern.Constraints` and `ColumnSelector.SelectedColumns` do;
+  `PublicCollectionsTests` holds each site and sweeps the exported surface
+  for public members declared as arrays. `FilterConfig`'s `IList<T>`
+  members are mutable by design (the DTO a UI binds to) and are not behind
+  a read-only interface; `GetActiveFacets` / `GetInvalidFields` build a
+  fresh set per call, which nothing else holds.
 * **Shared `TestData` at `backgammon\TestData`.** Referenced via
   `..\..\TestData` with `Link` in the Tests csproj. Moving TestData or
   changing csproj output depth breaks every file-touching test.

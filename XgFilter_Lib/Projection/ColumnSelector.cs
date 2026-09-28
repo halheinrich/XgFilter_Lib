@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using BgDataTypes_Lib;
@@ -24,11 +25,11 @@ namespace XgFilter_Lib.Projection;
 /// </summary>
 public sealed class ColumnSelector
 {
-    /// <summary>Every defined column, in declaration order.</summary>
-    public static readonly IReadOnlyList<Column> AllColumns =
-        Enum.GetValues<Column>();
+    /// <summary>Every defined column, in declaration order. An immutable list, shared by every caller.</summary>
+    public static IReadOnlyList<Column> AllColumns { get; } =
+        ImmutableArray.Create(Enum.GetValues<Column>());
 
-    private readonly List<Column> _selected;
+    private readonly ImmutableArray<Column> _selected;
 
     /// <summary>Creates a selector with every column active, in declaration order.</summary>
     public ColumnSelector() : this(AllColumns) { }
@@ -36,11 +37,16 @@ public sealed class ColumnSelector
     /// <summary>Creates a selector with an explicit ordered column list.</summary>
     public ColumnSelector(IEnumerable<Column> columns)
     {
-        _selected = new List<Column>(columns);
+        _selected = [.. columns];
+        SelectedColumns = _selected;
     }
 
-    /// <summary>The ordered list of active columns.</summary>
-    public IReadOnlyList<Column> SelectedColumns => _selected;
+    /// <summary>
+    /// The ordered list of active columns — an immutable copy of what the
+    /// constructor was given, so neither the caller's collection nor anything
+    /// done to this list changes the selector.
+    /// </summary>
+    public IReadOnlyList<Column> SelectedColumns { get; }
 
     /// <summary>CSV header row, joined from each selected column's label.</summary>
     public string Header => string.Join(",", _selected.Select(c => c.ToLabel()));
