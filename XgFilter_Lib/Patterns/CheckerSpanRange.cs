@@ -33,9 +33,9 @@ namespace XgFilter_Lib.Patterns;
 /// </list>
 /// <para>
 /// Formally: the constraint applies its bounds to every side whose value
-/// interval (<c>[0, 15]</c> for the on-roll player, <c>[-15, 0]</c> for the
-/// opponent) holds all of them, and a pair no side's interval holds is
-/// refused. <b>The other side's checkers in the span are ignored</b>: the
+/// interval (<c>[0, N]</c> for the on-roll player, <c>[-N, 0]</c> for the
+/// opponent, N being <see cref="BoardPosition.CheckersPerSide"/>) holds all
+/// of them, and a pair no side's interval holds is refused. <b>The other side's checkers in the span are ignored</b>: the
 /// count is never netted, so adding opposing checkers never changes a signed
 /// span's verdict. This is where a span differs from a
 /// <see cref="CheckerRange"/> on one point, whose signed count is the whole of
@@ -82,7 +82,7 @@ public readonly record struct CheckerSpanRange : IPatternConstraint
     /// <param name="max">Inclusive upper bound, or <see langword="null"/>.</param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// An index is outside 0–25, or a bound's magnitude exceeds
-    /// <see cref="CheckerLocation.MaxCheckers"/>.
+    /// <see cref="BoardPosition.CheckersPerSide"/>.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="first"/> is not less than <paramref name="last"/>, the
@@ -103,7 +103,7 @@ public readonly record struct CheckerSpanRange : IPatternConstraint
     /// <param name="min">Inclusive lower bound, or <see langword="null"/>.</param>
     /// <param name="max">Inclusive upper bound, or <see langword="null"/>.</param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// A bound's magnitude exceeds <see cref="CheckerLocation.MaxCheckers"/>.
+    /// A bound's magnitude exceeds <see cref="BoardPosition.CheckersPerSide"/>.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// One bound is positive and the other negative (a span constrains one

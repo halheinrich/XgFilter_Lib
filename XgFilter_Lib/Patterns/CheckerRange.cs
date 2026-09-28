@@ -17,13 +17,14 @@ namespace XgFilter_Lib.Patterns;
 /// element being well-formed and need only police the cross-element invariant
 /// (no duplicate <see cref="Location"/>). Bounds follow the grammar-wide sign
 /// rule (positive = on-roll player, negative = opponent) and must lie within
-/// the location's own value interval: <c>[-15, 15]</c> for a point (indices
-/// 1–24), <c>[0, 15]</c> for the on-roll player's bar (index 25) and
-/// <see cref="CheckerLocation.PlayerOff"/>, <c>[-15, 0]</c> for the opponent's
+/// the location's own value interval (see <see cref="CheckerLocation"/>).
+/// Writing N for <see cref="BoardPosition.CheckersPerSide"/>, the checkers a
+/// side has: <c>[-N, N]</c> for a point (indices 1–24), <c>[0, N]</c> for the
+/// on-roll player's bar (index 25) and
+/// <see cref="CheckerLocation.PlayerOff"/>, <c>[-N, 0]</c> for the opponent's
 /// bar (index 0) and <see cref="CheckerLocation.OpponentOff"/> — so a
 /// wrong-signed bound on a bar or a borne-off count is a construction error,
-/// not a constraint that silently never matches. The 15 ceiling is
-/// <see cref="CheckerLocation.MaxCheckers"/>.
+/// not a constraint that silently never matches.
 /// </para>
 ///
 /// <para>
@@ -70,8 +71,9 @@ public readonly record struct CheckerRange : IPatternConstraint
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="index"/> is outside 0–25, or a bound lies outside the
     /// location's value interval — beyond
-    /// ±<see cref="CheckerLocation.MaxCheckers"/>, positive on the opponent's
-    /// bar (index 0), or negative on the on-roll player's bar (index 25).
+    /// ±<see cref="BoardPosition.CheckersPerSide"/>, positive on the
+    /// opponent's bar (index 0), or negative on the on-roll player's bar
+    /// (index 25).
     /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="min"/> is greater than <paramref name="max"/> (an
@@ -92,11 +94,11 @@ public readonly record struct CheckerRange : IPatternConstraint
     /// <param name="max">Inclusive upper bound, or <see langword="null"/>.</param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// A bound lies outside the location's value interval — beyond
-    /// ±<see cref="CheckerLocation.MaxCheckers"/>, or wrong-signed for a
+    /// ±<see cref="BoardPosition.CheckersPerSide"/>, or wrong-signed for a
     /// location only one side can occupy (the on-roll player's bar and
-    /// <see cref="CheckerLocation.PlayerOff"/> admit only <c>[0, 15]</c>, the
-    /// opponent's bar and <see cref="CheckerLocation.OpponentOff"/> only
-    /// <c>[-15, 0]</c>).
+    /// <see cref="CheckerLocation.PlayerOff"/> admit only non-negative
+    /// bounds, the opponent's bar and <see cref="CheckerLocation.OpponentOff"/>
+    /// only non-positive ones).
     /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="min"/> is greater than <paramref name="max"/> (an

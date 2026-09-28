@@ -769,12 +769,14 @@ runtime, including via a compact text form. This is the public,
 reintroduction-ready alternative to the named `PositionType` machinery.
 
 * `CheckerSides` (internal, `[Flags]`: `Player` / `Opponent` / `Both`) —
-  the **single owner of each side's value interval** (on-roll player
-  `[0, 15]`, opponent `[-15, 0]`, the hull `[-15, 15]` for both) and of
-  which board entries are whose (`CheckersOn` counts one side over a run
-  of indices, never netting the other; `Signed` applies the sign rule).
-  Locations and span constraints read their intervals off it; nothing
-  else spells `0` / `±15` as a side's limit.
+  the **single owner of each side's value interval** (with N for
+  `BoardPosition.CheckersPerSide`, the producer's number of checkers a
+  side: on-roll player `[0, N]`, opponent `[-N, 0]`, the hull `[-N, N]`
+  for both) and of which board entries are whose (`CheckersOn` counts
+  one side over a run of indices, never netting the other; `Signed`
+  applies the sign rule). Locations and span constraints read their
+  intervals off it; nothing else spells `0` / `±N` as a side's limit,
+  and nothing in this library restates N.
 * `CheckerLocation` — a `readonly record struct`, the discriminated
   place a `CheckerRange` addresses, and the **single source of truth for
   location vocabulary**: a `Kind` (`CheckerLocationKind.Board` /
@@ -784,15 +786,17 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   signed value interval, and how a location's value is read or derived
   from a board (`ValueOn`, internal). The interval is the **hull of the
   sides that can sit there** (internal `Sides`): a point (1–24) holds
-  either side, `[-15, 15]`; the opponent's bar (0) and opponent-off hold
-  only the opponent, `[-15, 0]`; the on-roll player's bar (25) and
-  player-off hold only the player, `[0, 15]`. Constructed only via
+  either side, `[-N, N]`; the opponent's bar (0) and opponent-off hold
+  only the opponent, `[-N, 0]`; the on-roll player's bar (25) and
+  player-off hold only the player, `[0, N]`. Constructed only via
   `Board(int index)` (validated 0–25, `ArgumentOutOfRangeException`) and
   the `PlayerOff` / `OpponentOff` statics, so never invalid;
   `BoardIndex` is `null` on the off locations (no throwing property).
-  `default(CheckerLocation)` is `Board(0)`. Carries the domain constants
-  `MaxBoardIndex` (25) and `MaxCheckers` (15) — location-domain facts,
-  so they live on the location type. Value-equality is what
+  `default(CheckerLocation)` is `Board(0)`. Carries the domain constant
+  `MaxBoardIndex` (25) — a location-domain fact, so it lives on the
+  location type. The number of checkers a side is not this library's:
+  the intervals read `BoardPosition.CheckersPerSide` (through
+  `CheckerSides`) and restate no copy of it. Value-equality is what
   `BoardPattern` keys duplicate detection — and its own equality — on,
   so a numeric and a named location never conflate. `ToString` renders
   the canonical (lower-case) token head; name parsing is
@@ -835,7 +839,7 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   opponent's (non-negative): a positive bound constrains the player,
   `min ≤ P ≤ max`; a negative bound the opponent, `min ≤ −O ≤ max`
   (`[13-18,,-2]` = opponent has ≥ 2 there); one of each is refused
-  (`ArgumentException`); bounds beyond ±15 are
+  (`ArgumentException`); bounds beyond ±N are
   `ArgumentOutOfRangeException`. Formally, the bounds apply to **every
   side whose interval holds them all**, which is what gives the zero
   forms their meaning: `[a-b,0,0]` empty of both sides, `[a-b,,0]` no
@@ -860,12 +864,13 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   element is refused too); each element is already self-valid.
   **Overlap is not duplication**: `[7,1,] [7-12,3,] [5-8,,-2]` is three
   conditions. `Matches(BoardPosition)` ANDs every constraint; borne-off
-  values are derived per element (see the derivation pitfall).
+  values are read from the position per element (see the borne-off
+  pitfall).
   * **Text form** — the bracket list: whitespace-separated
     `[head,min,max]` tokens, each field comma-separated with an empty
     bound field meaning "unbounded". The head is a board index, a named
     borne-off location — `[off,min,max]` (on-roll player, bounds
-    `[0, 15]`) / `[opp-off,min,max]` (opponent, bounds `[-15, 0]`,
+    `[0, N]`) / `[opp-off,min,max]` (opponent, bounds `[-N, 0]`,
     negative per the grammar-wide sign rule: `[opp-off,,-2]` =
     "opponent has ≥ 2 off", reading exactly like `[5,,-2]`) — or a span
     `a-b` of board indices (`[7-12,3,]`), e.g.
@@ -1251,13 +1256,13 @@ public enum CheckerLocationKind { Board, PlayerOff, OpponentOff }
 public readonly record struct CheckerLocation
 {
     public const int MaxBoardIndex = 25;   // on-roll player's bar
-    public const int MaxCheckers   = 15;   // per-side checker ceiling
 
-    public static CheckerLocation PlayerOff   { get; }   // "off";     values [0, 15]
-    public static CheckerLocation OpponentOff { get; }   // "opp-off"; values [-15, 0]
+    // N = BoardPosition.CheckersPerSide
+    public static CheckerLocation PlayerOff   { get; }   // "off";     values [0, N]
+    public static CheckerLocation OpponentOff { get; }   // "opp-off"; values [-N, 0]
     public static CheckerLocation Board(int index);      // validated 0–25; values
-                                                         // [-15, 0] at 0, [0, 15] at 25,
-                                                         // [-15, 15] on the points
+                                                         // [-N, 0] at 0, [0, N] at 25,
+                                                         // [-N, N] on the points
     public CheckerLocationKind Kind       { get; }
     public int?                BoardIndex { get; }       // null for the off locations
 
@@ -1454,15 +1459,16 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   contact requirement with a structural one is AND across the set (a
   `ContactTypeFilter` alongside a `PositionTypeFilter`), never OR within
   one filter.
-* **Borne-off counts are derived, never stored.** The `[off,…]` /
-  `[opp-off,…]` locations compute a side's off count as 15 minus its
-  on-board sum **with bars included** (`board[0]` / `board[25]` count as
-  on-board), the opponent's value signed negative. Don't plumb off-count
-  data into `IDecisionFilterData` or grow the board past its 26 slots to
-  support them — the derivation in `CheckerLocation.ValueOn` is the SSOT
-  (halheinrich/backgammon#295 books a public borne-off count upstream).
-  A `BoardPosition` never holds more than fifteen checkers a side, so the
-  derived count always lies within the location's interval. Related:
+* **Borne-off counts are the position's, never stored or re-derived
+  here.** The `[off,…]` / `[opp-off,…]` locations read
+  `BoardPosition.OnRollBorneOffCount` / `OpponentBorneOffCount`
+  (halheinrich/backgammon#295), the opponent's value signed negative;
+  `CheckerLocation.ValueOn` only reads and signs them. Don't plumb
+  off-count data into `IDecisionFilterData`, grow the board past its 26
+  slots, or count checkers against `BoardPosition.CheckersPerSide` here
+  to support them — the producer owns the count. A `BoardPosition` never
+  holds more than `CheckersPerSide` checkers a side, so the count always
+  lies within the location's interval. Related:
   wrong-signed off bounds (`[off,-2,]`, `[opp-off,,2]`)
   are construction/parse **errors**, not empty ranges — a consumer must not
   "helpfully" flip signs before handing text to `Parse`; the sign rule is

@@ -23,8 +23,8 @@ namespace XgFilter_Lib.Patterns;
 /// <c>[0]</c> is the opponent's bar, <c>[1..24]</c> the points, and
 /// <c>[25]</c> the on-roll player's bar; positive values are the on-roll
 /// player's checkers and negative the opponent's. The two borne-off
-/// locations are <em>derived</em> from the position (fifteen minus the side's
-/// on-board sum, bars included — see <see cref="CheckerLocation"/>), so a
+/// locations are <em>derived</em> from the position (each side's borne-off
+/// count is the position's own — see <see cref="CheckerLocation"/>), so a
 /// pattern can constrain off counts with no extra data plumbed in.
 /// </para>
 ///
@@ -33,8 +33,9 @@ namespace XgFilter_Lib.Patterns;
 /// <c>[head,min,max]</c> tokens, each field comma-separated and an empty field
 /// meaning "unbounded". The head is a board index (<c>[6,,0]</c>), a named
 /// borne-off location — <c>[off,min,max]</c> for the on-roll player (bounds in
-/// <c>[0, 15]</c>) and <c>[opp-off,min,max]</c> for the opponent (bounds in
-/// <c>[-15, 0]</c>, negative per the grammar-wide sign rule — so
+/// <c>[0, N]</c>, N being <see cref="BoardPosition.CheckersPerSide"/>) and
+/// <c>[opp-off,min,max]</c> for the opponent (bounds in <c>[-N, 0]</c>,
+/// negative per the grammar-wide sign rule — so
 /// <c>[opp-off,,-2]</c> reads "opponent has two or more off" exactly like
 /// <c>[5,,-2]</c> reads "two or more on the 5-point") — or a span of board
 /// indices <c>a-b</c> with <c>a &lt; b</c> (<c>[7-12,3,]</c>: the on-roll

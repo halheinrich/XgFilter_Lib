@@ -40,16 +40,18 @@ public enum CheckerLocationKind
 /// <para>
 /// Signed convention — one rule across the whole grammar: positive counts are
 /// the on-roll player's, negative the opponent's. A location's value interval
-/// is the hull of the intervals of the sides that can sit there: a point
-/// (indices 1–24) holds either side, <c>[-15, 15]</c>; the opponent's bar
-/// (index 0) and <see cref="OpponentOff"/> hold only the opponent,
-/// <c>[-15, 0]</c>; the on-roll player's bar (index 25) and
-/// <see cref="PlayerOff"/> hold only the on-roll player, <c>[0, 15]</c>. So a
+/// is the hull of the intervals of the sides that can sit there. Writing N
+/// for <see cref="BoardPosition.CheckersPerSide"/>, the checkers a side has:
+/// a point (indices 1–24) holds either side, <c>[-N, N]</c>; the opponent's
+/// bar (index 0) and <see cref="OpponentOff"/> hold only the opponent,
+/// <c>[-N, 0]</c>; the on-roll player's bar (index 25) and
+/// <see cref="PlayerOff"/> hold only the on-roll player, <c>[0, N]</c>. So a
 /// value of <c>-2</c> at <see cref="OpponentOff"/> means the opponent has two
 /// checkers off, and a positive bound on the opponent's bar is a construction
 /// error rather than a constraint that silently never matches. Off counts are
-/// derived as fifteen minus the side's on-board sum, bars included — a
-/// position carries no off entry of its own.
+/// the position's own (<see cref="BoardPosition.OnRollBorneOffCount"/>,
+/// <see cref="BoardPosition.OpponentBorneOffCount"/>), signed for the side —
+/// a position carries no off entry of its own, and this type derives none.
 /// </para>
 ///
 /// <para>
@@ -69,13 +71,6 @@ public readonly record struct CheckerLocation
 {
     /// <summary>Highest valid board-array index (the on-roll player's bar).</summary>
     public const int MaxBoardIndex = 25;
-
-    /// <summary>
-    /// The fifteen-checkers-per-side ceiling — the largest magnitude any
-    /// location's value (and therefore any <see cref="CheckerRange"/> bound) can
-    /// take.
-    /// </summary>
-    public const int MaxCheckers = 15;
 
     /// <summary>Bracket-grammar token name for the on-roll player's off count.</summary>
     internal const string PlayerOffName = "off";
@@ -110,16 +105,17 @@ public readonly record struct CheckerLocation
 
     /// <summary>
     /// The on-roll player's borne-off count: a derived location whose value is
-    /// <see cref="MaxCheckers"/> minus the player's on-board checkers (bars
-    /// included), always in <c>[0, 15]</c>. Named <c>off</c> in the bracket
-    /// grammar.
+    /// the position's <see cref="BoardPosition.OnRollBorneOffCount"/>, always
+    /// from 0 to <see cref="BoardPosition.CheckersPerSide"/>. Named
+    /// <c>off</c> in the bracket grammar.
     /// </summary>
     public static CheckerLocation PlayerOff { get; } = new(CheckerLocationKind.PlayerOff, 0);
 
     /// <summary>
     /// The opponent's borne-off count: a derived location whose value is the
-    /// negation of <see cref="MaxCheckers"/> minus the opponent's on-board
-    /// checkers (bars included), always in <c>[-15, 0]</c> — negative per the
+    /// negation of the position's
+    /// <see cref="BoardPosition.OpponentBorneOffCount"/>, always from
+    /// -<see cref="BoardPosition.CheckersPerSide"/> to 0 — negative per the
     /// grammar-wide sign rule. Named <c>opp-off</c> in the bracket grammar.
     /// </summary>
     public static CheckerLocation OpponentOff { get; } = new(CheckerLocationKind.OpponentOff, 0);
@@ -170,8 +166,9 @@ public readonly record struct CheckerLocation
 
     /// <summary>
     /// Inclusive lower limit of the signed counts this location can exhibit:
-    /// the lower limit of its <see cref="Sides"/> — <c>-15</c> where the
-    /// opponent can sit, <c>0</c> where only the on-roll player can.
+    /// the lower limit of its <see cref="Sides"/> —
+    /// -<see cref="BoardPosition.CheckersPerSide"/> where the opponent can
+    /// sit, <c>0</c> where only the on-roll player can.
     /// <see cref="CheckerRange"/> validates its bounds against this, so a
     /// wrong-signed bound is a construction error.
     /// </summary>
@@ -179,25 +176,27 @@ public readonly record struct CheckerLocation
 
     /// <summary>
     /// Inclusive upper limit of the signed counts this location can exhibit:
-    /// the upper limit of its <see cref="Sides"/> — <c>15</c> where the
-    /// on-roll player can sit, <c>0</c> where only the opponent can.
+    /// the upper limit of its <see cref="Sides"/> —
+    /// <see cref="BoardPosition.CheckersPerSide"/> where the on-roll player
+    /// can sit, <c>0</c> where only the opponent can.
     /// </summary>
     internal int MaxValue => Sides.MaxValue();
 
     /// <summary>
-    /// Reads (for a board location) or derives (for an off count) this
-    /// location's signed value on <paramref name="board"/>. Board locations
-    /// read their slot directly; an off count counts its side's checkers on
-    /// all 26 slots — bars included — subtracts that from
-    /// <see cref="MaxCheckers"/>, and signs the result for the side. The
-    /// position's own invariant (at most fifteen checkers a side) keeps the
-    /// derived count within the location's value interval.
+    /// Reads this location's signed value on <paramref name="board"/>. Board
+    /// locations read their slot directly; an off count reads its side's
+    /// borne-off count from the position
+    /// (<see cref="BoardPosition.OnRollBorneOffCount"/>,
+    /// <see cref="BoardPosition.OpponentBorneOffCount"/>) and signs it for
+    /// the side. The position's own invariant (at most
+    /// <see cref="BoardPosition.CheckersPerSide"/> checkers a side) keeps the
+    /// count within the location's value interval.
     /// </summary>
     internal int ValueOn(BoardPosition board) => _kind switch
     {
         CheckerLocationKind.Board => board[_index],
-        CheckerLocationKind.PlayerOff or CheckerLocationKind.OpponentOff =>
-            Sides.Signed(MaxCheckers - Sides.CheckersOn(board, 0, MaxBoardIndex + 1)),
+        CheckerLocationKind.PlayerOff => Sides.Signed(board.OnRollBorneOffCount),
+        CheckerLocationKind.OpponentOff => Sides.Signed(board.OpponentBorneOffCount),
         _ => throw new UnreachableException($"Undefined {nameof(CheckerLocationKind)} '{_kind}'."),
     };
 

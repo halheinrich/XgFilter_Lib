@@ -5,7 +5,8 @@ namespace XgFilter_Lib.Patterns;
 /// <summary>
 /// A set of board sides: the on-roll player, the opponent, both, or neither.
 /// The single owner of each side's signed value interval — the grammar-wide
-/// sign rule, positive for the on-roll player and negative for the opponent —
+/// sign rule, positive for the on-roll player and negative for the opponent,
+/// over the <see cref="BoardPosition.CheckersPerSide"/> checkers a side has —
 /// and of which board entries belong to which side. A
 /// <see cref="CheckerLocation"/> names the sides that can sit on it and takes
 /// their hull as its interval; a <see cref="CheckerSpanRange"/> constrains
@@ -17,13 +18,23 @@ internal enum CheckerSides
     /// <summary>No side.</summary>
     None = 0,
 
-    /// <summary>The on-roll player: positive board entries, values in <c>[0, 15]</c>.</summary>
+    /// <summary>
+    /// The on-roll player: positive board entries, values from 0 to
+    /// <see cref="BoardPosition.CheckersPerSide"/>.
+    /// </summary>
     Player = 1,
 
-    /// <summary>The opponent: negative board entries, values in <c>[-15, 0]</c>.</summary>
+    /// <summary>
+    /// The opponent: negative board entries, values from
+    /// -<see cref="BoardPosition.CheckersPerSide"/> to 0.
+    /// </summary>
     Opponent = 2,
 
-    /// <summary>Both sides: values in the hull <c>[-15, 15]</c>.</summary>
+    /// <summary>
+    /// Both sides: values in the hull, from
+    /// -<see cref="BoardPosition.CheckersPerSide"/> to
+    /// <see cref="BoardPosition.CheckersPerSide"/>.
+    /// </summary>
     Both = Player | Opponent,
 }
 
@@ -34,17 +45,19 @@ internal static class CheckerSidesExtensions
 {
     /// <summary>
     /// Inclusive lower limit of the signed values <paramref name="sides"/> can
-    /// exhibit: <c>-15</c> when the opponent is among them, else <c>0</c>.
+    /// exhibit: -<see cref="BoardPosition.CheckersPerSide"/> when the
+    /// opponent is among them, else <c>0</c>.
     /// </summary>
     internal static int MinValue(this CheckerSides sides) =>
-        (sides & CheckerSides.Opponent) != 0 ? -CheckerLocation.MaxCheckers : 0;
+        (sides & CheckerSides.Opponent) != 0 ? -BoardPosition.CheckersPerSide : 0;
 
     /// <summary>
     /// Inclusive upper limit of the signed values <paramref name="sides"/> can
-    /// exhibit: <c>15</c> when the on-roll player is among them, else <c>0</c>.
+    /// exhibit: <see cref="BoardPosition.CheckersPerSide"/> when the on-roll
+    /// player is among them, else <c>0</c>.
     /// </summary>
     internal static int MaxValue(this CheckerSides sides) =>
-        (sides & CheckerSides.Player) != 0 ? CheckerLocation.MaxCheckers : 0;
+        (sides & CheckerSides.Player) != 0 ? BoardPosition.CheckersPerSide : 0;
 
     /// <summary>
     /// True when <paramref name="bound"/> is absent (unbounded) or lies within
