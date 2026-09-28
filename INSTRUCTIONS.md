@@ -215,7 +215,7 @@ surface, and are reachable from the test project via
   `false` unless a filter opts in.
 * `IMatchFilter` — optional extension for filters that can skip an entire
   match or game before any rows are yielded:
-  `ShouldSkipMatch(XgMatchInfo)` and `ShouldSkipGame(XgGameInfo)`. Filters
+  `ShouldSkipMatch(IMatchInfo)` and `ShouldSkipGame(IGameInfo)`. Filters
   implement both interfaces where applicable.
 * `DecisionFilterSet` — ordered list of `IDecisionFilter` combined with AND
   semantics. Fluent `Add()`. `IsEmpty` is the SSOT for "no filters
@@ -1028,8 +1028,8 @@ constructs a single `XgIteratorCallbacks` record threading the filter
 set's four skip / advance predicates to the producer:
 
 ```
-SkipMatchAt    ← DecisionFilterSet.ShouldSkipMatch     (XgMatchInfo)
-SkipGameAt     ← DecisionFilterSet.ShouldSkipGame      (XgGameInfo)
+SkipMatchAt    ← DecisionFilterSet.ShouldSkipMatch     (IMatchInfo)
+SkipGameAt     ← DecisionFilterSet.ShouldSkipGame      (IGameInfo)
 StopGameAfter  ← DecisionFilterSet.ShouldAdvanceGame   (IDecisionFilterData)
 StopMatchAfter ← DecisionFilterSet.ShouldAdvanceMatch  (IDecisionFilterData)
 ```
@@ -1121,8 +1121,8 @@ public sealed class DecisionFilterSet
     public DecisionFilterSet Add(IDecisionFilter filter);
     public bool IsEmpty { get; }
     public bool Matches          (IDecisionFilterData data);
-    public bool ShouldSkipMatch  (XgMatchInfo match);
-    public bool ShouldSkipGame   (XgGameInfo  game);
+    public bool ShouldSkipMatch  (IMatchInfo match);
+    public bool ShouldSkipGame   (IGameInfo  game);
     public bool ShouldAdvanceGame (IDecisionFilterData data);
     public bool ShouldAdvanceMatch(IDecisionFilterData data);
 }

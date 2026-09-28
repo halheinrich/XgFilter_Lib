@@ -44,7 +44,10 @@ public enum Column
     [Description("Player")]
     Player,
 
-    /// <summary>The source <c>.xg</c> / <c>.xgp</c> filename (without extension).</summary>
+    /// <summary>
+    /// The file the decision came from — its bare name with its extension, no
+    /// directory (<see cref="BgDataTypes_Lib.DecisionRow.SourceFile"/>).
+    /// </summary>
     [Description("SourceFile")]
     SourceFile,
 
