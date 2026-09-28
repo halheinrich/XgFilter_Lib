@@ -1187,6 +1187,88 @@ public class FilterConfigTests
         json.Should().Contain("\"Make20Pt\"");
     }
 
+    // -----------------------------------------------------------------------
+    //  The persisted form, pinned whole. A saved filter is durable: a document
+    //  written before the ranking leg (halheinrich/backgammon#273, SPEC-scoring
+    //  2a) must read to the same filter, since the ranking entered where
+    //  records are filtered, never the config. The literal below is that
+    //  format — every member set, in declaration order, each value in its
+    //  type's own token — and is asserted in both directions.
+    // -----------------------------------------------------------------------
+
+    private const string SavedBeforeTheRankingLeg =
+        """{"Players":["Alice","Bob"],"DecisionType":"CheckerPlaysOnly","MatchScores":["3a5a","1a5aC","moneyJ","DMP"],"ErrorMin":0.05,"ErrorMax":0.5,"MoveNumberMin":2,"MoveNumberMax":20,"ContactTypes":["Contact"],"PositionTypes":["VsTwoPlusUp"],"PlayTypes":["Make20Pt"],"IncludeEvaluations":true,"EvaluationLevels":["Ply4","XgRollerPlusPlus"],"IncludeRollouts":true,"RolloutLevels":[],"IncludeBookRollouts":true,"BookRolloutLevels":["Ply3"],"DiceRolls":["31","66"],"PositionPattern":"[6,2,] [0,,-2] [7-12,3,] [off,1,]"}""";
+
+    /// <summary>The filter <see cref="SavedBeforeTheRankingLeg"/> states, built in code.</summary>
+    private static FilterConfig TheSavedFilter() => new()
+    {
+        Players = { "Alice", "Bob" },
+        DecisionType = DecisionTypeOption.CheckerPlaysOnly,
+        MatchScores = { "3a5a", "1a5aC", "moneyJ", "DMP" },
+        ErrorMin = 0.05,
+        ErrorMax = 0.5,
+        MoveNumberMin = 2,
+        MoveNumberMax = 20,
+        ContactTypes = { ContactType.Contact },
+        PositionTypes = { PositionType.VsTwoPlusUp },
+        PlayTypes = { PlayType.Make20Pt },
+        IncludeEvaluations = true,
+        EvaluationLevels = { AnalysisLevel.Ply4, AnalysisLevel.XgRollerPlusPlus },
+        IncludeRollouts = true,
+        IncludeBookRollouts = true,
+        BookRolloutLevels = { AnalysisLevel.Ply3 },
+        DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
+        PositionPattern = BoardPattern.Parse("[6,2,] [0,,-2] [7-12,3,] [off,1,]"),
+    };
+
+    [Fact]
+    public void SavedDocument_WrittenBeforeTheRankingLeg_ReadsToTheSameFilter()
+    {
+        var restored = FilterConfig.FromJson(SavedBeforeTheRankingLeg);
+
+        restored.Should().Be(TheSavedFilter());
+        restored.Should().BeEquivalentTo(TheSavedFilter());
+        restored.GetActiveFacets().Should().Equal(Enum.GetValues<FilterFacet>(),
+            "the document sets every facet, so the pin covers the whole form");
+        restored.GetInvalidFields().Should().BeEmpty();
+        restored.Build().IsEmpty.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SavedDocument_WrittenBeforeTheRankingLeg_IsTheFormWrittenToday()
+    {
+        // The writer's side: the same filter serializes to the same bytes, so
+        // the persisted form did not change — no member added, none renamed,
+        // no token respelled.
+        TheSavedFilter().ToJson().Should().Be(SavedBeforeTheRankingLeg);
+    }
+
+    [Fact]
+    public void SavedDocument_WrittenBeforeTheRankingLeg_NamesEveryMember()
+    {
+        // Completeness: the pinned document states every public member of the
+        // config, so a member added later changes the form and fails here —
+        // the prompt to decide the format question, never to drift past it.
+        using var document = JsonDocument.Parse(SavedBeforeTheRankingLeg);
+        var stated = document.RootElement.EnumerateObject().Select(p => p.Name);
+        var members = typeof(FilterConfig)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.CanWrite)
+            .Select(p => p.Name);
+
+        stated.Should().Equal(members);
+    }
+
+    [Fact]
+    public void SavedCollection_WrittenBeforeTheRankingLeg_ReadsToTheSameFilter()
+    {
+        // The same document as a saved-filters file holds it.
+        var restored = NamedFilterCollection.FromJson(
+            $$"""{"schemaVersion":1,"filters":[{"name":"Saved","config":{{SavedBeforeTheRankingLeg}}}]}""");
+
+        restored.Get("Saved").Should().Be(TheSavedFilter());
+    }
+
     [Fact]
     public void ToJson_DefaultConfig_RoundTripsToEquivalentDefaults()
     {
