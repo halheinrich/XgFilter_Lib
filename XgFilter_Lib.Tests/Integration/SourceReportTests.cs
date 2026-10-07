@@ -307,6 +307,29 @@ public class SourceReportTests
         skip.Exception.Should().BeSameAs(report.Rejected[0].Reason);
     }
 
+    [Fact]
+    public void AThrowingLogger_PropagatesAfterTheRejectionIsRecorded()
+    {
+        // The record is written before the trace, so a logger that throws
+        // cannot leave a source that failed to read counted as readable: the
+        // report's partial counts stay true of the sources reached.
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet(), PlayRanking.Equity, new ThrowingLogger<FilteredDecisionIterator>());
+        var report = new SourceReport();
+
+        var act = () => iterator.IterateXgStreams([Malformed("malformed.xg")], report).ToList();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*logger failure*");
+
+        var rejection = report.Rejected.Should().ContainSingle().Which;
+        rejection.SourceName.Should().Be("malformed.xg");
+        rejection.Reason.Should().NotBeOfType<InvalidOperationException>(
+            "the rejection carries the read's own exception, never the logger's");
+        report.AttemptedCount.Should().Be(1);
+        report.ReadableCount.Should().Be(0);
+        report.IsComplete.Should().BeFalse();
+        report.AllRejected.Should().BeFalse("nothing is concluded from a walk that did not finish");
+    }
+
     // -----------------------------------------------------------------------
     //  The boundaries that are not rejections
     // -----------------------------------------------------------------------
@@ -453,4 +476,15 @@ public class SourceReportTests
     }
 
     private sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
+
+    private sealed class ThrowingLogger<T> : ILogger<T>
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            throw new InvalidOperationException("logger failure");
+    }
 }

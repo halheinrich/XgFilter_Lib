@@ -347,8 +347,12 @@ public sealed class FilteredDecisionIterator
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Skipping {File}", sourceFile);
+                // The record before the trace: a logger that throws still
+                // propagates and still leaves the walk incomplete, but the
+                // source that failed to read is already on the report rather
+                // than counted as readable by its absence.
                 report?.Reject(sourceFile, ex);
+                _logger.LogWarning(ex, "Skipping {File}", sourceFile);
                 continue;
             }
 
