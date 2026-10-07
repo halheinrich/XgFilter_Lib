@@ -29,7 +29,7 @@ public class NamedFilterCollectionSerializationTests
         IncludeBookRollouts = true,
         BookRolloutLevels = { AnalysisLevel.XgRoller },
         DiceRolls = { new DiceRoll(3, 1) },
-        PositionPattern = BoardPattern.Parse("[off,1,] [opp-off,0,0]"),
+        PositionPattern = "[off,1,] [opp-off,0,0]",
     };
 
     // -----------------------------------------------------------------------
@@ -250,13 +250,15 @@ public class NamedFilterCollectionSerializationTests
 
     [Theory]
     [InlineData("""{"DecisionType":"NotAnOption"}""")]        // invalid enum name
-    [InlineData("""{"PositionPattern":"not-a-pattern"}""")]   // malformed pattern
+    [InlineData("""{"PositionPattern":5}""")]                 // pattern of the wrong JSON type
     [InlineData("null")]                                      // null body
     [InlineData("5")]                                         // not an object
     public void Read_BadConfigBody_FailsTheWholeFile_NamingTheEntry(string body)
     {
         // Corruption, not evolution: a silently-reset saved filter would
-        // filter nothing, which is worse than a loud error.
+        // filter nothing, which is worse than a loud error. A pattern the
+        // grammar refuses is evolution, not corruption, and is the next
+        // tests' subject (halheinrich/backgammon#269).
         var json = $$"""{"schemaVersion":1,"filters":[{"name":"Blitz","config":{{body}}}]}""";
 
         var act = () => NamedFilterCollection.FromJson(json);
@@ -264,27 +266,56 @@ public class NamedFilterCollectionSerializationTests
         act.Should().Throw<JsonException>().WithMessage("*Blitz*");
     }
 
-    // A saved collection written before the bar rule (halheinrich/backgammon#268,
-    // rule 5) with one entry holding a now-refused token. These measure today's
-    // load path; they do not rule on it.
+    // -----------------------------------------------------------------------
+    //  A saved collection written before the bar rule
+    //  (halheinrich/backgammon#268, rule 5) with one entry holding a token the
+    //  grammar now refuses. The posture every other field already had
+    //  (halheinrich/backgammon#39), extended to the pattern by
+    //  halheinrich/backgammon#269: the file loads whole, the entry keeps its
+    //  text, the field is named at apply — while the member was a typed
+    //  BoardPattern, this file failed to load and TryFromJson lost "calm" too.
+    // -----------------------------------------------------------------------
+
     private const string FileWithBarRuleEntry =
         """{"schemaVersion":1,"filters":[{"name":"Blitz","config":{"PositionPattern":"[0,1,]"}},{"name":"calm","config":{"Players":["Alice"]}}]}""";
 
     [Fact]
-    public void Read_StoredBarRuleToken_FailsTheWholeFile_NamingTheEntry()
+    public void Read_StoredBarRuleToken_LoadsTheWholeFile_WithTheEntryInvalidAtApply()
     {
-        var act = () => NamedFilterCollection.FromJson(FileWithBarRuleEntry);
+        var restored = NamedFilterCollection.FromJson(FileWithBarRuleEntry);
 
-        act.Should().Throw<JsonException>().WithMessage("*Blitz*");
+        restored.Names.Should().Equal("Blitz", "calm");
+        restored.Get("calm").Players.Should().ContainSingle()
+            .Which.Should().Be("Alice", "the other entries load intact");
+
+        var blitz = restored.Get("Blitz");
+        blitz.PositionPattern.Should().Be("[0,1,]", "the text is preserved exactly");
+        blitz.GetActiveFacets().Should().Equal(FilterFacet.PositionPattern);
+        blitz.GetInvalidFields().Should().Equal(FilterField.PositionPattern);
+        FluentActions.Invoking(() => blitz.Build()).Should().Throw<ArgumentOutOfRangeException>(
+            "a stored pattern the grammar refuses never becomes an executable filter");
     }
 
     [Fact]
-    public void TryFromJson_StoredBarRuleToken_FallsBackToEmpty_LosingTheValidEntriesToo()
+    public void TryFromJson_StoredBarRuleToken_SucceedsRatherThanFallingBackToEmpty()
     {
         var result = NamedFilterCollection.TryFromJson(FileWithBarRuleEntry, out var collection);
 
-        result.Should().BeFalse();
-        collection.Should().BeSameAs(NamedFilterCollection.Empty);
+        result.Should().BeTrue();
+        collection.Names.Should().Equal("Blitz", "calm");
+        collection.Get("Blitz").PositionPattern.Should().Be("[0,1,]");
+    }
+
+    [Fact]
+    public void Write_StoredBarRuleToken_WritesTheTextBackExactly_AndStaysStable()
+    {
+        // A load-then-save must not rewrite the user's text, and the file
+        // written is the file read: a second round trip changes nothing.
+        var once = NamedFilterCollection.FromJson(FileWithBarRuleEntry).ToJson();
+        var twice = NamedFilterCollection.FromJson(once).ToJson();
+
+        once.Should().Contain("\"PositionPattern\":\"[0,1,]\"");
+        twice.Should().Be(once);
     }
 
     // -----------------------------------------------------------------------

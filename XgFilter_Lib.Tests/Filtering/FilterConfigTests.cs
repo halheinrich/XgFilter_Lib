@@ -465,7 +465,7 @@ public class FilterConfigTests
         // [0,,-2]: opponent two-or-more on the bar.
         var set = new FilterConfig
         {
-            PositionPattern = BoardPattern.Parse("[0,,-2]"),
+            PositionPattern = "[0,,-2]",
         }.Build();
 
         set.Matches(OnBoard(VsTwoPlusUpBoard)).Should().BeTrue();
@@ -479,13 +479,17 @@ public class FilterConfigTests
         set.Matches(OnBoard(BoardPosition.Standard)).Should().BeTrue();
     }
 
-    [Fact]
-    public void Build_PositionPatternEmpty_SkipsPositionPatternFilter()
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Build_PositionPatternBlank_SkipsPositionPatternFilter(string blank)
     {
-        // An empty pattern matches every board, so adding the filter would be a
-        // no-op AND step on every row; Build skips it like the empty lists.
-        var set = new FilterConfig { PositionPattern = BoardPattern.Empty }.Build();
+        // Blank text parses to the empty pattern, which matches every board,
+        // so adding the filter would be a no-op AND step on every row; Build
+        // skips it like the empty lists.
+        var set = new FilterConfig { PositionPattern = blank }.Build();
         set.Matches(OnBoard(BoardPosition.Standard)).Should().BeTrue();
+        set.IsEmpty.Should().BeTrue();
     }
 
     // -----------------------------------------------------------------------
@@ -688,15 +692,22 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void GetActiveFacets_PositionPattern_EmptyInactive_NonEmptyActive()
+    public void GetActiveFacets_PositionPattern_BlankInactive_PresentActive()
     {
-        // Null and the empty pattern are both the inactive state — an empty
-        // pattern matches every board, and Build skips the add for both.
+        // Null and blank text are both the inactive state — blank text is the
+        // empty pattern, which matches every board, and Build skips the add
+        // for both. Any other text is present, and presence is activity:
+        // text the grammar refuses is still a filter the user set
+        // (halheinrich/backgammon#269), named by GetInvalidFields.
         new FilterConfig { PositionPattern = null }
             .GetActiveFacets().Should().BeEmpty();
-        new FilterConfig { PositionPattern = BoardPattern.Empty }
+        new FilterConfig { PositionPattern = "" }
             .GetActiveFacets().Should().BeEmpty();
-        new FilterConfig { PositionPattern = BoardPattern.Parse("[0,,-2]") }
+        new FilterConfig { PositionPattern = "   " }
+            .GetActiveFacets().Should().BeEmpty();
+        new FilterConfig { PositionPattern = "[0,,-2]" }
+            .GetActiveFacets().Should().Equal(FilterFacet.PositionPattern);
+        new FilterConfig { PositionPattern = "[0,1,]" }
             .GetActiveFacets().Should().Equal(FilterFacet.PositionPattern);
     }
 
@@ -707,7 +718,7 @@ public class FilterConfigTests
         // order == Build's add order, regardless of assignment order here.
         var facets = new FilterConfig
         {
-            PositionPattern = BoardPattern.Parse("[0,,-2]"),
+            PositionPattern = "[0,,-2]",
             DiceRolls = { new DiceRoll(6, 6) },
             IncludeBookRollouts = true,
             ErrorMin = 0.05,
@@ -731,7 +742,7 @@ public class FilterConfigTests
         var configs = new[]
         {
             new FilterConfig(),
-            new FilterConfig { PositionPattern = BoardPattern.Empty },
+            new FilterConfig { PositionPattern = "" },
             new FilterConfig { DecisionType = DecisionTypeOption.Both },
             new FilterConfig { Players = { "Alice" } },
             new FilterConfig { EvaluationLevels = { AnalysisLevel.Ply4 } },
@@ -847,13 +858,15 @@ public class FilterConfigTests
             ErrorMax = 0.05,
             MoveNumberMin = 10,
             MoveNumberMax = 3,
+            PositionPattern = "[0,1,]",
         }
             .GetInvalidFields().Should().ContainInOrder(
                 FilterField.MatchScores,
                 FilterField.ErrorMin,
                 FilterField.ErrorMax,
                 FilterField.MoveNumberMin,
-                FilterField.MoveNumberMax);
+                FilterField.MoveNumberMax,
+                FilterField.PositionPattern);
     }
 
     [Fact]
@@ -1006,7 +1019,7 @@ public class FilterConfigTests
             IncludeBookRollouts = true,
             BookRolloutLevels = { AnalysisLevel.XgRollerPlus },
             DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
-            PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
+            PositionPattern = "[6,,0] [5,2,] [0,,-1]",
         };
 
         var restored = FilterConfig.FromJson(original.ToJson());
@@ -1097,62 +1110,39 @@ public class FilterConfigTests
     public void ToJson_PositionPattern_SerializesAsBracketListString()
     {
         // The pattern rides the wire as its human-readable bracket list, not as
-        // a nested object — the BoardPatternJsonConverter is what pins this.
+        // a nested object: the member is that text, so no converter is
+        // involved and the string written is the string stored.
         var json = new FilterConfig
         {
-            PositionPattern = BoardPattern.Parse("[6,,0] [5,2,]"),
+            PositionPattern = "[6,,0] [5,2,]",
         }.ToJson();
 
-        json.Should().Contain("\"[6,,0] [5,2,]\"");
+        json.Should().Contain("\"PositionPattern\":\"[6,,0] [5,2,]\"");
     }
 
     [Fact]
-    public void RoundTrip_PositionPattern_ReparsesToEquivalentRanges()
+    public void RoundTrip_PositionPattern_PreservesTheTextAndItsMeaning()
     {
         var original = new FilterConfig
         {
-            PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
+            PositionPattern = "[6,,0] [5,2,] [0,,-1]",
         };
 
         var restored = FilterConfig.FromJson(original.ToJson());
 
-        restored.PositionPattern.Should().NotBeNull();
-        restored.PositionPattern!.Constraints.Should().Equal(original.PositionPattern!.Constraints);
+        restored.PositionPattern.Should().Be(original.PositionPattern);
+        BoardPattern.Parse(restored.PositionPattern!).Should().Be(
+            BoardPattern.Parse(original.PositionPattern!));
     }
 
     [Fact]
-    public void FromJson_InvalidPositionPattern_Throws()
+    public void FromJson_PositionPatternOfTheWrongJsonType_StillThrows()
     {
-        // A corrupt bracket list must fail the deserialize, not silently drop to
-        // an empty pattern — the converter routes through BoardPattern.Parse.
-        var act = () => FilterConfig.FromJson("{\"PositionPattern\":\"[99,,0]\"}");
+        // What the text posture tolerates is text the grammar refuses, never
+        // a document whose shape is wrong: a number where the string belongs
+        // is corruption, and corruption still fails the load loudly.
+        var act = () => FilterConfig.FromJson("""{"PositionPattern":5}""");
         act.Should().Throw<JsonException>();
-    }
-
-    // A stored config written before the bar rule (halheinrich/backgammon#268,
-    // rule 5) that holds a now-refused token. These measure today's load
-    // path; they do not rule on it.
-    [Theory]
-    [InlineData("[0,1,]")]
-    [InlineData("[6,2,] [25,,-1]")]
-    public void FromJson_StoredBarRuleToken_FailsTheWholeConfigLoudly(string pattern)
-    {
-        var act = () => FilterConfig.FromJson(
-            $$"""{"Players":["Alice"],"PositionPattern":"{{pattern}}"}""");
-
-        act.Should().Throw<JsonException>();
-    }
-
-    [Theory]
-    [InlineData("[0,1,]")]
-    [InlineData("[6,2,] [25,,-1]")]
-    public void TryFromJson_StoredBarRuleToken_FallsBackToADefaultConfig_LosingEveryMember(string pattern)
-    {
-        var restored = FilterConfig.TryFromJson(
-            $$"""{"Players":["Alice"],"PositionPattern":"{{pattern}}"}""", out var config);
-
-        restored.Should().BeFalse();
-        config.Should().Be(new FilterConfig());   // Players went with the pattern
     }
 
     [Fact]
@@ -1218,7 +1208,7 @@ public class FilterConfigTests
         IncludeBookRollouts = true,
         BookRolloutLevels = { AnalysisLevel.Ply3 },
         DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
-        PositionPattern = BoardPattern.Parse("[6,2,] [0,,-2] [7-12,3,] [off,1,]"),
+        PositionPattern = "[6,2,] [0,,-2] [7-12,3,] [off,1,]",
     };
 
     [Fact]
@@ -1391,7 +1381,7 @@ public class FilterConfigTests
         IncludeBookRollouts = true,
         BookRolloutLevels = { AnalysisLevel.XgRollerPlus },
         DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
-        PositionPattern = BoardPattern.Parse("[6,,0] [5,2,] [0,,-1]"),
+        PositionPattern = "[6,,0] [5,2,] [0,,-1]",
     };
 
     /// <summary>
@@ -1418,7 +1408,7 @@ public class FilterConfigTests
             [nameof(FilterConfig.IncludeBookRollouts)] = c => c.IncludeBookRollouts = false,
             [nameof(FilterConfig.BookRolloutLevels)] = c => c.BookRolloutLevels.Clear(),
             [nameof(FilterConfig.DiceRolls)] = c => c.DiceRolls.Add(new DiceRoll(5, 2)),
-            [nameof(FilterConfig.PositionPattern)] = c => c.PositionPattern = BoardPattern.Parse("[6,,0]"),
+            [nameof(FilterConfig.PositionPattern)] = c => c.PositionPattern = "[6,,0]",
         };
 
     /// <summary>
@@ -1597,23 +1587,54 @@ public class FilterConfigTests
     [Fact]
     public void Equals_PositionPattern_DelegatesToBoardPatternEquality()
     {
-        var a = new FilterConfig { PositionPattern = BoardPattern.Parse("[6,,0] [5,2,]") };
-        var b = new FilterConfig { PositionPattern = BoardPattern.Parse("[5,2,] [6,,0]") };
+        // Two texts that both parse compare as the patterns they mean — token
+        // order and name spelling are the grammar's to ignore, not the
+        // config's to compare.
+        var a = new FilterConfig { PositionPattern = "[6,,0] [5,2,] [OFF,1,]" };
+        var b = new FilterConfig { PositionPattern = "[off,1,] [5,2,] [6,,0]" };
 
         a.Should().Be(b);
         a.GetHashCode().Should().Be(b.GetHashCode());
     }
 
     [Fact]
-    public void Equals_PositionPatternNullVsEmpty_AreDistinct()
+    public void Equals_PositionPatternNullVsBlank_AreDistinct()
     {
-        // Null and the empty pattern are both inactive facets, but they remain
-        // distinct values everywhere else on this type; equality follows suit
-        // rather than inventing a third rule.
+        // Null and blank text are both inactive facets, but they remain
+        // distinct values everywhere else on this type (null is no pattern,
+        // blank text is the empty pattern); equality follows suit rather than
+        // inventing a third rule.
         var none = new FilterConfig { PositionPattern = null };
-        var empty = new FilterConfig { PositionPattern = BoardPattern.Empty };
+        var empty = new FilterConfig { PositionPattern = "" };
 
         none.Should().NotBe(empty);
+        empty.Should().Be(new FilterConfig { PositionPattern = "   " },
+            "blank text of any width is the one empty pattern");
+    }
+
+    [Fact]
+    public void Equals_UnparseablePositionPattern_ComparesTheTextOrdinally()
+    {
+        // Text the grammar refuses has no meaning to compare, so it compares
+        // as the text it is — exactly, since it is preserved exactly — and the
+        // hash agrees.
+        var a = new FilterConfig { PositionPattern = "[0,1,]" };
+        var same = new FilterConfig { PositionPattern = "[0,1,]" };
+        var spaced = new FilterConfig { PositionPattern = "[0,1,] " };
+
+        a.Should().Be(same);
+        a.GetHashCode().Should().Be(same.GetHashCode());
+        a.Should().NotBe(spaced);
+    }
+
+    [Fact]
+    public void Equals_ParseableVsUnparseablePositionPattern_AreNeverEqual()
+    {
+        var valid = new FilterConfig { PositionPattern = "[6,,0]" };
+        var invalid = new FilterConfig { PositionPattern = "[6,,0] [0,1,]" };
+
+        valid.Should().NotBe(invalid);
+        invalid.Should().NotBe(valid);
     }
 
     [Fact]
@@ -2082,5 +2103,188 @@ public class FilterConfigTests
         var act = () => config.Build();
         act.Should().Throw<ArgumentException>(
             "and a consumer that builds regardless must fail loud, never return an empty set");
+    }
+
+    // -----------------------------------------------------------------------
+    //  GetInvalidFields — the position-pattern field rule
+    //  (halheinrich/backgammon#269, option (b): one FilterField member, one
+    //  FieldRules row delegating to the grammar, BoardPattern.TryParse). The
+    //  grammar's own rules are pinned in BoardPatternTests; these pin the
+    //  reporting, the Build path that reaches the grammar, and the stored
+    //  document that used to fail whole.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("[6,,0]")]
+    [InlineData("[6,,0] [5,2,] [7-12,3,] [off,1,] [opp-off,,-2]")]
+    [InlineData("[OFF,1,]")]
+    public void GetInvalidFields_AcceptedPatternText_ReturnsEmptySet(string? text)
+    {
+        new FilterConfig { PositionPattern = text }.GetInvalidFields().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("[0,1,]")]            // the bar rule (halheinrich/backgammon#268)
+    [InlineData("[6,2,] [25,,-1]")]   // the bar rule, one token among valid ones
+    [InlineData("[99,,0]")]           // index out of range
+    [InlineData("[6,3,1]")]           // min > max
+    [InlineData("[6,,0] [6,2,]")]     // duplicate place
+    [InlineData("[12-7,,]")]          // reversed span
+    [InlineData("garbage")]           // not a token at all
+    [InlineData("[6,2")]              // half-typed
+    public void GetInvalidFields_RefusedPatternText_BlamesOnlyPositionPattern(string text)
+    {
+        new FilterConfig { PositionPattern = text }
+            .GetInvalidFields().Should().Equal(FilterField.PositionPattern);
+    }
+
+    [Fact]
+    public void GetInvalidFields_RefusedPatternText_StillReportsTheFacetActive()
+    {
+        // The two queries answer different questions: text the grammar refuses
+        // is still a filter the user set, so it stays active (and countable in
+        // the panel's hidden-filters signal) while being named here.
+        var cfg = new FilterConfig { PositionPattern = "[0,1,]" };
+
+        cfg.GetActiveFacets().Should().Equal(FilterFacet.PositionPattern);
+        cfg.GetInvalidFields().Should().Equal(FilterField.PositionPattern);
+    }
+
+    [Fact]
+    public void GetInvalidFields_AgreesWithBuild_OnEveryPatternTextCandidate()
+    {
+        // The two surfaces consult the same grammar — TryParse on one, Parse
+        // on the other — so "named here" and "rejected by Build" must coincide
+        // for this facet. Swept so a future grammar rule cannot quietly hold
+        // on one surface only.
+        string?[] candidates =
+        [
+            null, "", "   ",
+            "[6,,0]", "[off,1,] [opp-off,,-2]", "[7-12,3,]", "[0,,-2]", "[25,1,]",
+            "[0,1,]", "[25,,-1]", "[off,-2,]", "[opp-off,,2]", "[99,,0]", "[6,3,1]",
+            "[6,,0] [6,2,]", "[12-7,,]", "[7-12,3,-1]", "[off-3,,]", "garbage", "[6,2",
+        ];
+
+        foreach (var text in candidates)
+        {
+            var cfg = new FilterConfig { PositionPattern = text };
+            var named = cfg.GetInvalidFields().Count > 0;
+            var rejected = Record.Exception(() => cfg.Build()) is not null;
+
+            rejected.Should().Be(named,
+                "GetInvalidFields and Build must agree for PositionPattern={0}", text);
+        }
+    }
+
+    [Theory]
+    [InlineData("[0,1,]", typeof(ArgumentOutOfRangeException))]
+    [InlineData("[6,3,1]", typeof(ArgumentException))]
+    [InlineData("garbage", typeof(FormatException))]
+    public void Build_RefusedPatternText_ThrowsTheGrammarsOwnException(string text, Type exception)
+    {
+        // Build surfaces the grammar's verdict unchanged, so a consumer that
+        // builds regardless learns which rule refused the text.
+        var act = () => new FilterConfig { PositionPattern = text }.Build();
+
+        act.Should().Throw<Exception>().Which.Should().BeOfType(exception);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The saved-filter path. A config stored before the bar rule
+    //  (halheinrich/backgammon#268) holds a token the grammar now refuses; it
+    //  must LOAD intact — every other member with it — and surface the same
+    //  typed verdict at apply. While the member was a typed BoardPattern, this
+    //  document failed to load whole and TryFromJson reset every member
+    //  silently (the defect halheinrich/backgammon#269 records).
+    // -----------------------------------------------------------------------
+
+    private const string SavedBeforeTheBarRule =
+        """{"Players":["Alice"],"ErrorMax":0.5,"PositionPattern":"[0,1,]"}""";
+
+    [Fact]
+    public void FromJson_StoredBarRuleToken_LoadsIntactAndIsReportedRatherThanRejected()
+    {
+        var restored = FilterConfig.FromJson(SavedBeforeTheBarRule);
+
+        restored.Players.Should().Equal("Alice");
+        restored.ErrorMax.Should().Be(0.5);
+        restored.PositionPattern.Should().Be("[0,1,]");
+        restored.GetActiveFacets().Should().Equal(
+            FilterFacet.Players, FilterFacet.ErrorRange, FilterFacet.PositionPattern);
+        restored.GetInvalidFields().Should().Equal(FilterField.PositionPattern);
+    }
+
+    [Fact]
+    public void TryFromJson_StoredBarRuleToken_SucceedsRatherThanFallingBackToDefault()
+    {
+        var ok = FilterConfig.TryFromJson(SavedBeforeTheBarRule, out var restored);
+
+        ok.Should().BeTrue("a grammar rule stated after the document was written must not corrupt the restore");
+        restored.Players.Should().Equal("Alice");
+        restored.PositionPattern.Should().Be("[0,1,]");
+        restored.GetInvalidFields().Should().Equal(FilterField.PositionPattern);
+    }
+
+    [Fact]
+    public void ToJson_StoredBarRuleToken_WritesTheTextBackExactly_AndStaysStable()
+    {
+        // The text is the stored value: a load-then-save writes it back as it
+        // was, and the document written is the document read, so a second
+        // round trip changes nothing.
+        var once = FilterConfig.FromJson(SavedBeforeTheBarRule).ToJson();
+        var twice = FilterConfig.FromJson(once).ToJson();
+
+        once.Should().Contain("\"PositionPattern\":\"[0,1,]\"");
+        twice.Should().Be(once);
+        FilterConfig.FromJson(twice).Should().Be(FilterConfig.FromJson(SavedBeforeTheBarRule));
+    }
+
+    [Fact]
+    public void SavedDocument_StoredBarRuleToken_SurvivesTheCollectionAndIsInvalidAtApply()
+    {
+        // The full saved-filter path: a NamedFilterCollection entry snapshots
+        // its config through ToJson/FromJson, so this exercises the storage
+        // round-trip the consumer actually uses. The text survives it, the
+        // retrieved config names the field, and Build refuses — no
+        // DecisionFilterSet may exist that was built from it, and no
+        // BoardPattern either: the grammar is the only path to one, and the
+        // grammar refuses this text.
+        var saved = NamedFilterCollection.Empty
+            .With("Legacy", new FilterConfig { Players = { "Alice" }, PositionPattern = "[0,1,]" });
+
+        var config = NamedFilterCollection.FromJson(saved.ToJson()).Get("Legacy");
+
+        config.Players.Should().Equal("Alice");
+        config.PositionPattern.Should().Be("[0,1,]");
+        config.GetActiveFacets().Should().Equal(FilterFacet.Players, FilterFacet.PositionPattern);
+        config.GetInvalidFields().Should().Equal(FilterField.PositionPattern);
+        BoardPattern.TryParse(config.PositionPattern, out _).Should().BeFalse();
+
+        var act = () => config.Build();
+        act.Should().Throw<ArgumentOutOfRangeException>(
+            "a consumer that builds regardless must fail loud, never get a filter that drops the constraint");
+    }
+
+    [Fact]
+    public void ReplacingOrClearingARefusedPattern_RemovesTheInvalidState()
+    {
+        var config = FilterConfig.FromJson(SavedBeforeTheBarRule);
+        config.GetInvalidFields().Should().Equal(FilterField.PositionPattern);
+
+        config.PositionPattern = "[0,,-1]";
+        config.GetInvalidFields().Should().BeEmpty("a valid replacement is judged on its own");
+        config.GetActiveFacets().Should().Contain(FilterFacet.PositionPattern);
+        config.Build().IsEmpty.Should().BeFalse();
+
+        config.PositionPattern = null;
+        config.GetInvalidFields().Should().BeEmpty("clearing the pattern leaves nothing to refuse");
+        config.GetActiveFacets().Should().NotContain(FilterFacet.PositionPattern);
+
+        config.PositionPattern = "";
+        config.GetInvalidFields().Should().BeEmpty("blank text is the empty pattern");
+        config.GetActiveFacets().Should().NotContain(FilterFacet.PositionPattern);
     }
 }

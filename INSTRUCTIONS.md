@@ -171,7 +171,8 @@ built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
 * `FilterField` — the companion vocabulary to `FilterFacet`, and the
   currency of `FilterConfig.GetInvalidFields()`: one member per
   individually-blameable *field* a validity rule can name (MatchScores,
-  ErrorMin, ErrorMax, MoveNumberMin, MoveNumberMax), declared in that order.
+  ErrorMin, ErrorMax, MoveNumberMin, MoveNumberMax, PositionPattern),
+  declared in that order.
   Deliberately **partial**, and it grows with the rules — a member exists iff
   some `FieldRules` row can name it, so a facet with no rule to state (a
   checkbox list, whose only failure mode is an undefined enum value no UI can
@@ -230,7 +231,7 @@ surface, and are reachable from the test project via
   directly (no string-list parsing on the consumer side) and call
   `Build()` to materialize a `DecisionFilterSet`. Empty-list semantics:
   an empty `Players` / `MatchScores` / `ContactTypes` / `PositionTypes` /
-  `PlayTypes` / `DiceRolls`, and a null-or-empty `PositionPattern`, each
+  `PlayTypes` / `DiceRolls`, and a null-or-blank `PositionPattern`, each
   mean "no filter of this kind is active," not "reject everything";
   `Build()` skips the corresponding `Add()` in that case. The depth facet is the
   one exception to the single-member pattern — three per-mode pairs
@@ -247,10 +248,13 @@ surface, and are reachable from the test project via
   `ContactTypes` / `PositionTypes` / `PlayTypes` carry
   `StrictJsonStringEnumConverter<T>` (this repo's, in `Enums/`); the depth level
   lists hold `AnalysisLevel`, which carries `BgDataTypes_Lib`'s equivalent; and
-  `DiceRoll` / `BoardPattern` carry their own. So every enum member round-trips
+  `DiceRoll` carries its own. So every enum member round-trips
   as an `["InnerBoard631", ...]` name-array and a numeric ordinal is rejected
   (halheinrich/backgammon#164), `DiceRolls` rides as a `["31","66"]` token
-  array, and the three mode toggles are plain booleans.
+  array, the three mode toggles are plain booleans, and `PositionPattern`
+  is the bracket-list **text itself** — a plain string, written and read
+  as it is, no grammar consulted on the wire (see **Validity** below and
+  halheinrich/backgammon#269).
 
   Putting the strictness on the **types** rather than on these options is the
   point, not an accident: a `FilterConfig` crosses wires this library does not
@@ -296,10 +300,11 @@ surface, and are reachable from the test project via
   tokens (via `MatchScoreToken.GetFault`, halheinrich/backgammon#121, the "one
   enum member, one row" join halheinrich/backgammon#39 booked for this facet),
   the error bounds (via `ErrorRangeFilter.IsBoundNonNegative` /
-  `.AreBoundsOrdered`, halheinrich/backgammon#39), and the move-number bounds
+  `.AreBoundsOrdered`, halheinrich/backgammon#39), the move-number bounds
   (via `MoveNumberFilter.IsBoundAtLeastOne` / `.AreBoundsOrdered`,
-  halheinrich/backgammon#119). A checkbox list has no rule to state, so it
-  contributes none.
+  halheinrich/backgammon#119), and the position-pattern text (via
+  `BoardPattern.TryParse`, halheinrich/backgammon#269). A checkbox list has
+  no rule to state, so it contributes none.
 
   A range facet contributes **two** rows for one rule pair, because a consumer
   marks inputs rather than facets. Each row composes its own bound's
@@ -315,12 +320,35 @@ surface, and are reachable from the test project via
   throws and is computed fresh from mutable state, and it is deliberately
   **not** a gate on assignment: setters accept anything, so a saved document
   written before a rule existed still loads and the offending value can be
-  shown back to the user rather than lost to a failed restore. Position
-  patterns are the exception: `PositionPattern` is typed, so a stored
-  pattern a newer rule refuses makes its whole document fail to load
-  (tracked as halheinrich/backgammon#269). Validity is
+  shown back to the user rather than lost to a failed restore. Validity is
   orthogonal to activity — a retired score token still reports its facet
   active while being named here.
+
+  **The position pattern is stored as text** (halheinrich/backgammon#269,
+  option (b)). `PositionPattern` is a `string?` — the bracket list the user
+  wrote — and the grammar is asked only when the text is judged
+  (`GetInvalidFields`, through `BoardPattern.TryParse`) or built (`Build`,
+  through `BoardPattern.Parse`, whose exceptions surface unchanged). That is
+  the same shape every other hand-filled facet has — a score token is a
+  string judged by `MatchScoreToken` — and it is what restores the posture
+  above to patterns: a stored pattern a newer grammar rule refuses
+  (halheinrich/backgammon#268's `[0,1,]`) loads with every other member
+  intact, is reported invalid and active at apply, and is written back
+  exactly. Until this leg the member was a typed `BoardPattern`, validated
+  as it was read, so one such pattern failed its whole document — the
+  remembered filter silently, the saved-filters file with every valid entry
+  in it. The alternative considered, a value type beside `BoardPattern`
+  carrying the text and a derived parse, was rejected as a second mechanism
+  for a posture the table already provides; nothing a consumer needs is
+  lost, since `BoardPattern.TryParse` is public and the text is the value.
+  Two guarantees hold by construction: a `BoardPattern` is never built from
+  text the grammar refuses (the grammar is the only path to one), and a
+  config holding such text cannot become an executable filter that drops
+  the constraint (`Build` throws before any filter is added). The text is
+  **never canonicalized** — not on set, not on write: the spelling is the
+  user's and the pattern is the meaning, the `DMP` rule for score tokens. A
+  consumer that holds a `BoardPattern` stores its `ToBracketList()`; one
+  that needs the pattern back asks `TryParse`.
 
   The verdict carries **no message**, for either facet. The lib rules on the
   input and the consumer says so in its own voice (the same division as
@@ -337,14 +365,20 @@ surface, and are reachable from the test project via
   `DecisionType`, the three depth toggles, and `PositionPattern`. The
   list facets compare **order-insensitively** (as multisets, tallied by
   occurrence; the hash aggregates with XOR so a permuted selection hashes
-  alike), strings compare ordinally, and `PositionPattern` delegates to
-  `BoardPattern`'s own equality — `null` and `Empty` staying distinct, as
-  everywhere else on the type. A null list member counts as empty, so
+  alike), strings compare ordinally, and `PositionPattern` compares by
+  **meaning where there is one**: two texts that both parse compare as
+  their `BoardPattern`s (so token order and name spelling do not count,
+  exactly as before the member became text), two that neither parse
+  compare ordinally as the text they are, and a parseable text never
+  equals a refused one — `null` and blank text staying distinct, as `null`
+  and `Empty` did. A null list member counts as empty, so
   equality is total and never throws on a config an explicit JSON `null`
-  produced. Two accepted edges, both erring toward *reporting* a
+  produced. Three accepted edges, each erring toward *reporting* a
   difference: duplicate entries make `{A,A} ≠ {A}` though both build the
-  same filter (unreachable through a checkbox UI), and comparison is of
-  intent, not of the materialized `DecisionFilterSet`. This is the
+  same filter (unreachable through a checkbox UI), comparison is of
+  intent, not of the materialized `DecisionFilterSet`, and two equal
+  configs may serialize different pattern text (the `ToBracketList`
+  edge `BoardPattern` already carries, extended to spelling). This is the
   lib-side surface behind the FilterPanel's Apply gate
   (halheinrich/backgammon#49): the panel compares its built config with
   the last-committed one rather than re-materializing or serializing
@@ -382,9 +416,12 @@ surface, and are reachable from the test project via
   where `GetInvalidFields()` earns its posture: a document written before a
   rule existed loads intact and reports invalid at apply, instead of failing
   the restore and losing the value the user has to fix. Position patterns
-  are the exception: `PositionPattern` is typed, so a stored pattern a newer
-  rule refuses fails its entry and, through the strict envelope, the whole
-  file (tracked as halheinrich/backgammon#269).
+  included, since halheinrich/backgammon#269: an entry holding pattern text
+  the grammar now refuses loads with its text intact beside every other
+  entry (while the member was typed, one such entry failed the whole file
+  through the strict envelope). What the envelope still refuses is
+  corruption — a pattern member of the wrong JSON type, an unknown enum
+  name — never evolution.
 
 * **Depth facet semantics.** User-facing selection state is three per-mode
   pairs — a toggle plus its own level list (`IncludeEvaluations` +
@@ -901,10 +938,12 @@ reintroduction-ready alternative to the named `PositionType` machinery.
     prevailing convention its operators keep reference semantics — call
     `Equals`.
   * **Serialization** — the type carries `[JsonConverter(typeof(
-    BoardPatternJsonConverter))]` on itself, so it round-trips as its
-    bracket-list string under *any* `JsonSerializerOptions`; a consumer
-    need not remember to register the converter. This is why
-    `FilterConfig`'s canonical seam registers nothing.
+    BoardPatternJsonConverter))]` on itself, so a bare `BoardPattern`
+    named to a serializer round-trips as its bracket-list string under
+    *any* `JsonSerializerOptions`; a consumer need not remember to
+    register the converter. `FilterConfig` no longer rides it: since
+    halheinrich/backgammon#269 the config stores its pattern as text, so
+    its canonical seam has nothing of this type to carry (see **Filtering**).
 * `BoardPatternJsonConverter` — the `JsonConverter<BoardPattern>` the
   type declares. Writes the bracket-list string; reads it back through
   `BoardPattern.Parse`, so deserialization stays on the validated path
@@ -922,7 +961,10 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   which is why `XgFilterJsonContextTests` gates it here. Verified on the
   real wire path by
   `BoardPatternWireSafetyTests`, so the converter needs no public
-  presence.
+  presence. No in-tree consumer names a bare `BoardPattern` to a
+  serializer today (the config's member was the one wire it rode); the
+  type stays a declared wire unit, and whether it should remain one is a
+  later question, not this leg's.
 
 ### Projection
 
@@ -1074,7 +1116,7 @@ public enum FilterFacet          // declaration order == FilterConfig.Build()'s 
 }
 public enum FilterField          // deliberately partial: one member per rule that can name it
 {
-    MatchScores, ErrorMin, ErrorMax, MoveNumberMin, MoveNumberMax,
+    MatchScores, ErrorMin, ErrorMax, MoveNumberMin, MoveNumberMax, PositionPattern,
 }
 public enum MatchScoreTokenFault { None, Malformed, Retired }
 
@@ -1146,9 +1188,11 @@ public sealed class FilterConfig : IEquatable<FilterConfig>
     public bool                      IncludeBookRollouts  { get; set; }
     public IList<AnalysisLevel>      BookRolloutLevels    { get; set; }
     public IList<DiceRoll>           DiceRolls            { get; set; }
-    public BoardPattern?             PositionPattern      { get; set; }
+    public string?                   PositionPattern      { get; set; }   // bracket-list text, stored
+                                                                           // as written; BoardPattern
+                                                                           // judges it (see Filtering)
 
-    public DecisionFilterSet Build();
+    public DecisionFilterSet Build();   // throws the grammar's own exception on refused pattern text
     public IReadOnlySet<FilterFacet> GetActiveFacets();   // presence
     public IReadOnlySet<FilterField> GetInvalidFields();  // validity; no message
 
@@ -1477,14 +1521,22 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   Since halheinrich/backgammon#268, `[0,…]` (the opponent's bar) refuses
   a positive bound and `[25,…]` (the on-roll player's bar) a negative
   one — `[0,1,]` and `[25,,-1]` parsed before and are now errors, like a
-  wrong-signed off bound. A **stored** pattern holding one no longer
-  deserializes: `FilterConfig.FromJson` throws `JsonException` and
-  `TryFromJson` falls back to a default config, losing every member, and
-  one such entry fails a whole `NamedFilterCollection` file (the
-  `…StoredBarRuleToken…` tests measure this; the proper load behaviour is
-  tracked as halheinrich/backgammon#269). Spans are exempt: a span
+  wrong-signed off bound. A **stored** pattern holding one loads as an
+  invalid field (halheinrich/backgammon#269): the config and the
+  saved-filters file load whole, `GetInvalidFields` names
+  `FilterField.PositionPattern`, and `Build` throws — the
+  `…StoredBarRuleToken…` tests pin it. Spans are exempt: a span
   may include either bar with either sign. The rule lives in
   `CheckerLocation.Sides`; do not re-encode it in a parser or a UI.
+* **Never drop refused pattern text on the way into a config.** A
+  consumer that pre-judges the text and stores `null` when the grammar
+  refuses it (as the FilterPanel's buffer-to-config step once did) turns
+  an invalid filter into an inactive one — the silent-drop
+  halheinrich/backgammon#269 ruled out. Store the text as written and let
+  `GetInvalidFields` name it; `Build` cannot be reached with it. For the
+  same reason, don't canonicalize the text (parse and re-render) on set
+  or on write: the spelling is the user's and the round trip must return
+  it exactly.
 * **A span counts one side; a point sees both.** `[a-b,…]` totals the
   side its bounds' sign names and ignores the other side's checkers —
   `[6-7,0,3]` admits an opponent's blot on the 6-point, while `[6,0,3]`,
@@ -1524,13 +1576,14 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   pattern. Use `Equals`.
 * **`BoardPattern`'s JSON converter must stay declared on the type.** The
   `[JsonConverter(typeof(BoardPatternJsonConverter))]` attribute on
-  `BoardPattern` is what makes it round-trip under *any*
+  `BoardPattern` is what makes a bare pattern round-trip under *any*
   `JsonSerializerOptions` — the immutable type has no settable property
   for its constructor parameter, so the default reflection serializer
-  cannot reconstruct it. Remove the attribute and `FilterConfig`'s
-  `PositionPattern` silently stops deserializing correctly, because the
-  canonical seam intentionally registers **nothing** (it relies on the
-  type-level attribute). The same attribute must name a **public**
+  cannot reconstruct it, and no options object anywhere registers the
+  converter. `FilterConfig` no longer depends on it (its member is text,
+  halheinrich/backgammon#269), so removing the attribute would not show
+  up there; `BoardPatternWireSafetyTests` and `XgFilterJsonContextTests`
+  are the pins. The same attribute must name a **public**
   converter — see `BoardPatternJsonConverter` under **Patterns**.
 * **`NamedFilterCollection` owns only its identity — the rest is a closed
   pattern upstream.** The document is a

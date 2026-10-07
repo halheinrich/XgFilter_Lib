@@ -89,8 +89,10 @@ public enum FilterFacet
 
     /// <summary>
     /// The checker-count pattern over board locations and spans
-    /// (<see cref="FilterConfig.PositionPattern"/>); null and the empty pattern
-    /// are both the inactive state.
+    /// (<see cref="FilterConfig.PositionPattern"/>, the bracket-list text);
+    /// null and blank text are both the inactive state. Presence, not
+    /// validity: text the grammar refuses is still an active facet, and
+    /// <see cref="FilterField.PositionPattern"/> names it.
     /// </summary>
     [Description("Position pattern")]
     PositionPattern,

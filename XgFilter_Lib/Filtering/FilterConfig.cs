@@ -21,7 +21,7 @@ namespace XgFilter_Lib.Filtering;
 /// <see cref="PositionTypes"/>, <see cref="PlayTypes"/>, or
 /// <see cref="DiceRolls"/> means "no
 /// filter of this kind is active" — not "reject everything."
-/// A null or empty <see cref="PositionPattern"/> means the same for the
+/// A null or blank <see cref="PositionPattern"/> means the same for the
 /// position pattern filter. The depth facet is inactive — and so passes
 /// everything — iff all three of its mode toggles
 /// (<see cref="IncludeEvaluations"/>, <see cref="IncludeRollouts"/>,
@@ -56,10 +56,11 @@ namespace XgFilter_Lib.Filtering;
 /// the offending value and let the user fix it — and
 /// <see cref="GetInvalidFields"/> is where the rules are asked about. See it
 /// for the posture and <see cref="Build"/> for what happens to a configuration
-/// that was built anyway. <see cref="PositionPattern"/> is the exception: it is
-/// typed, a <see cref="BoardPattern"/> validated as it is read, so a stored
-/// pattern that a newer rule refuses fails the whole document's load rather
-/// than loading to be reported (tracked as halheinrich/backgammon#269).
+/// that was built anyway. The position pattern is no exception: it is stored
+/// as the text the user wrote, so a stored pattern that a newer grammar rule
+/// refuses loads intact and is named at apply like any other field
+/// (halheinrich/backgammon#269; before it, the member was a typed
+/// <see cref="BoardPattern"/> and such a document failed to load whole).
 /// </para>
 ///
 /// <para>
@@ -225,13 +226,29 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
 
     /// <summary>
     /// A general checker-count constraint set on the on-roll board, over
-    /// single locations and spans of board indices.
-    /// Null or empty = no pattern filter. Serializes as its bracket-list string
-    /// via the converter <see cref="BoardPattern"/> declares on itself (see
-    /// <see cref="BoardPatternJsonConverter"/>). Composes via AND with every
+    /// single locations and spans of board indices, as its bracket-list text
+    /// (e.g. <c>"[6,,0] [5,2,] [7-12,3,]"</c>). Null or blank = no pattern
+    /// filter. The grammar — what parses, and what each token means — is
+    /// <see cref="BoardPattern"/>'s; the setter accepts whatever it is given,
+    /// <see cref="GetInvalidFields"/> names the field when the text does not
+    /// parse, and <see cref="Build"/> rejects it. Composes via AND with every
     /// other active filter, including <see cref="PositionTypes"/>.
+    /// <para>
+    /// <b>The text is the stored value</b> (halheinrich/backgammon#269). It
+    /// rides the wire as the string it is, is preserved exactly on every
+    /// round trip whether or not it parses, and nothing is derived from it
+    /// until it is judged or built — so a document written before a grammar
+    /// rule existed loads with its other members intact and the offending
+    /// text can be shown back to the user. The same posture as
+    /// <see cref="MatchScores"/>, whose spelling is the user's and whose tuple
+    /// is the meaning (<see cref="MatchScoreToken.DoubleMatchPoint"/>): a
+    /// consumer that holds a <see cref="BoardPattern"/> stores its
+    /// <see cref="BoardPattern.ToBracketList"/>, and one that needs the
+    /// pattern back asks <see cref="BoardPattern.TryParse"/>. Equality reads
+    /// the meaning where there is one — see <see cref="Equals(FilterConfig)"/>.
+    /// </para>
     /// </summary>
-    public BoardPattern? PositionPattern { get; set; }
+    public string? PositionPattern { get; set; }
 
     // -----------------------------------------------------------------------
     //  Facet rules — the single source of truth for facet activation
@@ -309,11 +326,16 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
             static c => c.DiceRolls.Count > 0,
             static c => new DiceRollFilter(c.DiceRolls)),
 
-        // Null and the empty pattern are both inactive: an empty pattern
-        // matches every board, so adding the filter would be a no-op AND step.
+        // Null and blank text are both inactive: blank text parses to the
+        // empty pattern, which matches every board, so adding the filter would
+        // be a no-op AND step. Presence-based like every other row — text the
+        // grammar refuses still activates the facet, and the factory is where
+        // the grammar bites (BoardPattern.Parse); GetInvalidFields asks first.
+        // The parse happens here and nowhere earlier, so no BoardPattern ever
+        // exists for text the grammar refuses.
         new(FilterFacet.PositionPattern,
-            static c => c.PositionPattern is { IsEmpty: false },
-            static c => new PositionPatternFilter(c.PositionPattern!)),
+            static c => !string.IsNullOrWhiteSpace(c.PositionPattern),
+            static c => new PositionPatternFilter(BoardPattern.Parse(c.PositionPattern!))),
     ];
 
     /// <summary>
@@ -362,7 +384,10 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <see cref="ErrorMax"/> with both present — see
     /// <see cref="ErrorRangeFilter.AreBoundsOrdered"/>; or
     /// <see cref="MoveNumberMin"/> exceeds <see cref="MoveNumberMax"/> with
-    /// both present — see <see cref="MoveNumberFilter.AreBoundsOrdered"/>.
+    /// both present — see <see cref="MoveNumberFilter.AreBoundsOrdered"/>; or
+    /// <see cref="PositionPattern"/> holds a token with <c>min &gt; max</c>, a
+    /// reversed or opposite-signed span, or a duplicate place — see
+    /// <see cref="BoardPattern.Parse"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>, or
@@ -372,9 +397,17 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// is on (an inert level list is never validated). Also when
     /// <see cref="ErrorMin"/> or <see cref="ErrorMax"/> is negative or
     /// <see cref="double.NaN"/> — see
-    /// <see cref="ErrorRangeFilter.IsBoundNonNegative"/> — and when
+    /// <see cref="ErrorRangeFilter.IsBoundNonNegative"/> — when
     /// <see cref="MoveNumberMin"/> or <see cref="MoveNumberMax"/> is below one
-    /// — see <see cref="MoveNumberFilter.IsBoundAtLeastOne"/>.
+    /// — see <see cref="MoveNumberFilter.IsBoundAtLeastOne"/> — and when a
+    /// <see cref="PositionPattern"/> token's index or bound is out of range,
+    /// a wrong-signed bar or borne-off bound among them.
+    /// </exception>
+    /// <exception cref="FormatException">
+    /// <see cref="PositionPattern"/> holds a malformed token — see
+    /// <see cref="BoardPattern.Parse"/>. The three pattern exceptions are
+    /// the grammar's own, surfaced unchanged: <see cref="GetInvalidFields"/>
+    /// names the field for all of them.
     /// </exception>
     public DecisionFilterSet Build()
     {
@@ -453,9 +486,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// is an undefined enum value, which no UI can produce and
     /// <see cref="Build"/> already rejects), so it contributes no row and its
     /// members are absent from <see cref="FilterField"/> entirely. The facets
-    /// that <em>are</em> filled in by hand — free text for the score tokens,
-    /// free numbers for the error and move-number bounds — are the ones that
-    /// appear.
+    /// that <em>are</em> filled in by hand — free text for the score tokens
+    /// and the position pattern, free numbers for the error and move-number
+    /// bounds — are the ones that appear.
     /// </para>
     ///
     /// <para>
@@ -499,6 +532,17 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
         new(FilterField.MoveNumberMax,
             static c => !MoveNumberFilter.IsBoundAtLeastOne(c.MoveNumberMax)
                      || MoveNumberBoundsMisordered(c)),
+
+        // One row for the whole text, judged by the grammar that owns it
+        // (halheinrich/backgammon#269): named iff the text is present and
+        // BoardPattern.TryParse refuses it. Null is the inactive state, never
+        // a fault; blank text parses to the empty pattern, so it is valid and
+        // inactive at once. The per-text detail — which token, and why — is
+        // BoardPattern.Parse's exception, the way MatchScoreToken.GetFault is
+        // a score token's; neither is restated here.
+        new(FilterField.PositionPattern,
+            static c => c.PositionPattern is not null
+                     && !BoardPattern.TryParse(c.PositionPattern, out _)),
     ];
 
     /// <summary>
@@ -539,10 +583,10 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// This is the query a consumer gates on. It is deliberately not a gate on
     /// assignment: the setters accept anything, so a document persisted before a
     /// rule existed still loads, and a half-typed value can sit in the
-    /// configuration long enough to be shown back to the user. Patterns are the
-    /// exception: <see cref="PositionPattern"/> is typed, so a stored pattern a
-    /// newer rule refuses makes its whole document fail to load and never
-    /// reaches this query (tracked as halheinrich/backgammon#269). The consumer
+    /// configuration long enough to be shown back to the user. That holds for
+    /// the position pattern too: <see cref="PositionPattern"/> is the text
+    /// itself, so a stored pattern a newer grammar rule refuses loads and is
+    /// named here (halheinrich/backgammon#269). The consumer
     /// marks the fields named here, disables its commit action while any are
     /// named, and words the explanation itself — the same division of labour as
     /// <see cref="Patterns.BoardPattern.TryParse"/>, where the lib rules on the
@@ -558,9 +602,10 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <see cref="FieldRules"/> still carry content <see cref="Build"/>
     /// validates (an undefined enum value in a checkbox list). Those join this
     /// query as their rules are stated; <see cref="MatchScores"/> joined with
-    /// the score-token grammar's (halheinrich/backgammon#121), and the
+    /// the score-token grammar's (halheinrich/backgammon#121), the
     /// move-number bounds with their floor and ordering rules
-    /// (halheinrich/backgammon#119).
+    /// (halheinrich/backgammon#119), and <see cref="PositionPattern"/> with
+    /// the pattern grammar's (halheinrich/backgammon#269).
     /// </para>
     /// <para>
     /// The verdict is a set of fields and nothing more — no message, and for
@@ -614,10 +659,16 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// compare ordinally. A null list member compares equal to an empty one:
     /// both mean "no filter of this kind," and equality stays total rather than
     /// throwing on a config an explicit JSON <c>null</c> produced.
-    /// <see cref="PositionPattern"/> delegates to
-    /// <see cref="BoardPattern.Equals(BoardPattern)"/>, so null and
-    /// <see cref="BoardPattern.Empty"/> stay distinct — as they are everywhere
-    /// else on this type.
+    /// <see cref="PositionPattern"/> compares by <em>meaning where there is
+    /// one</em>: two texts that both parse compare as their
+    /// <see cref="BoardPattern"/>s (order- and spelling-insensitive, through
+    /// <see cref="BoardPattern.Equals(BoardPattern)"/>), two that both fail
+    /// to parse compare ordinally as the text they are, and a text that parses
+    /// never equals one that does not. Null and blank text stay distinct — as
+    /// null and <see cref="BoardPattern.Empty"/> were — since null is "no
+    /// pattern" and blank text is the empty pattern. The accepted consequence,
+    /// the same one <see cref="BoardPattern.ToBracketList"/> already carries:
+    /// two equal configs may serialize different pattern text.
     /// </para>
     /// </summary>
     /// <param name="other">The configuration to compare against, or null.</param>
@@ -639,7 +690,7 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
             && IncludeEvaluations == other.IncludeEvaluations
             && IncludeRollouts == other.IncludeRollouts
             && IncludeBookRollouts == other.IncludeBookRollouts
-            && object.Equals(PositionPattern, other.PositionPattern)
+            && SamePattern(PositionPattern, other.PositionPattern)
             && SameContents(Players, other.Players)
             && SameContents(MatchScores, other.MatchScores)
             && SameContents(ContactTypes, other.ContactTypes)
@@ -672,7 +723,7 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
         hash.Add(IncludeEvaluations);
         hash.Add(IncludeRollouts);
         hash.Add(IncludeBookRollouts);
-        hash.Add(PositionPattern);
+        hash.Add(PatternHash(PositionPattern));
 
         hash.Add(ContentHash(Players));
         hash.Add(ContentHash(MatchScores));
@@ -748,6 +799,46 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     }
 
     /// <summary>
+    /// Whether two pattern texts mean the same pattern: both null; both
+    /// parsing, to equal <see cref="BoardPattern"/>s; or neither parsing and
+    /// ordinally identical. The grammar is asked, never restated — what
+    /// parses, and when two parses are equal, are both
+    /// <see cref="BoardPattern"/>'s rulings — and text the grammar refuses is
+    /// compared as the text it is, since it has no meaning to compare.
+    /// </summary>
+    private static bool SamePattern(string? a, string? b)
+    {
+        if (a is null || b is null)
+            return a is null && b is null;
+
+        bool aParses = BoardPattern.TryParse(a, out var patternA);
+        bool bParses = BoardPattern.TryParse(b, out var patternB);
+
+        if (aParses != bParses)
+            return false;
+
+        return aParses
+            ? patternA!.Equals(patternB)
+            : string.Equals(a, b, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The hashing counterpart of <see cref="SamePattern"/>: the pattern's own
+    /// hash when the text parses, the text's ordinal hash when it does not,
+    /// and zero for null — so equal texts under <see cref="SamePattern"/>
+    /// hash alike whichever side of the grammar they fall on.
+    /// </summary>
+    private static int PatternHash(string? text)
+    {
+        if (text is null)
+            return 0;
+
+        return BoardPattern.TryParse(text, out var pattern)
+            ? pattern.GetHashCode()
+            : string.GetHashCode(text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// An order-independent content hash for one list facet, the hashing
     /// counterpart of <see cref="SameContents{T}(IList{T}, IList{T})"/>. XOR is
     /// what makes it order-independent; the count is folded in to separate lists
@@ -787,11 +878,12 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <see cref="AnalysisLevel"/>, which carries the equivalent attribute
     /// owned by <c>BgDataTypes_Lib</c>. All of them therefore serialize as
     /// declaration names and reject numeric ordinals wherever they are read.
-    /// <see cref="DiceRolls"/> and <see cref="PositionPattern"/> are the same
-    /// self-describing case with their own converters —
-    /// <see cref="DiceRoll"/> as its two-digit token (<c>"31"</c>),
-    /// <see cref="BoardPattern"/> via
-    /// <see cref="BoardPatternJsonConverter"/> as its bracket-list string.
+    /// <see cref="DiceRolls"/> is the same self-describing case with its own
+    /// converter — <see cref="DiceRoll"/> as its two-digit token
+    /// (<c>"31"</c>). <see cref="PositionPattern"/> is a plain string, the
+    /// bracket-list text itself, so it needs no converter and no grammar is
+    /// consulted on the wire (halheinrich/backgammon#269); the string a
+    /// document carries is the string it loads with, parseable or not.
     /// <see cref="IncludeEvaluations"/> / <see cref="IncludeRollouts"/> /
     /// <see cref="IncludeBookRollouts"/> are plain booleans.
     /// </para>

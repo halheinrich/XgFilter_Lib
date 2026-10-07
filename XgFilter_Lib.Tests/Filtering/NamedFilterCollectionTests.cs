@@ -28,7 +28,7 @@ public class NamedFilterCollectionTests
         IncludeBookRollouts = true,
         BookRolloutLevels = { AnalysisLevel.XgRoller },
         DiceRolls = { new DiceRoll(3, 1) },
-        PositionPattern = BoardPattern.Parse("[off,1,] [opp-off,0,0]"),
+        PositionPattern = "[off,1,] [opp-off,0,0]",
     };
 
     // -----------------------------------------------------------------------

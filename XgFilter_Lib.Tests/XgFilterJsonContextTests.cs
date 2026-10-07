@@ -103,7 +103,7 @@ public class XgFilterJsonContextTests
         IncludeBookRollouts = true,
         BookRolloutLevels = { AnalysisLevel.XgRoller },
         DiceRolls = { new DiceRoll(3, 1), new DiceRoll(6, 6) },
-        PositionPattern = BoardPattern.Parse("[6,2,] [5,,-2] [off,1,] [opp-off,,-2]"),
+        PositionPattern = "[6,2,] [5,,-2] [off,1,] [opp-off,,-2]",
     };
 
     public static TheoryData<string> Configs => new()
@@ -316,17 +316,33 @@ public class XgFilterJsonContextTests
     }
 
     /// <summary>
-    /// <see cref="BoardPattern"/>'s read path still routes through
+    /// A bare <see cref="BoardPattern"/>'s read path still routes through
     /// <see cref="BoardPattern.Parse"/> on the context path: a malformed
     /// bracket list fails the deserialize rather than materializing an invalid
-    /// pattern or silently dropping the facet.
+    /// pattern.
     /// </summary>
     [Fact]
-    public void ContextPath_StillRejectsAMalformedPattern() =>
+    public void ContextPath_StillRejectsAMalformedBarePattern() =>
         FluentActions.Invoking(
                 () => JsonSerializer.Deserialize(
-                    """{"PositionPattern":"[99,,0]"}""", TypeInfo<FilterConfig>(ContextOnlyOptions)))
+                    "\"[99,,0]\"", TypeInfo<BoardPattern>(ContextOnlyOptions)))
             .Should().Throw<JsonException>();
+
+    /// <summary>
+    /// And a <see cref="FilterConfig"/>'s pattern member does not: it is the
+    /// text, so the context path loads a malformed bracket list as the invalid
+    /// field it is (halheinrich/backgammon#269), neither failing the config
+    /// nor silently dropping the facet.
+    /// </summary>
+    [Fact]
+    public void ContextPath_LoadsAMalformedConfigPatternAsAnInvalidField()
+    {
+        var restored = JsonSerializer.Deserialize(
+            """{"PositionPattern":"[99,,0]"}""", TypeInfo<FilterConfig>(ContextOnlyOptions))!;
+
+        restored.PositionPattern.Should().Be("[99,,0]");
+        restored.GetInvalidFields().Should().Equal(FilterField.PositionPattern);
+    }
 
     /// <summary>
     /// The collection envelope stays fail-loud through the context, and the
@@ -680,12 +696,14 @@ public class XgFilterJsonContextTests
     /// public. Not for our own context — the generator runs in this assembly,
     /// where <c>internal</c> resolves fine — but for a <em>consumer's</em>.
     /// ExtractFromXgToCsv's <c>ProcessRequest</c> carries a
-    /// <see cref="FilterConfig"/>, so its generator walks into
-    /// <see cref="BoardPattern"/>; with an internal converter it emits
-    /// SYSLIB1220 then SYSLIB1030 and drops the type, leaving a metadata hole
-    /// that only bites once trimming removes the reflection fallback. Both
-    /// diagnostics are warnings, so nothing downstream would have failed — the
-    /// gate has to live here.
+    /// <see cref="FilterConfig"/>, so its generator walks into the four
+    /// enums the config carries (and, until halheinrich/backgammon#269 made
+    /// the pattern member text, into <see cref="BoardPattern"/>); with an
+    /// internal converter it emits SYSLIB1220 then SYSLIB1030 and drops the
+    /// type, leaving a metadata hole that only bites once trimming removes
+    /// the reflection fallback. Both diagnostics are warnings, so nothing
+    /// downstream would have failed — the gate has to live here, and it
+    /// holds every bundled converter, reached by a walk or named outright.
     /// </summary>
     [Fact]
     public void EveryBundledConverter_IsPubliclyConstructible()

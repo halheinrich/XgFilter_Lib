@@ -154,25 +154,30 @@ public class BoardPatternCompatibilityTests
     [MemberData(nameof(LegacyBracketLists))]
     public void LegacyList_RidesTheWireAsTheSameBracketListString(string text)
     {
-        var config = new FilterConfig { PositionPattern = BoardPattern.Parse(text) };
+        // The config stores the text a pattern renders to, so a legacy list
+        // placed as its own bracket list rides the wire unchanged, loads
+        // equal, and still parses to the pattern it always meant.
+        var config = new FilterConfig { PositionPattern = BoardPattern.Parse(text).ToBracketList() };
 
         var json = config.ToJson();
         var restored = FilterConfig.FromJson(json);
 
         json.Should().Contain($"\"PositionPattern\":\"{text}\"");
-        restored.PositionPattern.Should().Be(config.PositionPattern);
-        restored.PositionPattern!.ToBracketList().Should().Be(text);
+        restored.Should().Be(config);
+        restored.PositionPattern.Should().Be(text);
+        restored.GetInvalidFields().Should().BeEmpty();
+        BoardPattern.Parse(restored.PositionPattern!).ToBracketList().Should().Be(text);
     }
 
     [Fact]
     public void SpanPattern_RidesTheSameWire()
     {
         const string text = "[7-12,3,] [6,2,] [24-25,-2,-2]";
-        var config = new FilterConfig { PositionPattern = BoardPattern.Parse(text) };
+        var config = new FilterConfig { PositionPattern = BoardPattern.Parse(text).ToBracketList() };
 
         var json = config.ToJson();
 
         json.Should().Contain($"\"PositionPattern\":\"{text}\"");
-        FilterConfig.FromJson(json).PositionPattern.Should().Be(config.PositionPattern);
+        FilterConfig.FromJson(json).Should().Be(config);
     }
 }

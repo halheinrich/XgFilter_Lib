@@ -1,4 +1,5 @@
 using System.Text.Json;
+using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Patterns;
 
@@ -41,23 +42,22 @@ public class BoardPatternWireSafetyTests
     };
 
     // -----------------------------------------------------------------------
-    //  FilterConfig carrying a PositionPattern — the field that 500'd
+    //  FilterConfig carrying a PositionPattern — the field that 500'd. Since
+    //  halheinrich/backgammon#269 the member is the bracket-list text itself,
+    //  so no converter stands between it and any wire; these pin that a
+    //  foreign serializer carries it as the plain string it is, exactly.
     // -----------------------------------------------------------------------
 
     [Fact]
     public void FilterConfig_PlainOptions_DoesNotThrowAndPatternRoundTrips()
     {
-        var original = new FilterConfig { PositionPattern = BoardPattern.Parse(Bracket) };
+        var original = new FilterConfig { PositionPattern = Bracket };
 
-        // (a) does not throw: serializing the immutable BoardPattern under
-        // options with no registered converter only works via the attribute.
         var json = JsonSerializer.Serialize(original, PlainOptions);
         var restored = JsonSerializer.Deserialize<FilterConfig>(json, PlainOptions)!;
 
-        // (b) the pattern round-trips equal. BoardPattern has no value-equality,
-        // so compare via its bracket-list rendering.
-        restored.PositionPattern.Should().NotBeNull();
-        restored.PositionPattern!.ToBracketList().Should().Be(Bracket);
+        json.Should().Contain($"\"PositionPattern\":\"{Bracket}\"");
+        restored.PositionPattern.Should().Be(Bracket);
     }
 
     [Fact]
@@ -65,13 +65,27 @@ public class BoardPatternWireSafetyTests
     {
         // Pin the precise 500 scenario: the app deserialized with
         // PropertyNameCaseInsensitive = true and no BoardPatternJsonConverter.
-        var original = new FilterConfig { PositionPattern = BoardPattern.Parse(Bracket) };
+        var original = new FilterConfig { PositionPattern = Bracket };
 
         var json = JsonSerializer.Serialize(original, WireOptions);
         var restored = JsonSerializer.Deserialize<FilterConfig>(json, WireOptions)!;
 
-        restored.PositionPattern.Should().NotBeNull();
-        restored.PositionPattern!.ToBracketList().Should().Be(Bracket);
+        restored.PositionPattern.Should().Be(Bracket);
+    }
+
+    [Fact]
+    public void FilterConfig_WireOptions_CarriesAnUnparseablePatternAsIs()
+    {
+        // The posture the text member buys on a foreign wire: text the grammar
+        // refuses crosses it untouched and is judged on arrival, never
+        // rejected by a converter the consumer did not know was there.
+        var original = new FilterConfig { PositionPattern = "[0,1,]" };
+
+        var json = JsonSerializer.Serialize(original, WireOptions);
+        var restored = JsonSerializer.Deserialize<FilterConfig>(json, WireOptions)!;
+
+        restored.PositionPattern.Should().Be("[0,1,]");
+        restored.GetInvalidFields().Should().Equal(FilterField.PositionPattern);
     }
 
     // -----------------------------------------------------------------------

@@ -126,7 +126,7 @@ public sealed class BoardPattern : IEquatable<BoardPattern>
     /// <summary>
     /// True when the pattern carries no constraints, in which case
     /// <see cref="Matches"/> is vacuously true for every board. Lets a consumer
-    /// (e.g. <c>FilterConfig.Build</c>) treat an empty pattern as "no filter."
+    /// treat an empty pattern as "no filter" — blank text parses to it.
     /// </summary>
     public bool IsEmpty => _constraints.Length == 0;
 

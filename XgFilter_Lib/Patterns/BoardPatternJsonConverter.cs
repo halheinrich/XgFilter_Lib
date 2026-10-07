@@ -20,16 +20,25 @@ namespace XgFilter_Lib.Patterns;
 /// is irrelevant — System.Text.Json instantiates the attribute-named type
 /// itself, and <c>internal</c> worked. The source generator emits
 /// <c>new BoardPatternJsonConverter()</c> into the <em>declaring</em>
-/// assembly instead, so a consumer's context that walks into
-/// <see cref="BoardPattern"/> — ExtractFromXgToCsv's <c>ProcessRequest</c>
-/// carries a <c>FilterConfig</c>, and the walk reaches this type from its
-/// pattern facet — cannot construct it. Measured on net10.0 / SDK 10.0.400:
-/// the generator reports SYSLIB1220 (no accessible parameterless
-/// constructor) and then SYSLIB1030 (did not generate serialization
-/// metadata) and <em>drops the type</em>, leaving a hole in the consumer's
-/// metadata that only surfaces once trimming removes the reflection
-/// fallback. Warnings, not errors — which is why this is a rule of the arc
-/// rather than something a build would have told us.
+/// assembly instead, so a consumer's context that names
+/// <see cref="BoardPattern"/> cannot construct it. Measured on net10.0 /
+/// SDK 10.0.400: the generator reports SYSLIB1220 (no accessible
+/// parameterless constructor) and then SYSLIB1030 (did not generate
+/// serialization metadata) and <em>drops the type</em>, leaving a hole in
+/// the consumer's metadata that only surfaces once trimming removes the
+/// reflection fallback. Warnings, not errors — which is why this is a rule
+/// of the arc rather than something a build would have told us.
+/// </para>
+///
+/// <para>
+/// <b>No longer on a <c>FilterConfig</c>'s wire.</b> Since
+/// halheinrich/backgammon#269 the config stores its pattern as the
+/// bracket-list text itself, so the generator's walk from a config no
+/// longer reaches this type and a stored pattern the grammar refuses is a
+/// string the config loads rather than a <see cref="JsonException"/> here.
+/// The converter stays what it was for a bare <see cref="BoardPattern"/>
+/// named to a serializer in its own right — a wire unit of this library
+/// (see <c>XgFilterJsonContext</c>) — and its read path stays validated.
 /// </para>
 /// </summary>
 public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern>

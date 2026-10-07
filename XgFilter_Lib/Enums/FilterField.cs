@@ -68,4 +68,22 @@ public enum FilterField
     /// of the <see cref="FilterFacet.MoveNumberRange"/> facet.
     /// </summary>
     MoveNumberMax,
+
+    /// <summary>
+    /// The position-pattern text (<see cref="FilterConfig.PositionPattern"/>)
+    /// of the <see cref="FilterFacet.PositionPattern"/> facet — named when
+    /// the text is present and <see cref="Patterns.BoardPattern.TryParse"/>
+    /// refuses it (halheinrich/backgammon#269). Null and blank text are the
+    /// facet's inactive state and are never named.
+    /// <para>
+    /// Like <see cref="MatchScores"/>, the field is free text judged by a
+    /// grammar this library owns, so a stored document written before a
+    /// grammar rule existed loads with the text intact and is reported here
+    /// at apply; a consumer that wants to say <em>why</em> asks
+    /// <see cref="Patterns.BoardPattern.Parse"/> for the exception, the same
+    /// per-value detail <see cref="MatchScoreToken.GetFault"/> gives a score
+    /// token.
+    /// </para>
+    /// </summary>
+    PositionPattern,
 }

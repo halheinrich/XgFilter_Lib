@@ -46,12 +46,14 @@ namespace XgFilter_Lib;
 ///     <see cref="DecisionTypeOption"/>, <see cref="PlayType"/> and
 ///     <see cref="PositionType"/> define their own wire token, which is what
 ///     makes each a wire unit in its own right rather than an implementation
-///     detail of the config that holds it. They ride the generator's
-///     property-graph walk from <see cref="FilterConfig"/> as well, but they
-///     are declared because a chained consumer resolves them
-///     <em>by name</em>: ExtractFromXgToCsv's local-mode wire crosses these
-///     enums as bare members of its own request shape, which is the whole
-///     point of halheinrich/backgammon#37's bundling.
+///     detail of a config. The four enums ride the generator's
+///     property-graph walk from <see cref="FilterConfig"/> as well
+///     (<see cref="BoardPattern"/> does not, since halheinrich/backgammon#269
+///     the config carries its pattern as text), but all five are declared
+///     because a chained consumer resolves them <em>by name</em>:
+///     ExtractFromXgToCsv's local-mode wire crosses these enums as bare
+///     members of its own request shape, which is the whole point of
+///     halheinrich/backgammon#37's bundling.
 ///   </description></item>
 /// </list>
 /// <see cref="NamedFilterCollection"/> is a member of both sets. Nothing
