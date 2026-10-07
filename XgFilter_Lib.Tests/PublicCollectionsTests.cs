@@ -100,6 +100,23 @@ public class PublicCollectionsTests
         ShouldBeImmutable(MatchScoreToken.RetiredMoneyReplacements);
     }
 
+    [Fact]
+    public void SourceReport_Rejected_IsImmutable()
+    {
+        // Grown by the iterator during a walk, so the list handed out must be
+        // one nobody can write through — including the iterator, which
+        // replaces it rather than appending.
+        var report = new SourceReport();
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet(), BgDataTypes_Lib.PlayRanking.Equity,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<FilteredDecisionIterator>.Instance);
+
+        _ = iterator.IterateXgStreams([new XgFileStream("bad.xg", new MemoryStream([]))], report).ToList();
+
+        ShouldBeImmutable(report.Rejected);
+        ShouldBeImmutable(new SourceReport().Rejected);
+    }
+
     // -----------------------------------------------------------------------
     //  The sweep's declared-type half
     // -----------------------------------------------------------------------

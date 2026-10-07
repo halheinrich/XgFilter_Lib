@@ -81,8 +81,10 @@ chain builds from this solution rather than from packages.
   converter that carries the bracket-list text form onto the wire.
 - **`Projection/`** — `ColumnSelector`, the `Column`-driven CSV projection.
 - **Top level** — `FilteredDecisionIterator`, the integration point that walks
-  XG and JSON sources through a filter set, and `XgFileStream`, the named
-  stream its directory-free entries take.
+  XG and JSON sources through a filter set; `XgFileStream`, the named
+  stream its directory-free entries take; and `SourceReport` with its
+  `SourceRejection` entries, the caller-supplied record of what one walk
+  attempted and rejected.
 
 **`XgFilter_Lib.Tests/`** — xUnit, mirroring the library's folders with one
 test class per type (and `BoardPatternCompatibilityTests`, the pre-span
@@ -1052,6 +1054,49 @@ exception (type, stack, inner) is captured on the log entry, not
 stringified. Iteration continues with the next file rather than
 aborting the run.
 
+**Rejected sources, as data** (halheinrich/backgammon#368). Every entry
+point takes an optional `SourceReport`; a caller that passes one reads,
+during or after the enumeration, how many sources the walk attempted
+(`AttemptedCount`), how many read (`ReadableCount`), which it rejected
+and why (`Rejected`, each a `SourceRejection` carrying the source name
+exactly as the caller gave it and the read's own exception), whether the
+walk reached the end of its sources (`IsComplete`), and the one
+conclusion the report draws itself, `AllRejected` — true only for a
+*completed* walk that attempted at least one source and read none, so an
+empty selection, a selection nobody finished reading, and readable files
+that yielded no matching decision are each told apart from one whose
+every file was refused. A caller that passes none gets the behaviour
+above unchanged; the warning stays as a trace of the same event and
+carries the same exception the report records, so the report is the one
+source of the fact and the log never a second one.
+
+*Where it lives, and why.* The report is a caller-supplied state
+object, the shape the producer's `XgIteratorState` already has: the
+caller creates one per enumeration and hands it in; the iterator is its
+only writer (internal mutators) and everyone else reads. State on the
+iterator was rejected because a consumer reuses one iterator across
+enumerations (BgQuiz's `WasmUploadedProblemSetSource`), so iterator
+state would be cleared or overwritten by the next walk — and the
+contract is that a completed report is retained unchanged beside the
+parse it describes (`CachedProblemSetSource`). A returned result type was
+rejected because every consumer `foreach`es an `IEnumerable<T>`, and an
+enumerable that can be walked twice has no one report to return. The
+one-walk rule is mechanical, not advisory: a report is claimed by the
+first `MoveNext` of the enumeration it was handed to and refuses every
+later claim with `InvalidOperationException` — the same report passed to
+a second call, or the same enumerable walked again — so nothing can
+clear, append to or replace a record once made. Claiming is lazy like
+the walk itself (obtaining an enumerable claims nothing).
+
+*What is a rejection.* Exactly the boundary the catch already had: a
+source's read threw. A source that read is readable whatever the filters
+make of its decisions. A usage error from the source projection (a blank
+or extension-less name, a null stream — `ArgumentException`), a failure
+enumerating the caller's sources, a producer, filter or consumer failure
+all propagate as before, record nothing, and leave the report
+incomplete; `AttemptedCount` and `Rejected` then describe the sources
+reached and claim nothing about the rest.
+
 The constructor-injected logger is also **forwarded into the producer**,
 beside the iterator's `XgIteratorOptions` — the ranking, and no opening
 book: every `XgDecisionIterator.Iterate` / `IterateDiagramRequests` call
@@ -1257,6 +1302,30 @@ namespace XgFilter_Lib;
 /// pitfall below.
 public readonly record struct XgFileStream(string FileName, Stream Data);
 
+/// One source a walk could not read: the name as the caller gave it, and
+/// the read's own exception as the reason (halheinrich/backgammon#368).
+public sealed record SourceRejection
+{
+    public SourceRejection(string sourceName, Exception reason);   // refuses blank / null
+    public string    SourceName { get; }
+    public Exception Reason     { get; }
+}
+
+/// What one walk did with its sources. Caller-created, iterator-written
+/// (the writers are internal), serves exactly one enumeration: claimed on
+/// its first MoveNext, refuses a second claim. See Iteration.
+public sealed class SourceReport
+{
+    public SourceReport();
+
+    public int                            AttemptedCount { get; }   // reads started
+    public int                            ReadableCount  { get; }   // attempted − rejected
+    public IReadOnlyList<SourceRejection> Rejected       { get; }   // immutable, walk order
+    public bool                           IsComplete     { get; }   // the walk reached its end
+    public bool                           AllRejected    { get; }   // complete ∧ attempted > 0
+                                                                    //   ∧ readable == 0
+}
+
 public sealed class FilteredDecisionIterator
 {
     public FilteredDecisionIterator(
@@ -1264,14 +1333,17 @@ public sealed class FilteredDecisionIterator
         PlayRanking ranking,                  // required; Equity is the default an
         ILogger<FilteredDecisionIterator> logger);   // app without the setting passes
 
+    // Every entry point takes an optional report; null records nothing and
+    // behaves exactly as before. One fresh report per enumeration.
+
     // Directory sources
-    public IEnumerable<DecisionRow>      IterateXgDirectory          (string xgDir);
-    public IEnumerable<DecisionRow>      IterateJsonDirectory        (string jsonDir);
-    public IEnumerable<BgDecisionData>   IterateXgDirectoryDiagrams  (string xgDir);
+    public IEnumerable<DecisionRow>      IterateXgDirectory          (string xgDir,   SourceReport? report = null);
+    public IEnumerable<DecisionRow>      IterateJsonDirectory        (string jsonDir, SourceReport? report = null);
+    public IEnumerable<BgDecisionData>   IterateXgDirectoryDiagrams  (string xgDir,   SourceReport? report = null);
 
     // Stream / file-list sources (directory-free; WASM-friendly)
-    public IEnumerable<DecisionRow>      IterateXgStreams      (IEnumerable<XgFileStream> files);
-    public IEnumerable<BgDecisionData>   IterateXgStreamDiagrams(IEnumerable<XgFileStream> files);
+    public IEnumerable<DecisionRow>      IterateXgStreams      (IEnumerable<XgFileStream> files, SourceReport? report = null);
+    public IEnumerable<BgDecisionData>   IterateXgStreamDiagrams(IEnumerable<XgFileStream> files, SourceReport? report = null);
 }
 ```
 
@@ -1631,6 +1703,27 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   `RequireValid` throws `ArgumentException` on a null/blank/extension-less
   name (a usage error, surfaced loudly) — distinct from a malformed
   *content* stream, which is skip+logged like any unreadable file.
+* **A `SourceReport` serves one walk; make a new one per enumeration.** A
+  report is claimed by the first `MoveNext` of the enumeration it was
+  passed to and throws `InvalidOperationException` on any later claim —
+  passing it to a second call, or walking the same enumerable twice. Both
+  are the defect the rule prevents: a record of one walk silently
+  appended to by another. The claim is lazy, so a call that merely
+  obtains an enumerable neither claims nor fails; the failure comes at
+  the second walk's first step, like the stream-name validation. A
+  consumer that retains a completed report (BgQuiz's cached parse) must
+  not hand that same instance to the next walk.
+* **Only a failed read is a rejection — don't widen the catch to record
+  more.** `AllRejected`'s meaning ("every file in a completed selection
+  was unreadable") depends on `Rejected` holding exactly the sources whose
+  read threw. Catching a usage error, a source-enumeration failure or a
+  filter failure to record it as a rejection would turn a bug into a
+  "file could not be read" notice, and the report's incomplete state is
+  what tells a consumer such a walk never finished. The report records
+  at the three points the pipeline already has — attempt before the
+  read, reject in the existing catch, complete after the loop — and the
+  skip warning carries the same exception instance (pinned), so the log
+  and the record cannot drift.
 
 ## Subproject-internal next steps
 

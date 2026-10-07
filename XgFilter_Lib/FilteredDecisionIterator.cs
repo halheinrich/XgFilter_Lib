@@ -19,10 +19,17 @@ namespace XgFilter_Lib;
 ///
 /// <para>
 /// Filters and a logger are configured at construction; per-call parameters
-/// are limited to the directory under iteration. Files that fail to read
+/// are the sources under iteration and, optionally, a
+/// <see cref="SourceReport"/>. Files that fail to read
 /// (corruption, I/O, deserialization, anything else) are skipped with a
 /// warning logged via the injected <see cref="ILogger"/>; iteration
-/// continues with the next file rather than aborting the whole run.
+/// continues with the next file rather than aborting the whole run. A
+/// caller that wants that fact as data rather than as a log line — which
+/// sources were rejected and why, how many were attempted, whether the walk
+/// finished — passes a fresh <see cref="SourceReport"/> to the entry point
+/// and reads it during or after the enumeration
+/// (halheinrich/backgammon#368); the warning stays as a trace of the same
+/// event, carrying the same exception.
 /// </para>
 ///
 /// <para>
@@ -91,16 +98,28 @@ public sealed class FilteredDecisionIterator
     /// returns the subset of decisions that match the configured filters,
     /// shaped as <see cref="DecisionRow"/> built for the configured ranking.
     /// </summary>
-    public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir) =>
-        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile, Rows, AsView);
+    /// <param name="xgDir">The directory to walk.</param>
+    /// <param name="report">
+    /// Where this walk records the sources it attempted and rejected, or null
+    /// to record nothing. A fresh report per enumeration; see
+    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// </param>
+    public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir, SourceReport? report = null) =>
+        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile, Rows, AsView, report);
 
     /// <summary>
     /// Iterates all .json files in <paramref name="jsonDir"/> and returns
     /// the subset of decisions that match the configured filters,
     /// shaped as <see cref="DecisionRow"/> built for the configured ranking.
     /// </summary>
-    public IEnumerable<DecisionRow> IterateJsonDirectory(string jsonDir) =>
-        IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"), XgFileReader.ReadJson, Rows, AsView);
+    /// <param name="jsonDir">The directory to walk.</param>
+    /// <param name="report">
+    /// Where this walk records the sources it attempted and rejected, or null
+    /// to record nothing. A fresh report per enumeration; see
+    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// </param>
+    public IEnumerable<DecisionRow> IterateJsonDirectory(string jsonDir, SourceReport? report = null) =>
+        IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"), XgFileReader.ReadJson, Rows, AsView, report);
 
     /// <summary>
     /// Iterates every XG-format file in <paramref name="xgDir"/> — both
@@ -112,8 +131,14 @@ public sealed class FilteredDecisionIterator
     /// through its view for the configured ranking, and the record itself,
     /// which depends on no ranking, is yielded.
     /// </summary>
-    public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir) =>
-        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile, Records, ViewOf);
+    /// <param name="xgDir">The directory to walk.</param>
+    /// <param name="report">
+    /// Where this walk records the sources it attempted and rejected, or null
+    /// to record nothing. A fresh report per enumeration; see
+    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// </param>
+    public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir, SourceReport? report = null) =>
+        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile, Records, ViewOf, report);
 
     /// <summary>
     /// Iterates a caller-supplied list of XG-format files presented as named
@@ -131,14 +156,22 @@ public sealed class FilteredDecisionIterator
     /// and laziness contract. <see cref="XgFileStream.FileName"/> must be non-blank
     /// and carry its extension; the iterator throws <see cref="ArgumentException"/>
     /// when it reaches an entry that violates this. A stream that fails to parse
-    /// (corruption, truncation, anything else) is skipped and logged — only a
+    /// (corruption, truncation, anything else) is skipped and logged — and
+    /// recorded on <paramref name="report"/> when one is passed; only a
     /// malformed <i>name</i> is treated as a usage error.
     /// </remarks>
+    /// <param name="files">The named streams to walk, lazily.</param>
+    /// <param name="report">
+    /// Where this walk records the sources it attempted and rejected, or null
+    /// to record nothing. A fresh report per enumeration; see
+    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="files"/> is null.</exception>
-    public IEnumerable<DecisionRow> IterateXgStreams(IEnumerable<XgFileStream> files)
+    public IEnumerable<DecisionRow> IterateXgStreams(
+        IEnumerable<XgFileStream> files, SourceReport? report = null)
     {
         ArgumentNullException.ThrowIfNull(files);
-        return IterateSources(ToSources(files), Rows, AsView);
+        return IterateSources(ToSources(files), Rows, AsView, report);
     }
 
     /// <summary>
@@ -148,11 +181,18 @@ public sealed class FilteredDecisionIterator
     /// identical to <see cref="IterateXgStreams"/>: each record is filtered
     /// through its view for the configured ranking.
     /// </summary>
+    /// <param name="files">The named streams to walk, lazily.</param>
+    /// <param name="report">
+    /// Where this walk records the sources it attempted and rejected, or null
+    /// to record nothing. A fresh report per enumeration; see
+    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="files"/> is null.</exception>
-    public IEnumerable<BgDecisionData> IterateXgStreamDiagrams(IEnumerable<XgFileStream> files)
+    public IEnumerable<BgDecisionData> IterateXgStreamDiagrams(
+        IEnumerable<XgFileStream> files, SourceReport? report = null)
     {
         ArgumentNullException.ThrowIfNull(files);
-        return IterateSources(ToSources(files), Records, ViewOf);
+        return IterateSources(ToSources(files), Records, ViewOf, report);
     }
 
     /// <summary>
@@ -241,11 +281,13 @@ public sealed class FilteredDecisionIterator
         IEnumerable<string> paths,
         Func<string, XgFile> reader,
         Func<XgFile, string, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source,
-        Func<T, IDecisionFilterData> view) =>
+        Func<T, IDecisionFilterData> view,
+        SourceReport? report) =>
         IterateSources(
             paths.Select(path => (Path.GetFileName(path), (Func<XgFile>)(() => reader(path)))),
             source,
-            view);
+            view,
+            report);
 
     /// <summary>
     /// The single-sourced filter / early-exit / skip-and-continue pipeline,
@@ -267,12 +309,28 @@ public sealed class FilteredDecisionIterator
     /// extension via <c>Path.GetFileName</c>, and the stream mapper validates it
     /// up front in <see cref="RequireValid"/>.
     /// </para>
+    ///
+    /// <para>
+    /// The report, when one is passed, is written at exactly the points the
+    /// pipeline already has: claimed when this walk starts (the enumeration's
+    /// first <c>MoveNext</c>, so a report reused across walks fails on the
+    /// second walk's first step), one attempt per source as its read starts,
+    /// one rejection in the catch that already logs the skip — the same
+    /// exception, so the log is a trace of the record and never a second
+    /// source of it — and completion after the last source. Nothing outside
+    /// the catch is recorded: a usage error thrown by the <paramref name="sources"/>
+    /// projection, a failure in the producer, a filter or the consumer all
+    /// leave the walk, and the report, incomplete.
+    /// </para>
     /// </summary>
     private IEnumerable<T> IterateSources<T>(
         IEnumerable<(string sourceFile, Func<XgFile> read)> sources,
         Func<XgFile, string, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source,
-        Func<T, IDecisionFilterData> view)
+        Func<T, IDecisionFilterData> view,
+        SourceReport? report)
     {
+        report?.Claim();
+
         var callbacks = new XgIteratorCallbacks(
             SkipMatchAt:    _filters.ShouldSkipMatch,
             SkipGameAt:     _filters.ShouldSkipGame,
@@ -282,6 +340,7 @@ public sealed class FilteredDecisionIterator
         foreach (var (sourceFile, read) in sources)
         {
             XgFile file;
+            report?.Attempted();
             try
             {
                 file = read();
@@ -289,6 +348,7 @@ public sealed class FilteredDecisionIterator
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Skipping {File}", sourceFile);
+                report?.Reject(sourceFile, ex);
                 continue;
             }
 
@@ -298,5 +358,7 @@ public sealed class FilteredDecisionIterator
                 yield return item;
             }
         }
+
+        report?.Complete();
     }
 }
