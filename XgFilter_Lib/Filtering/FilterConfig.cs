@@ -114,17 +114,21 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
 
     /// <summary>
     /// Inclusive lower bound on filter-error; null = open lower bound. Must be
-    /// zero or greater, and must not exceed <see cref="ErrorMax"/> when both
-    /// are present — the setter does not enforce that, <see cref="GetInvalidFields"/>
-    /// reports it, and <see cref="Build"/> rejects it.
+    /// a finite number of zero or greater, and must not exceed
+    /// <see cref="ErrorMax"/> when both are present — the setter does not
+    /// enforce that, keeping whatever it is given (an infinite bound included),
+    /// <see cref="GetInvalidFields"/> reports it, and <see cref="Build"/>
+    /// rejects it.
     /// </summary>
     public double? ErrorMin { get; set; }
 
     /// <summary>
     /// Inclusive upper bound on filter-error; null = open upper bound. Must be
-    /// zero or greater, and must not fall below <see cref="ErrorMin"/> when both
-    /// are present — the setter does not enforce that, <see cref="GetInvalidFields"/>
-    /// reports it, and <see cref="Build"/> rejects it.
+    /// a finite number of zero or greater, and must not fall below
+    /// <see cref="ErrorMin"/> when both are present — the setter does not
+    /// enforce that, keeping whatever it is given (an infinite bound included,
+    /// never read as the open end), <see cref="GetInvalidFields"/> reports it,
+    /// and <see cref="Build"/> rejects it.
     /// </summary>
     public double? ErrorMax { get; set; }
 
@@ -395,9 +399,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <see cref="EvaluationLevels"/> / <see cref="RolloutLevels"/> /
     /// <see cref="BookRolloutLevels"/>, but only when the list's mode toggle
     /// is on (an inert level list is never validated). Also when
-    /// <see cref="ErrorMin"/> or <see cref="ErrorMax"/> is negative or
-    /// <see cref="double.NaN"/> — see
-    /// <see cref="ErrorRangeFilter.IsBoundNonNegative"/> — when
+    /// <see cref="ErrorMin"/> or <see cref="ErrorMax"/> is not a finite number
+    /// of zero or greater (negative, infinite, or <see cref="double.NaN"/>) —
+    /// see <see cref="ErrorRangeFilter.IsBoundFiniteNonNegative"/> — when
     /// <see cref="MoveNumberMin"/> or <see cref="MoveNumberMax"/> is below one
     /// — see <see cref="MoveNumberFilter.IsBoundAtLeastOne"/> — and when a
     /// <see cref="PositionPattern"/> token's index or bound is out of range,
@@ -498,9 +502,10 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <see cref="MoveNumberBoundsMisordered"/> respectively. A
     /// <c>min &gt; max</c> is a fault of the pair, with neither bound wrong on
     /// its own, so it blames both and leaves the user to decide which end to
-    /// move. The two facets differ only in the floor each bound must clear on
-    /// its own — zero for an error magnitude, one for a 1-based move ordinal —
-    /// and each floor is stated by the filter that owns it, never here.
+    /// move. The two facets differ only in what each bound must satisfy on its
+    /// own — a finite number of zero or greater for an error magnitude, one or
+    /// greater for a 1-based move ordinal — and each bound rule is stated by
+    /// the filter that owns it, never here.
     /// </para>
     /// </summary>
     private static readonly FieldRule[] FieldRules =
@@ -518,11 +523,11 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
                             static t => MatchScoreToken.GetFault(t) != MatchScoreTokenFault.None)),
 
         new(FilterField.ErrorMin,
-            static c => !ErrorRangeFilter.IsBoundNonNegative(c.ErrorMin)
+            static c => !ErrorRangeFilter.IsBoundFiniteNonNegative(c.ErrorMin)
                      || ErrorBoundsMisordered(c)),
 
         new(FilterField.ErrorMax,
-            static c => !ErrorRangeFilter.IsBoundNonNegative(c.ErrorMax)
+            static c => !ErrorRangeFilter.IsBoundFiniteNonNegative(c.ErrorMax)
                      || ErrorBoundsMisordered(c)),
 
         new(FilterField.MoveNumberMin,
@@ -550,13 +555,14 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// both individually admissible, and still out of order. The admissibility
     /// precondition is what keeps the blame honest — a bound already at fault
     /// for its own value drags the pair out of order as a side effect (a
-    /// negative max is below any admissible min), and reporting that would red
-    /// the field the user got right. Where the precondition fails the offending
-    /// bound is already named by its own rule, so nothing goes unreported.
+    /// negative max is below any admissible min, and an infinite min above any
+    /// admissible max), and reporting that would red the field the user got
+    /// right. Where the precondition fails the offending bound is already named
+    /// by its own rule, so nothing goes unreported.
     /// </summary>
     private static bool ErrorBoundsMisordered(FilterConfig config) =>
-        ErrorRangeFilter.IsBoundNonNegative(config.ErrorMin)
-        && ErrorRangeFilter.IsBoundNonNegative(config.ErrorMax)
+        ErrorRangeFilter.IsBoundFiniteNonNegative(config.ErrorMin)
+        && ErrorRangeFilter.IsBoundFiniteNonNegative(config.ErrorMax)
         && !ErrorRangeFilter.AreBoundsOrdered(config.ErrorMin, config.ErrorMax);
 
     /// <summary>

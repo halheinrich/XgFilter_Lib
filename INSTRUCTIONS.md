@@ -301,8 +301,9 @@ surface, and are reachable from the test project via
   facets a user fills in by hand are the ones with rows — the match-score
   tokens (via `MatchScoreToken.GetFault`, halheinrich/backgammon#121, the "one
   enum member, one row" join halheinrich/backgammon#39 booked for this facet),
-  the error bounds (via `ErrorRangeFilter.IsBoundNonNegative` /
-  `.AreBoundsOrdered`, halheinrich/backgammon#39), the move-number bounds
+  the error bounds (via `ErrorRangeFilter.IsBoundFiniteNonNegative` /
+  `.AreBoundsOrdered`, halheinrich/backgammon#39, finiteness
+  halheinrich/backgammon#374), the move-number bounds
   (via `MoveNumberFilter.IsBoundAtLeastOne` / `.AreBoundsOrdered`,
   halheinrich/backgammon#119), and the position-pattern text (via
   `BoardPattern.TryParse`, halheinrich/backgammon#269). A checkbox list has
@@ -316,8 +317,10 @@ surface, and are reachable from the test project via
   blames both ends and leaves the user to choose which to move. A bound
   already at fault for its own value drags the pair out of order as a side
   effect, and that consequence must not red the field the user got right. The
-  two range facets differ only in the floor each bound must clear, and each
-  floor is stated by the filter that owns it: zero for an error magnitude, one
+  two range facets differ only in what each bound must satisfy on its own, and
+  each bound rule is stated by the filter that owns it: a finite number of
+  zero or greater for an error magnitude — NaN and both infinities
+  inadmissible, no upper cap (halheinrich/backgammon#374) — and one or greater
   for a 1-based move ordinal. Like `GetActiveFacets()` it never
   throws and is computed fresh from mutable state, and it is deliberately
   **not** a gate on assignment: setters accept anything, so a saved document
@@ -606,7 +609,8 @@ surface, and are reachable from the test project via
   filter a user could mean, so each is a construction error — `Build()` throws
   where it once handed back a filter that silently matched nothing. Same
   posture as `ErrorRangeFilter`'s magnitude bounds, differing only in the
-  floor.
+  bound rule: one or greater here, a finite number of zero or greater there
+  (`ErrorRangeFilter.IsBoundFiniteNonNegative`).
 * `ContactTypeFilter` — include list of `ContactType`. Same
   read-`data.Board` + private-registry dispatch pattern as
   `PositionTypeFilter`, over the `Contact` / `Race` classifiers. OR
@@ -1556,7 +1560,7 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   unchecked.
 * **Adding a validity rule means adding it in one place, not two.** A
   facet's rule belongs on the facet that owns the semantic
-  (`ErrorRangeFilter.IsBoundNonNegative`,
+  (`ErrorRangeFilter.IsBoundFiniteNonNegative`,
   `MoveNumberFilter.IsBoundAtLeastOne`, `MatchScoreToken.GetFault`);
   `FilterConfig`'s `FieldRules` row only *routes* to it. Writing the
   predicate inline in the table would let `GetInvalidFields()` and

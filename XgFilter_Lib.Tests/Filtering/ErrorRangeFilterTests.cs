@@ -204,10 +204,11 @@ public class ErrorRangeFilterTests
     [InlineData(null)]   // absent: the rule constrains values, never presence
     [InlineData(0.0)]    // an exact-zero error filter is meaningful
     [InlineData(0.05)]
-    [InlineData(double.MaxValue)]
-    [InlineData(double.PositiveInfinity)]
-    public void IsBoundNonNegative_AdmissibleBound_ReturnsTrue(double? bound) =>
-        ErrorRangeFilter.IsBoundNonNegative(bound).Should().BeTrue();
+    [InlineData(3.5)]               // no cap (halheinrich/backgammon#374): above 3 is loose, not wrong
+    [InlineData(1e300)]             // no cap: a huge finite bound is still a number
+    [InlineData(double.MaxValue)]   // the largest finite bound
+    public void IsBoundFiniteNonNegative_AdmissibleBound_ReturnsTrue(double? bound) =>
+        ErrorRangeFilter.IsBoundFiniteNonNegative(bound).Should().BeTrue();
 
     [Theory]
     [InlineData(-0.0000001)]
@@ -215,8 +216,9 @@ public class ErrorRangeFilterTests
     [InlineData(double.MinValue)]
     [InlineData(double.NegativeInfinity)]
     [InlineData(double.NaN)]  // unordered, so it admits nothing — the very failure the rule catches
-    public void IsBoundNonNegative_InadmissibleBound_ReturnsFalse(double? bound) =>
-        ErrorRangeFilter.IsBoundNonNegative(bound).Should().BeFalse();
+    [InlineData(double.PositiveInfinity)]  // not finite (halheinrich/backgammon#374): "1e999" parses to it
+    public void IsBoundFiniteNonNegative_InadmissibleBound_ReturnsFalse(double? bound) =>
+        ErrorRangeFilter.IsBoundFiniteNonNegative(bound).Should().BeFalse();
 
     [Theory]
     [InlineData(null, null)]      // both absent
@@ -254,16 +256,33 @@ public class ErrorRangeFilterTests
            .Which.ParamName.Should().Be("max");
     }
 
-    [Fact]
-    public void Constructor_NaNBound_Throws()
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Constructor_NonFiniteBound_Throws(double bound)
     {
-        var minIsNaN = () => new ErrorRangeFilter(min: double.NaN);
-        var maxIsNaN = () => new ErrorRangeFilter(max: double.NaN);
+        var minIsNonFinite = () => new ErrorRangeFilter(min: bound);
+        var maxIsNonFinite = () => new ErrorRangeFilter(max: bound);
 
-        minIsNaN.Should().Throw<ArgumentOutOfRangeException>()
-                .Which.ParamName.Should().Be("min");
-        maxIsNaN.Should().Throw<ArgumentOutOfRangeException>()
-                .Which.ParamName.Should().Be("max");
+        minIsNonFinite.Should().Throw<ArgumentOutOfRangeException>()
+                      .Which.ParamName.Should().Be("min");
+        maxIsNonFinite.Should().Throw<ArgumentOutOfRangeException>()
+                      .Which.ParamName.Should().Be("max");
+    }
+
+    [Theory]
+    [InlineData(double.PositiveInfinity, 0.20, "min")]  // a bound fault, not a misordered pair
+    [InlineData(0.0, double.PositiveInfinity, "max")]   // not a spelling of the open end: null is that
+    [InlineData(0.05, double.NaN, "max")]
+    public void Constructor_NonFiniteBoundBesideFiniteOne_BlamesTheNonFiniteBound(
+        double? min, double? max, string expectedParam)
+    {
+        var act = () => new ErrorRangeFilter(min, max);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+           .WithMessage("Bound must be a finite number of zero or greater*")
+           .Which.ParamName.Should().Be(expectedParam);
     }
 
     [Fact]
@@ -281,7 +300,10 @@ public class ErrorRangeFilterTests
     [InlineData(null, 0.0)]
     [InlineData(0.0, 0.0)]
     [InlineData(0.05, 0.05)]
-    [InlineData(0.0, double.PositiveInfinity)]
+    [InlineData(0.0, double.MaxValue)]          // the widest closed range
+    [InlineData(double.MaxValue, double.MaxValue)]
+    [InlineData(3.5, null)]                     // no cap (halheinrich/backgammon#374)
+    [InlineData(0.05, 1e300)]                   // no cap
     public void Constructor_AdmissibleBounds_DoesNotThrow(double? min, double? max)
     {
         var act = () => new ErrorRangeFilter(min, max);

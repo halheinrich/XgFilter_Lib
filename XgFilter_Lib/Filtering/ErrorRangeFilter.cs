@@ -30,14 +30,17 @@ namespace XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
-/// Bounds are constrained, because the quantity filtered is a magnitude — a
-/// scored error is never negative (<see cref="PlayerResult.Scored"/> refuses
-/// one) — so a negative lower bound is a no-op dressed as a filter and a
-/// negative upper bound admits nothing at all, while <c>min &gt; max</c> is
-/// empty by construction. None of the three is a filter a user could mean, so
+/// Bounds are constrained, because the quantity filtered is a finite
+/// magnitude — a scored error is never negative
+/// (<see cref="PlayerResult.Scored"/> refuses one) — so a negative lower bound
+/// is a no-op dressed as a filter and a negative upper bound admits nothing at
+/// all; an infinite lower bound admits nothing either, an infinite upper bound
+/// is a second spelling of the open end that null already spells, and a
+/// <see cref="double.NaN"/> bound admits nothing; while <c>min &gt; max</c> is
+/// empty by construction. None of these is a filter a user could mean, so
 /// each is a construction error rather than a range that silently never
 /// matches — the same posture <see cref="Patterns.CheckerRange"/> takes towards
-/// a wrong-signed borne-off bound. <see cref="IsBoundNonNegative"/> and
+/// a wrong-signed borne-off bound. <see cref="IsBoundFiniteNonNegative"/> and
 /// <see cref="AreBoundsOrdered"/> state that rule once for the whole library;
 /// this constructor enforces it and
 /// <see cref="FilterConfig.GetInvalidFields"/> reports it, so a consumer can
@@ -51,23 +54,33 @@ internal sealed class ErrorRangeFilter : IDecisionFilter
 
     /// <summary>
     /// Half of the facet's bound rule, and its single statement: an error bound
-    /// must be zero or greater. An absent bound (null) satisfies it vacuously —
-    /// the rule constrains values, never presence — and zero satisfies it
-    /// outright, an exact-zero error filter being meaningful.
+    /// must be a finite number of zero or greater. An absent bound (null)
+    /// satisfies it vacuously — the rule constrains values, never presence —
+    /// and zero satisfies it outright, an exact-zero error filter being
+    /// meaningful.
     /// <para>
-    /// Stated as <c>value &gt;= 0</c> rather than <c>!(value &lt; 0)</c> so that
-    /// <see cref="double.NaN"/>, which compares false against everything, is
-    /// rejected too. That is the intended verdict and not an accident of the
-    /// comparison: a NaN bound admits nothing, exactly the failure mode the rule
-    /// exists to catch, and it is reachable — <c>double.TryParse</c> accepts the
-    /// literal "NaN", so a text-entry consumer can produce one. Positive
-    /// infinity is accepted, being merely a very large finite bound's limit and
-    /// no more empty than one.
+    /// <b>Finite</b> rules out all three non-finite values, and each is the
+    /// intended verdict rather than an accident of the comparison.
+    /// <see cref="double.NaN"/> compares false against everything, so a NaN
+    /// bound admits nothing — exactly the failure mode the rule exists to
+    /// catch. Positive infinity admits nothing as a lower bound, and as an
+    /// upper bound is a second spelling of the open end, which null already
+    /// spells (halheinrich/backgammon#374). Negative infinity is below zero
+    /// besides. All three are reachable: <c>double.TryParse</c> accepts the
+    /// literals "NaN" and "Infinity", and reads an out-of-range literal such as
+    /// "1e999" as infinity, so a text-entry consumer can produce any of them.
+    /// </para>
+    /// <para>
+    /// <b>There is no upper cap</b> (halheinrich/backgammon#374): any finite
+    /// bound of zero or greater is admissible, however large. A bound above
+    /// every error the analyser reports is loose, not wrong — it admits what a
+    /// smaller one would — and the library does not guess at a ceiling.
     /// </para>
     /// </summary>
     /// <param name="bound">The bound to judge, or null for an open end.</param>
     /// <returns><see langword="true"/> if <paramref name="bound"/> is admissible.</returns>
-    internal static bool IsBoundNonNegative(double? bound) => bound is null || bound.Value >= 0;
+    internal static bool IsBoundFiniteNonNegative(double? bound) =>
+        bound is null || (double.IsFinite(bound.Value) && bound.Value >= 0);
 
     /// <summary>
     /// The other half of the facet's bound rule, and its single statement: when
@@ -78,7 +91,7 @@ internal sealed class ErrorRangeFilter : IDecisionFilter
     /// This is a rule about the <em>pair</em>, so a violation blames neither
     /// bound alone — see <see cref="FilterConfig.GetInvalidFields"/>, which
     /// reports both. It presumes bounds already admissible under
-    /// <see cref="IsBoundNonNegative"/>; against an inadmissible one its verdict
+    /// <see cref="IsBoundFiniteNonNegative"/>; against an inadmissible one its verdict
     /// is a restatement of that fault rather than news, which is why the
     /// constructor checks the bounds individually first.
     /// </para>
@@ -97,8 +110,9 @@ internal sealed class ErrorRangeFilter : IDecisionFilter
     /// <param name="min">Inclusive lower bound, or null for an open lower end.</param>
     /// <param name="max">Inclusive upper bound, or null for an open upper end.</param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// A supplied bound is negative or <see cref="double.NaN"/> — see
-    /// <see cref="IsBoundNonNegative"/>.
+    /// A supplied bound is not a finite number of zero or greater — negative,
+    /// infinite, or <see cref="double.NaN"/>; see
+    /// <see cref="IsBoundFiniteNonNegative"/>.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// Both bounds are supplied and <paramref name="min"/> exceeds
@@ -107,13 +121,13 @@ internal sealed class ErrorRangeFilter : IDecisionFilter
     /// </exception>
     public ErrorRangeFilter(double? min = null, double? max = null)
     {
-        if (!IsBoundNonNegative(min))
+        if (!IsBoundFiniteNonNegative(min))
             throw new ArgumentOutOfRangeException(
-                nameof(min), min, NonNegativeBoundMessage);
+                nameof(min), min, FiniteNonNegativeBoundMessage);
 
-        if (!IsBoundNonNegative(max))
+        if (!IsBoundFiniteNonNegative(max))
             throw new ArgumentOutOfRangeException(
-                nameof(max), max, NonNegativeBoundMessage);
+                nameof(max), max, FiniteNonNegativeBoundMessage);
 
         if (!AreBoundsOrdered(min, max))
             throw new ArgumentException(
@@ -127,8 +141,8 @@ internal sealed class ErrorRangeFilter : IDecisionFilter
     /// The rejection text shared by both bound checks, so the two read
     /// identically whichever end the user got wrong.
     /// </summary>
-    private const string NonNegativeBoundMessage =
-        "Bound must be a real number of zero or greater: a player's error is a magnitude.";
+    private const string FiniteNonNegativeBoundMessage =
+        "Bound must be a finite number of zero or greater: a player's error is a magnitude.";
 
     /// <summary>
     /// Returns <see langword="true"/> iff the player's result under the view's

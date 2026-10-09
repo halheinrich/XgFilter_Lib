@@ -556,19 +556,27 @@ public class FilterConfigTests
     }
 
     [Theory]
-    [InlineData(-0.05, null)]
-    [InlineData(null, -0.05)]
-    [InlineData(-0.05, -0.01)]
-    [InlineData(double.NaN, null)]
-    [InlineData(null, double.NaN)]
-    public void Build_InadmissibleErrorBound_Throws(double? min, double? max)
+    [InlineData(-0.05, null, "min")]
+    [InlineData(null, -0.05, "max")]
+    [InlineData(-0.05, -0.01, "min")]
+    [InlineData(double.NaN, null, "min")]
+    [InlineData(null, double.NaN, "max")]
+    [InlineData(double.NegativeInfinity, null, "min")]
+    [InlineData(null, double.NegativeInfinity, "max")]
+    [InlineData(double.PositiveInfinity, null, "min")]   // admits nothing (halheinrich/backgammon#374)
+    [InlineData(null, double.PositiveInfinity, "max")]   // a second spelling of the open end
+    [InlineData(0.0, double.PositiveInfinity, "max")]
+    [InlineData(double.PositiveInfinity, 0.20, "min")]   // a bound fault, not the ordering one
+    public void Build_InadmissibleErrorBound_Throws(double? min, double? max, string expectedParam)
     {
-        // Filter error is a magnitude, so Build refuses rather than
-        // materializing a bound that is either a no-op or admits nothing.
+        // Filter error is a finite magnitude, so Build refuses rather than
+        // materializing a bound that is a no-op, admits nothing, or restates
+        // the open end.
         var cfg = new FilterConfig { ErrorMin = min, ErrorMax = max };
         var act = () => cfg.Build();
 
-        act.Should().Throw<ArgumentOutOfRangeException>();
+        act.Should().Throw<ArgumentOutOfRangeException>()
+           .Which.ParamName.Should().Be(expectedParam);
     }
 
     [Fact]
@@ -587,6 +595,10 @@ public class FilterConfigTests
     [InlineData(0.0, 0.0)]
     [InlineData(0.05, 0.05)]
     [InlineData(0.05, 0.20)]
+    [InlineData(0.0, double.MaxValue)]
+    [InlineData(double.MaxValue, null)]
+    [InlineData(3.5, null)]       // no cap (halheinrich/backgammon#374): above 3 stays admissible
+    [InlineData(null, 1e300)]     // no cap: a huge finite bound stays admissible
     public void Build_AdmissibleErrorBounds_DoesNotThrow(double? min, double? max)
     {
         var cfg = new FilterConfig { ErrorMin = min, ErrorMax = max };
@@ -797,6 +809,10 @@ public class FilterConfigTests
     [InlineData(0.05, 0.20)]
     [InlineData(0.05, null)]
     [InlineData(null, 0.20)]
+    [InlineData(0.0, double.MaxValue)]
+    [InlineData(double.MaxValue, double.MaxValue)]
+    [InlineData(3.5, 4.0)]        // no cap (halheinrich/backgammon#374): above 3 stays admissible
+    [InlineData(1e300, null)]     // no cap: a huge finite bound stays admissible
     public void GetInvalidFields_AdmissibleErrorBounds_ReturnsEmptySet(double? min, double? max)
     {
         new FilterConfig { ErrorMin = min, ErrorMax = max }
@@ -809,8 +825,15 @@ public class FilterConfigTests
     [InlineData(double.NaN, null)]
     [InlineData(double.NaN, 0.20)]
     [InlineData(double.NegativeInfinity, null)]
+    [InlineData(double.NegativeInfinity, 0.20)]
+    [InlineData(double.PositiveInfinity, null)]             // not finite (halheinrich/backgammon#374)
+    [InlineData(double.PositiveInfinity, 0.20)]             // above the max only because the min is bad
+    [InlineData(double.PositiveInfinity, double.MaxValue)]
     public void GetInvalidFields_InadmissibleMinAlone_BlamesOnlyErrorMin(double? min, double? max)
     {
+        // The mirror of the max case below: an infinite min is "above" every
+        // finite max, but the pair is out of order only because the min is
+        // bad, so the max the user got right stays unmarked.
         new FilterConfig { ErrorMin = min, ErrorMax = max }
             .GetInvalidFields().Should().Equal(FilterField.ErrorMin);
     }
@@ -822,6 +845,10 @@ public class FilterConfigTests
     [InlineData(null, double.NaN)]
     [InlineData(0.05, double.NaN)]
     [InlineData(null, double.NegativeInfinity)]
+    [InlineData(0.05, double.NegativeInfinity)]
+    [InlineData(null, double.PositiveInfinity)]             // not finite (halheinrich/backgammon#374)
+    [InlineData(0.05, double.PositiveInfinity)]
+    [InlineData(double.MaxValue, double.PositiveInfinity)]
     public void GetInvalidFields_InadmissibleMaxAlone_BlamesOnlyErrorMax(double? min, double? max)
     {
         // A valid min alongside an invalid max must not be marked: a consumer
@@ -832,10 +859,15 @@ public class FilterConfigTests
             .GetInvalidFields().Should().Equal(FilterField.ErrorMax);
     }
 
-    [Fact]
-    public void GetInvalidFields_BothBoundsNegative_BlamesBoth()
+    [Theory]
+    [InlineData(-0.20, -0.05)]
+    [InlineData(double.PositiveInfinity, double.PositiveInfinity)]   // halheinrich/backgammon#374
+    [InlineData(double.PositiveInfinity, -0.05)]
+    [InlineData(double.NaN, double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity, double.PositiveInfinity)]
+    public void GetInvalidFields_BothBoundsInadmissible_BlamesBoth(double? min, double? max)
     {
-        new FilterConfig { ErrorMin = -0.20, ErrorMax = -0.05 }
+        new FilterConfig { ErrorMin = min, ErrorMax = max }
             .GetInvalidFields().Should().Equal(FilterField.ErrorMin, FilterField.ErrorMax);
     }
 
@@ -869,17 +901,21 @@ public class FilterConfigTests
                 FilterField.PositionPattern);
     }
 
-    [Fact]
-    public void GetInvalidFields_InvalidBounds_StillReportTheFacetActive()
+    [Theory]
+    [InlineData(-0.05, null, FilterField.ErrorMin)]
+    [InlineData(double.PositiveInfinity, null, FilterField.ErrorMin)]   // halheinrich/backgammon#374
+    [InlineData(null, double.PositiveInfinity, FilterField.ErrorMax)]   // never read as the open end
+    public void GetInvalidFields_InvalidBounds_StillReportTheFacetActive(
+        double? min, double? max, FilterField expected)
     {
         // The two queries answer different questions and must not be conflated:
         // an invalid bound is still a filter the user set, so it stays active
         // (and countable in the panel's hidden-filters signal) while being
         // named here.
-        var cfg = new FilterConfig { ErrorMin = -0.05 };
+        var cfg = new FilterConfig { ErrorMin = min, ErrorMax = max };
 
         cfg.GetActiveFacets().Should().Equal(FilterFacet.ErrorRange);
-        cfg.GetInvalidFields().Should().Equal(FilterField.ErrorMin);
+        cfg.GetInvalidFields().Should().Equal(expected);
     }
 
     [Fact]
@@ -924,8 +960,8 @@ public class FilterConfigTests
         // hold on one surface only.
         double?[] candidates =
         [
-            null, 0.0, 0.05, 0.20, -0.05, double.NaN,
-            double.PositiveInfinity, double.NegativeInfinity,
+            null, 0.0, 0.05, 0.20, 3.5, 1e300, double.MaxValue,
+            -0.05, double.NaN, double.PositiveInfinity, double.NegativeInfinity,
         ];
 
         foreach (var min in candidates)
@@ -987,6 +1023,23 @@ public class FilterConfigTests
         };
 
         act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(-1.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Setters_InadmissibleErrorBound_KeepTheValueAssigned(double bound)
+    {
+        // Not rejected, cleared or clamped — and an infinite bound in
+        // particular is not turned into the absent bound (null) it might seem
+        // to mean — so the value survives to be diagnosed and shown back.
+        var cfg = new FilterConfig { ErrorMin = bound, ErrorMax = bound };
+
+        cfg.ErrorMin.Should().NotBeNull().And.Be(bound);
+        cfg.ErrorMax.Should().NotBeNull().And.Be(bound);
+        cfg.GetInvalidFields().Should().Equal(FilterField.ErrorMin, FilterField.ErrorMax);
     }
 
     // -----------------------------------------------------------------------
