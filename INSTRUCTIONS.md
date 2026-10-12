@@ -1111,6 +1111,22 @@ a second call, or the same enumerable walked again — so nothing can
 clear, append to or replace a record once made. Claiming is lazy like
 the walk itself (obtaining an enumerable claims nothing).
 
+*What is recorded, and when.* Each count is recorded as its event
+happens, and none is derived from another (halheinrich/backgammon#373,
+Hal's ruling of 2026-10-08): an attempt as the read starts; a readable
+source when the read decodes, before any of its decisions is filtered, so
+a readable source whose decisions all fail the filters still counts, and
+so does one a consumer stopped partway through; a rejection on the failed
+outcome; completion after the last source. In a completed walk the
+attempted sources are exactly the readable and the rejected ones. An
+attempt that ends in neither outcome — a cancellation, or a stream the
+read refused as a usage error — is attempted but neither readable nor
+rejected, and the walk is incomplete. `ReadableCount` used to be derived
+as attempted minus rejected, which would have counted a cancelled attempt
+as readable once the walk stopped catching cancellations.
+`AllRejected` keeps its meaning: complete, at least one attempt, none
+readable.
+
 *What is a rejection.* Exactly the converter's failed outcome: the read
 returned `XgSourceFailed`. Its exception becomes the rejection's reason in
 one place (`SourceReport.Reject`, which takes the outcome), and the
@@ -1347,7 +1363,8 @@ public sealed class SourceReport
     public SourceReport();
 
     public int                            AttemptedCount { get; }   // reads started
-    public int                            ReadableCount  { get; }   // attempted − rejected
+    public int                            ReadableCount  { get; }   // reads decoded, recorded as each
+                                                                    //   decodes (never derived)
     public IReadOnlyList<SourceRejection> Rejected       { get; }   // immutable, walk order
     public bool                           IsComplete     { get; }   // the walk reached its end
     public bool                           AllRejected    { get; }   // complete ∧ attempted > 0
@@ -1755,9 +1772,11 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   rejection would turn a bug into a "file could not be read" notice. The
   report's incomplete state is what tells a consumer such a walk never
   finished. The report records at the points the pipeline has — attempt
-  before the read, reject on the failed outcome, complete after the loop
-  — and the skip warning carries the same exception instance (pinned), so
-  the log and the record cannot drift.
+  before the read, readable on the decoded outcome, reject on the failed
+  outcome, complete after the loop — and the skip warning carries the same
+  exception instance (pinned), so the log and the record cannot drift.
+  Don't "simplify" `ReadableCount` back to attempted minus rejected: an
+  attempt that ends in a cancellation or a usage error is neither.
 
 ## Subproject-internal next steps
 

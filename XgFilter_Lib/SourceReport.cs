@@ -27,13 +27,16 @@ namespace XgFilter_Lib;
 ///
 /// <para>
 /// <b>What counts.</b> A source is <em>attempted</em> when the iterator
-/// starts reading it, and <em>rejected</em> when that read fails — when the
+/// starts reading it; <em>readable</em> when that read decodes — when the
 /// converter's read (<see cref="XgSourceReader"/>) returns
+/// <see cref="XgSourceDecoded"/> — whether or not any of its decisions pass
+/// the filters; and <em>rejected</em> when the read fails — when it returns
 /// <see cref="XgSourceFailed"/>, the one outcome the iterator skips and logs,
-/// and the only one this report records as a rejection. A source that reads
-/// is readable whether or not any of its decisions pass the filters. A
-/// cancellation is never a rejection: it propagates out of the walk and
-/// leaves the report incomplete. Nor is a usage error (an invalid source
+/// and the only one this report records as a rejection. Each is recorded as
+/// it happens, none derived from the others, so in a completed walk the
+/// attempted sources are exactly the readable and the rejected ones. A
+/// cancellation is neither: the attempt it ends is counted, it propagates out
+/// of the walk, and it leaves the report incomplete. Nor is a usage error (an invalid source
 /// name, a null stream, a stream the read cannot decode in place —
 /// <see cref="ArgumentException"/>), a failure enumerating the sources
 /// themselves, or a failure inside the producer, a filter or the consumer's
@@ -69,9 +72,15 @@ public sealed class SourceReport
 
     /// <summary>
     /// The number of attempted sources that read successfully — whether or
-    /// not any decision in them passed the filters.
+    /// not any decision in them passed the filters. Recorded when a source's
+    /// read decodes, before any of its decisions is filtered, so a readable
+    /// source counts from the moment it is read, through a consumer that
+    /// stops partway through it, and whatever the filters make of it. Never
+    /// derived from the other counts: an attempt that ended in neither
+    /// outcome — a cancellation, or a stream the read refused as a usage
+    /// error — is attempted but neither readable nor rejected.
     /// </summary>
-    public int ReadableCount => AttemptedCount - _rejected.Count;
+    public int ReadableCount { get; private set; }
 
     /// <summary>
     /// The sources that could not be read, in the order the walk reached
@@ -116,6 +125,12 @@ public sealed class SourceReport
 
     /// <summary>Records that a source's read is starting.</summary>
     internal void Attempted() => AttemptedCount++;
+
+    /// <summary>
+    /// Records that the source just attempted was read: the converter's read
+    /// decoded it. Called before its decisions are iterated.
+    /// </summary>
+    internal void Decoded() => ReadableCount++;
 
     /// <summary>
     /// Records that the source just attempted could not be read: the

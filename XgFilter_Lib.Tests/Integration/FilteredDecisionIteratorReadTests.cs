@@ -67,10 +67,53 @@ public class FilteredDecisionIteratorReadTests
         yielded.Should().Equal(SyntheticSources.ProducerIds(file, "first.xg"),
             "the source read before the cancellation still yielded its decisions");
         report.AttemptedCount.Should().Be(3, "the cancelled read was attempted; the source after it never was");
+        report.ReadableCount.Should().Be(1, "a cancelled read is not a source that read, either");
         report.Rejected.Select(r => r.SourceName).Should().Equal(["malformed.xg"],
             "a cancelled read is not a source that failed to read");
         report.IsComplete.Should().BeFalse("a cancelled walk did not reach the end of its sources");
         report.AllRejected.Should().BeFalse();
+    }
+
+    // -----------------------------------------------------------------------
+    //  A readable source is recorded when it reads, never derived
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [MemberData(nameof(StreamShapes))]
+    public void AReadableSource_CountsWhenItReads_WhateverTheFiltersMakeOfIt(string shape)
+    {
+        var file = SyntheticSources.TwoGameMatch();
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet().Add(new MatchNothing()), PlayRanking.Equity,
+            NullLogger<FilteredDecisionIterator>.Instance);
+        var report = new SourceReport();
+
+        Walk(iterator, shape, [SyntheticSources.XgEntry("one.xg", file), SyntheticSources.XgEntry("two.xg", file)], report)
+            .Should().BeEmpty();
+
+        report.AttemptedCount.Should().Be(2);
+        report.ReadableCount.Should().Be(2, "no decision matching is the filters' verdict, not the file's");
+        report.Rejected.Should().BeEmpty();
+        report.IsComplete.Should().BeTrue();
+        report.AllRejected.Should().BeFalse();
+    }
+
+    [Theory]
+    [MemberData(nameof(StreamShapes))]
+    public void AReadableSource_CountsBeforeItsDecisionsAreFiltered(string shape)
+    {
+        // A consumer that stops on the first decision has read the source it
+        // came from: the report says so mid-source, not only once the
+        // source's decisions run out.
+        var file = SyntheticSources.TwoGameMatch();
+        var report = new SourceReport();
+
+        _ = Walk(NewIterator(), shape, [SyntheticSources.XgEntry("one.xg", file), SyntheticSources.XgEntry("two.xg", file)], report)
+            .First();
+
+        report.AttemptedCount.Should().Be(1);
+        report.ReadableCount.Should().Be(1);
+        report.IsComplete.Should().BeFalse();
     }
 
     // -----------------------------------------------------------------------
@@ -177,6 +220,8 @@ public class FilteredDecisionIteratorReadTests
 
         act.Should().Throw<ArgumentException>();
         report.Rejected.Should().BeEmpty("a stream the caller handed over unusable is a bug, not an unreadable file");
+        report.AttemptedCount.Should().Be(2, "the read was attempted, and refused how it was called");
+        report.ReadableCount.Should().Be(1, "the refused stream did not read");
         report.IsComplete.Should().BeFalse();
     }
 
@@ -200,6 +245,11 @@ public class FilteredDecisionIteratorReadTests
     // -----------------------------------------------------------------------
     //  Doubles
     // -----------------------------------------------------------------------
+
+    private sealed class MatchNothing : IDecisionFilter
+    {
+        public bool Matches(IDecisionFilterData data) => false;
+    }
 
     private sealed class ListLogger<T> : ILogger<T>
     {

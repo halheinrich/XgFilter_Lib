@@ -330,13 +330,16 @@ public sealed class FilteredDecisionIterator
     /// The report, when one is passed, is written at the points the pipeline
     /// has: claimed when this walk starts (the enumeration's first
     /// <c>MoveNext</c>, so a report reused across walks fails on the second
-    /// walk's first step), one attempt per source as its read starts, one
-    /// rejection per failed outcome — before the skip is logged, carrying the
-    /// outcome's own exception, so the log is a trace of the record and never
-    /// a second source of it — and completion after the last source. Nothing
-    /// else is recorded: a usage error thrown by the <paramref name="sources"/>
-    /// projection or by the read, a cancellation, a failure in the producer, a
-    /// filter or the consumer all leave the walk, and the report, incomplete.
+    /// walk's first step); one attempt per source as its read starts; one
+    /// readable source per decoded outcome, before its decisions are
+    /// filtered; one rejection per failed outcome, before the skip is logged
+    /// and carrying the outcome's own exception, so the log is a trace of the
+    /// record and never a second source of it; and completion after the last
+    /// source. Nothing else is recorded: a usage error thrown by the
+    /// <paramref name="sources"/> projection or by the read, a cancellation,
+    /// a failure in the producer, a filter or the consumer all leave the
+    /// walk, and the report, incomplete — an attempt ended that way is
+    /// neither readable nor rejected.
     /// </para>
     /// </summary>
     private IEnumerable<T> IterateSources<T>(
@@ -357,7 +360,14 @@ public sealed class FilteredDecisionIterator
         {
             report?.Attempted();
             var decisions = read().Match(
-                decoded => source(decoded.File, sourceName, null, callbacks),
+                decoded =>
+                {
+                    // Readable from the moment it decodes, before any of its
+                    // decisions is filtered, so a source none of whose
+                    // decisions match still counts.
+                    report?.Decoded();
+                    return source(decoded.File, sourceName, null, callbacks);
+                },
                 failed =>
                 {
                     // The record before the trace: a logger that throws still
