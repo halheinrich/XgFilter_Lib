@@ -176,6 +176,106 @@ public class FilteredDecisionIteratorReadTests
     }
 
     // -----------------------------------------------------------------------
+    //  The format a stream entry's name states
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [MemberData(nameof(StreamShapes))]
+    public void AMixedWalk_ReadsEachEntryInTheFormatItsNameStates_AndKeepsItsIdentity(string shape)
+    {
+        // One walk over XG's binary file, the library's JSON document and an
+        // .xgp position: each entry decodes in its own format, and every
+        // decision's identity is its entry's name, extension and all.
+        var match = SyntheticSources.TwoGameMatch();
+        var position = SyntheticSources.Position();
+        XgFileStream[] entries =
+        [
+            SyntheticSources.XgEntry("binary.xg", match),
+            SyntheticSources.JsonEntry("document.json", match),
+            SyntheticSources.XgEntry("position.xgp", position),
+        ];
+        var report = new SourceReport();
+
+        var ids = Walk(NewIterator(), shape, entries, report).ToList();
+
+        var fromJson = SyntheticSources.ProducerIds(match, "document.json");
+        fromJson.Should().NotBeEmpty();
+        ids.Should().Equal(
+            [.. SyntheticSources.ProducerIds(match, "binary.xg"), .. fromJson,
+             .. SyntheticSources.ProducerIds(position, "position.xgp")]);
+        report.AttemptedCount.Should().Be(3);
+        report.ReadableCount.Should().Be(3);
+        report.Rejected.Should().BeEmpty();
+        report.IsComplete.Should().BeTrue();
+    }
+
+    /// <summary>Names whose extension states a format in another case, each with the bytes that format reads.</summary>
+    public static TheoryData<string, bool> CaseVariantNames() => new()
+    {
+        { "UPPER.XG", false },
+        { "Mixed.Xgp", false },
+        { "UPPER.JSON", true },
+        { "Mixed.Json", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(CaseVariantNames))]
+    public void AStreamEntrysExtension_IsMatchedCaseInsensitively(string name, bool isJson)
+    {
+        var file = name.EndsWith("p", StringComparison.OrdinalIgnoreCase)
+            ? SyntheticSources.Position()
+            : SyntheticSources.TwoGameMatch();
+        var entry = isJson ? SyntheticSources.JsonEntry(name, file) : SyntheticSources.XgEntry(name, file);
+        var report = new SourceReport();
+
+        var ids = NewIterator().IterateXgStreamDiagrams([entry], report).Select(d => d.Id).ToList();
+
+        ids.Should().NotBeEmpty().And.Equal(SyntheticSources.ProducerIds(file, name));
+        report.Rejected.Should().BeEmpty();
+    }
+
+    /// <summary>Names that state no format the iterator reads.</summary>
+    public static TheoryData<string> UnsupportedNames() =>
+        ["notes.txt", "match.xgz", "archive.json.bak", "noextension"];
+
+    [Theory]
+    [MemberData(nameof(UnsupportedNames))]
+    public void AnUnsupportedExtension_IsAUsageError_ThrownWhenTheWalkReachesTheEntry(string name)
+    {
+        // Well-formed XG bytes under a name that states no format: the entry
+        // is misused, not unreadable. Lazy like the walk — obtaining the
+        // enumerable throws nothing, and the entries before it are read.
+        var file = SyntheticSources.TwoGameMatch();
+        XgFileStream[] entries =
+        [
+            SyntheticSources.XgEntry("first.xg", file),
+            SyntheticSources.XgEntry(name, file),
+        ];
+        var report = new SourceReport();
+
+        var walk = NewIterator().IterateXgStreams(entries, report);
+        var act = () => walk.ToList();
+
+        act.Should().Throw<ArgumentException>().WithMessage($"*'{name}'*");
+        report.AttemptedCount.Should().Be(1, "the misused entry is refused before its read is attempted");
+        report.ReadableCount.Should().Be(1);
+        report.Rejected.Should().BeEmpty();
+        report.IsComplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AMalformedJsonEntry_IsARejection()
+    {
+        var report = new SourceReport();
+
+        NewIterator().IterateXgStreams([new XgFileStream("bad.json", new MemoryStream("{"u8.ToArray()))], report)
+            .Should().BeEmpty();
+
+        report.Rejected.Should().ContainSingle().Which.SourceName.Should().Be("bad.json");
+        report.AllRejected.Should().BeTrue();
+    }
+
+    // -----------------------------------------------------------------------
     //  The stream entry's precondition is the converter's, and a usage error
     // -----------------------------------------------------------------------
 

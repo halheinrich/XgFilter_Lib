@@ -63,6 +63,27 @@ internal static class SyntheticSources
         return builder.Build();
     }
 
+    /// <summary>The analysed-cube equities the synthesized cube decisions share; nothing here reads them.</summary>
+    public static readonly XgCubeEquities Equities = new(NoDouble: 0.30, DoubleTake: 0.45, DoubleDrop: 1.0);
+
+    /// <summary>
+    /// A position as XG saves one to an <c>.xgp</c>: one game of a 5-point
+    /// match at player 1 5-away, player 2 4-away, holding player 1's analysed
+    /// cube decision and then, after the roll, player 1's analysed checker
+    /// play — the cube record first, as XG writes them. Read under an
+    /// <c>.xgp</c> name the producer yields the play alone (its single-decision
+    /// policy); under an <c>.xg</c> name, both.
+    /// </summary>
+    public static XgFile Position()
+    {
+        var builder = XgFileBuilder.ForMatch(5, "P1", "P2");
+        builder.AddGame(score1: 0, score2: 1)
+            .CubeDecision(XgPlayer.Player1, Equities, doublerAction: CubeAction.NoDouble)
+            .Play(XgPlayer.Player1, OpeningMoves[0].Dice, OpeningMoves[0].Played,
+                [new XgPlayCandidate(OpeningMoves[0].Played, equity: 0.1, ply: 2)]);
+        return builder.Build();
+    }
+
     /// <summary><paramref name="file"/> as XG's binary container.</summary>
     public static byte[] XgBytes(XgFile file) => XgFileWriter.ToBytes(file);
 

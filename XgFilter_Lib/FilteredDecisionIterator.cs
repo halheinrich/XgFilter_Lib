@@ -58,6 +58,15 @@ namespace XgFilter_Lib;
 /// </summary>
 public sealed class FilteredDecisionIterator
 {
+    /// <summary>
+    /// The file extension of the library's JSON document — this library's one
+    /// statement of it, read by the JSON directory walk's file pattern and by
+    /// the stream entries' format mapping (<see cref="FormatOf"/>). The
+    /// XG-format extensions are the converter's
+    /// (<see cref="XgFileReader.XgFormatExtensions"/>).
+    /// </summary>
+    private const string JsonExtension = ".json";
+
     private readonly DecisionFilterSet _filters;
     private readonly PlayRanking _ranking;
     private readonly XgIteratorOptions _options;
@@ -123,7 +132,7 @@ public sealed class FilteredDecisionIterator
     /// <see cref="SourceReport"/> for the one-walk contract.
     /// </param>
     public IEnumerable<DecisionRow> IterateJsonDirectory(string jsonDir, SourceReport? report = null) =>
-        IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"), XgSourceFormat.Json, Rows, AsView, report);
+        IterateFiles(Directory.EnumerateFiles(jsonDir, "*" + JsonExtension), XgSourceFormat.Json, Rows, AsView, report);
 
     /// <summary>
     /// Iterates every XG-format file in <paramref name="xgDir"/> — both
@@ -145,20 +154,23 @@ public sealed class FilteredDecisionIterator
         IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, Records, ViewOf, report);
 
     /// <summary>
-    /// Iterates a caller-supplied list of XG-format files presented as named
-    /// streams — the directory-free counterpart to
-    /// <see cref="IterateXgDirectory"/> for callers that hold the bytes rather
-    /// than a server path (e.g. a WASM client parsing browser-picked files).
-    /// Each <see cref="XgFileStream.Data"/> stream is read through
-    /// <see cref="XgSourceReader.ReadStream"/>; filter semantics, malformed-file
-    /// skip+log behaviour, and the early-exit pipeline are identical to the
-    /// directory overload. Yields <see cref="DecisionRow"/> built for the
-    /// configured ranking.
+    /// Iterates a caller-supplied list of sources presented as named streams —
+    /// the directory-free counterpart to <see cref="IterateXgDirectory"/> and
+    /// <see cref="IterateJsonDirectory"/> for callers that hold the bytes
+    /// rather than a server path (e.g. a WASM client parsing browser-picked
+    /// files). Each <see cref="XgFileStream.Data"/> stream is read through
+    /// <see cref="XgSourceReader.ReadStream"/> in the format its name's
+    /// extension states — XG's binary file for <c>.xg</c> and <c>.xgp</c>,
+    /// the library's JSON document for <c>.json</c>, case-insensitively — so
+    /// one walk may mix them; filter semantics, malformed-file skip+log
+    /// behaviour, and the early-exit pipeline are identical to the directory
+    /// overloads. Yields <see cref="DecisionRow"/> built for the configured
+    /// ranking.
     /// </summary>
     /// <remarks>
     /// See <see cref="XgFileStream"/> for the stream ownership, precondition
     /// and laziness contract. <see cref="XgFileStream.FileName"/> must be non-blank
-    /// and carry its extension, and <see cref="XgFileStream.Data"/> must be
+    /// and carry one of those extensions, and <see cref="XgFileStream.Data"/> must be
     /// readable, seekable and at position 0; the iterator throws
     /// <see cref="ArgumentException"/> when it reaches an entry that violates
     /// either. A stream that fails to parse (corruption, truncation, anything
@@ -180,11 +192,13 @@ public sealed class FilteredDecisionIterator
     }
 
     /// <summary>
-    /// Diagram-shaped counterpart to <see cref="IterateXgStreams"/>: parses the
-    /// same caller-supplied named streams but yields <see cref="BgDecisionData"/>
-    /// (the full candidate list and after-boards). Filter semantics are
-    /// identical to <see cref="IterateXgStreams"/>: each record is filtered
-    /// through its view for the configured ranking.
+    /// Diagram-shaped counterpart to <see cref="IterateXgStreams"/>: reads the
+    /// same caller-supplied named streams, through the same mapping of each
+    /// name's extension to the format it is read in, but yields
+    /// <see cref="BgDecisionData"/> (the full candidate list and
+    /// after-boards). Filter semantics are identical to
+    /// <see cref="IterateXgStreams"/>: each record is filtered through its
+    /// view for the configured ranking.
     /// </summary>
     /// <param name="files">The named streams to walk, lazily.</param>
     /// <param name="report">
@@ -228,38 +242,44 @@ public sealed class FilteredDecisionIterator
     /// Projects caller-supplied <see cref="XgFileStream"/> entries onto the
     /// <c>(sourceName, deferred-read)</c> pairs that <see cref="IterateSources{T}"/>
     /// consumes. The entry's own validation runs lazily as each entry is
-    /// reached during enumeration — a usage error (null/blank/extension-less
-    /// name, null stream) throws <see cref="ArgumentException"/> before the
-    /// source is attempted, rather than being recorded as a rejection. The read
-    /// itself is deferred into the returned thunk, so <see cref="IterateSources{T}"/>
-    /// attempts it in walk order and handles its outcome exactly as for a
-    /// directory file. The stream's own state — readable, seekable, at
-    /// position 0 — is the converter's precondition, validated by
+    /// reached during enumeration — a usage error (a null or blank name, an
+    /// extension that names no format the iterator reads, a null stream)
+    /// throws <see cref="ArgumentException"/> before the source is attempted,
+    /// rather than being recorded as a rejection. The read itself is deferred
+    /// into the returned thunk, in the format the name's extension states
+    /// (<see cref="FormatOf"/>), so <see cref="IterateSources{T}"/> attempts
+    /// it in walk order and handles its outcome exactly as for a directory
+    /// file. The stream's own state — readable, seekable, at position 0 — is
+    /// the converter's precondition, validated by
     /// <see cref="XgSourceReader.ReadStream"/> when the read is attempted.
+    /// Both stream output shapes project through here, so they share the one
+    /// mapping, and the entry's name, unchanged, is the decision's identity.
     /// </summary>
     private static IEnumerable<(string sourceName, Func<XgSourceRead> read)> ToSources(
         IEnumerable<XgFileStream> files) =>
         files.Select(file =>
         {
-            // The name must carry the extension — see RequireValid and the
-            // IterateSources contract comment. Validated here, eagerly per entry,
-            // so a bad name fails fast instead of reaching the producer.
-            Stream data = RequireValid(file);
+            // The name must carry an extension stating the format — see
+            // RequireValid and the IterateSources contract comment. Validated
+            // here, eagerly per entry, so a bad name fails fast instead of
+            // reaching the read or the producer.
+            var (data, format) = RequireValid(file);
             return (file.FileName,
-                (Func<XgSourceRead>)(() => XgSourceReader.ReadStream(file.FileName, data, XgSourceFormat.Xg)));
+                (Func<XgSourceRead>)(() => XgSourceReader.ReadStream(file.FileName, data, format)));
         });
 
     /// <summary>
     /// Enforces the <see cref="XgFileStream"/> usage contract this iterator
-    /// owns for one entry — a name carrying its extension, and a stream to
-    /// read — and returns its stream. Validation lives at the API boundary
-    /// rather than in the record-struct constructor because
-    /// <c>default(XgFileStream)</c> would bypass any primary-constructor guard,
-    /// and "the name must carry an extension" is the iterator's contract, not
-    /// an intrinsic property of a filename+stream pair. Whether the stream can
-    /// be decoded in place is the converter's rule, and stays there.
+    /// owns for one entry — a name whose extension states a format the
+    /// iterator reads, and a stream to read — and returns the stream with that
+    /// format. Validation lives at the API boundary rather than in the
+    /// record-struct constructor because <c>default(XgFileStream)</c> would
+    /// bypass any primary-constructor guard, and "the name states the format"
+    /// is the iterator's contract, not an intrinsic property of a
+    /// filename+stream pair. Whether the stream can be decoded in place is the
+    /// converter's rule, and stays there.
     /// </summary>
-    private static Stream RequireValid(XgFileStream file)
+    private static (Stream Data, XgSourceFormat Format) RequireValid(XgFileStream file)
     {
         if (string.IsNullOrWhiteSpace(file.FileName))
             throw new ArgumentException(
@@ -267,19 +287,38 @@ public sealed class FilteredDecisionIterator
                 "extension (e.g. \"match.xg\"); the source name discriminates " +
                 ".xg/.xgp/.json downstream.", nameof(file));
 
-        if (string.IsNullOrEmpty(Path.GetExtension(file.FileName)))
-            throw new ArgumentException(
-                $"XgFileStream.FileName '{file.FileName}' must include an extension " +
-                "(.xg, .xgp, or .json); the source name discriminates the format " +
-                "downstream and an extension-less name fails at DecisionId stamping.",
+        var format = FormatOf(file.FileName)
+            ?? throw new ArgumentException(
+                $"XgFileStream.FileName '{file.FileName}' must carry the extension of a format " +
+                $"the iterator reads ({string.Join(", ", ReadableExtensions)}); the extension " +
+                "states how the stream is decoded and which decision identity it stamps.",
                 nameof(file));
 
-        return file.Data
+        var data = file.Data
             ?? throw new ArgumentException(
                 $"XgFileStream.Data for '{file.FileName}' must be a stream holding the file " +
                 "(readable, seekable, at position 0), not null.",
                 nameof(file));
+
+        return (data, format);
     }
+
+    /// <summary>
+    /// The one mapping from a stream entry's name to the format it is read in:
+    /// <see cref="XgSourceFormat.Xg"/> for a name the converter recognizes as
+    /// XG-format (<see cref="XgFileReader.IsXgFormatFile"/> — <c>.xg</c> and
+    /// <c>.xgp</c>), <see cref="XgSourceFormat.Json"/> for
+    /// <see cref="JsonExtension"/>, both case-insensitively; null for any
+    /// other extension, or none. The converter infers nothing from a name;
+    /// this boundary states the format, from the name, once.
+    /// </summary>
+    private static XgSourceFormat? FormatOf(string fileName) =>
+        XgFileReader.IsXgFormatFile(fileName) ? XgSourceFormat.Xg
+        : string.Equals(Path.GetExtension(fileName), JsonExtension, StringComparison.OrdinalIgnoreCase) ? XgSourceFormat.Json
+        : null;
+
+    /// <summary>The extensions <see cref="FormatOf"/> maps, as a usage error names them.</summary>
+    private static IEnumerable<string> ReadableExtensions => XgFileReader.XgFormatExtensions.Append(JsonExtension);
 
     /// <summary>
     /// Maps a directory walk onto the shared <see cref="IterateSources{T}"/>

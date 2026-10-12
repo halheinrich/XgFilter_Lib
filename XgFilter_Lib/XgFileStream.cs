@@ -1,21 +1,25 @@
 namespace XgFilter_Lib;
 
 /// <summary>
-/// A single named XG-format source supplied as an open <see cref="Stream"/>
-/// rather than a filesystem path — the input shape for
+/// A single named source — an XG-format file or the library's JSON document
+/// — supplied as an open <see cref="Stream"/> rather than a filesystem path:
+/// the input shape for
 /// <see cref="FilteredDecisionIterator.IterateXgStreams"/> and
 /// <see cref="FilteredDecisionIterator.IterateXgStreamDiagrams"/>. Used when
 /// the bytes never touch a server directory (e.g. a browser-picked file in a
 /// WASM client): the caller pairs each stream with the original file name.
 ///
 /// <para>
-/// <b>FileName must carry the extension.</b> The producer's
-/// <c>DecisionId</c> stamping discriminates <c>.xg</c> / <c>.xgp</c> /
-/// <c>.json</c> via <c>Path.GetExtension</c> on the source name, so
-/// <see cref="FileName"/> must be the original file name <i>with</i> its
-/// extension (e.g. <c>"match.xg"</c>, not <c>"match"</c>). A null, blank, or
-/// extension-less name is a usage error and is rejected when the iterator
-/// reaches it.
+/// <b>FileName must carry the extension, and the extension states the
+/// format.</b> The iterator reads a <c>.xg</c> or <c>.xgp</c> entry as XG's
+/// binary file and a <c>.json</c> entry as the library's JSON document,
+/// matching the extension case-insensitively, and one walk may mix them. The
+/// producer's <c>DecisionId</c> stamping discriminates the same extensions
+/// via <c>Path.GetExtension</c> on the source name, so <see cref="FileName"/>
+/// must be the original file name <i>with</i> its extension (e.g.
+/// <c>"match.xg"</c>, not <c>"match"</c>). A null or blank name, a name with
+/// no extension, and a name with any other extension are usage errors,
+/// thrown when the iterator reaches the entry.
 /// </para>
 ///
 /// <para>

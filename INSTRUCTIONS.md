@@ -1037,7 +1037,24 @@ source. Only the terminal yield and the per-source mapping differ:
   two XG-format walks, `XgSourceFormat.Json` for the JSON one;
 * streams map `XgFileStream → (FileName, () => XgSourceReader.ReadStream(FileName, Data, format))`
   via `ToSources`, after `RequireValid` enforces the entry contract this
-  iterator owns.
+  iterator owns, the format stated by the name's extension.
+
+**The stream entries' format is the name's extension, mapped once**
+(`FormatOf`, at the stream-entry boundary; both stream output shapes
+project through it): `XgSourceFormat.Xg` for a name the converter's
+`XgFileReader.IsXgFormatFile` recognizes (`.xg`, `.xgp`), and
+`XgSourceFormat.Json` for `.json`, both case-insensitively. Any other
+extension, or none, is a usage error (`ArgumentException`), thrown lazily
+when the walk reaches the entry and before its read is attempted. So one
+stream walk may mix XG files and JSON documents, each decoded as what it
+is, and the entry's name — unchanged — is every decision's identity. The
+converter infers nothing from a name (its ruling); this boundary is where
+the name is turned into a stated format, and nowhere else. Until this leg
+every stream was handed to the binary decoder, so a `.json` entry the
+type promised was always rejected. The XG-format extensions are the
+converter's (`XgFileReader.XgFormatExtensions`); the JSON one is stated
+once here, `JsonExtension`, and read by both `FormatOf` and the JSON
+directory walk's file pattern.
 
 **The read is the converter's** (`XgSourceReader`, Hal's ruling of
 2026-10-08 on halheinrich/backgammon#373): the one read of one source, under
@@ -1060,8 +1077,9 @@ The read is always deferred into the thunk and invoked by
 failed outcome, logged and skipped (iteration continues). A misused
 *stream entry* is a different category — a usage error — in two places,
 each owned once: `RequireValid` throws `ArgumentException` from the
-`ToSources` projection for what the iterator owns (a null/blank/
-extension-less name, a null `Data`), before the source is attempted; and
+`ToSources` projection for what the iterator owns (a null/blank name, an
+extension naming no format it reads, a null `Data`), before the source is
+attempted; and
 `XgSourceReader.ReadStream` throws it for what the converter owns, a
 stream it cannot decode in place (not readable, not seekable, not at
 position 0), when the attempt starts. Neither is ever recorded as a
@@ -1339,8 +1357,10 @@ public sealed class NamedFilterCollectionJsonConverter
 ```csharp
 namespace XgFilter_Lib;
 
-/// A named XG-format source supplied as a stream rather than a path.
-/// FileName must carry its extension (.xg/.xgp/.json); Data must be
+/// A named source supplied as a stream rather than a path. FileName must
+/// carry its extension, which states the format it is read in (.xg/.xgp:
+/// XG's binary file; .json: the library's JSON document; case-insensitive;
+/// anything else is a usage error); Data must be
 /// readable, seekable and at position 0 (XgSourceReader.ReadStream's
 /// precondition), is read once, and is owned/disposed by the caller. See
 /// the stream-ownership pitfall below.
@@ -1747,10 +1767,13 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   is to buffer the bytes up front (`new MemoryStream(File.ReadAllBytes(path))`)
   and hand each walk a fresh stream over them. The iterator does not
   dispose streams, and does not restate the converter's stream check.
-  Separately, `FileName` **must** carry its extension: `RequireValid`
-  throws `ArgumentException` on a null/blank/extension-less name (a usage
-  error, surfaced loudly) — distinct from a malformed *content* stream,
-  which is skip+logged like any unreadable file.
+  Separately, `FileName` **must** carry the extension of a format the
+  iterator reads (`.xg`, `.xgp`, `.json`): `RequireValid` throws
+  `ArgumentException` on a null/blank name and on any other extension or
+  none (a usage error, surfaced loudly) — distinct from a malformed
+  *content* stream, which is skip+logged like any unreadable file. The
+  extension is how the stream is decoded, so a name must not be "fixed up"
+  (say, to `.xg`) to get an entry past the check.
 * **A `SourceReport` serves one walk; make a new one per enumeration.** A
   report is claimed by the first `MoveNext` of the enumeration it was
   passed to and throws `InvalidOperationException` on any later claim —
