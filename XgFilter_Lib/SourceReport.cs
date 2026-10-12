@@ -7,7 +7,8 @@ namespace XgFilter_Lib;
 /// What one <see cref="FilteredDecisionIterator"/> walk did with its sources,
 /// as data: how many it attempted to read, which it rejected and why, and
 /// whether it reached the end (halheinrich/backgammon#368). The caller
-/// creates one, hands it to the entry point it is about to enumerate, and
+/// creates one, hands it to the walk entry point (a directory or stream
+/// walk) it is about to enumerate, and
 /// reads it during or after the enumeration; the iterator is its only
 /// writer. A caller that passes none gets exactly the behaviour it always
 /// had — a rejected source is logged and skipped, and the walk goes on.
@@ -34,20 +35,25 @@ namespace XgFilter_Lib;
 /// <see cref="XgSourceFailed"/>, the one outcome the iterator skips and logs,
 /// and the only one this report records as a rejection. Each is recorded as
 /// it happens, none derived from the others, so in a completed walk the
-/// attempted sources are exactly the readable and the rejected ones. A
-/// cancellation is neither: the attempt it ends is counted, it propagates out
-/// of the walk, and it leaves the report incomplete. Nor is a usage error (an invalid source
-/// name, a null stream, a stream the read cannot decode in place —
-/// <see cref="ArgumentException"/>), a failure enumerating the sources
-/// themselves, or a failure inside the producer, a filter or the consumer's
-/// loop: each propagates and leaves the report incomplete.
+/// attempted sources are exactly the readable and the rejected ones. Every
+/// failure below propagates out of the walk and leaves the report
+/// incomplete, and none is a rejection; they differ in what they leave
+/// recorded. A read interrupted before either outcome adds neither a
+/// readable source nor a rejection: a cancellation (the attempt it ends is
+/// counted), and a usage error (an invalid source name or a null stream,
+/// refused before the attempt; a stream the read cannot decode in place,
+/// refused by the read — <see cref="ArgumentException"/>). A later failure,
+/// inside the producer, a filter or the consumer's loop, keeps the source
+/// it interrupted readable, since that source was recorded when it decoded.
+/// A failure enumerating the sources themselves records nothing more.
 /// </para>
 ///
 /// <para>
 /// <b>Complete means the walk reached the end of its sources.</b> A consumer
 /// that stopped early, or whose walk threw, holds a partial report:
-/// <see cref="AttemptedCount"/> and <see cref="Rejected"/> are true of the
-/// sources reached, and nothing is claimed about the rest. The one
+/// <see cref="AttemptedCount"/>, <see cref="ReadableCount"/> and
+/// <see cref="Rejected"/> are true of the sources reached, and nothing is
+/// claimed about the rest. The one
 /// conclusion the report draws itself, <see cref="AllRejected"/>, is drawn
 /// only from a completed walk over at least one source, so an empty
 /// selection and a selection nobody finished reading are both told apart

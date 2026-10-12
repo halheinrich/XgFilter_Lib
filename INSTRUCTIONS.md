@@ -1107,11 +1107,14 @@ WASM-compatible by dependency (both `XgFilter_Lib` and its deps
 directory methods simply rely on `System.IO.Directory`, which compiles
 under `browser-wasm` but is never called by a remote consumer.
 
-All entry points funnel through a single generic private core,
-`IterateSources<T>`, which iterates `(string sourceName, Func<XgSourceRead> read)`
+All the directory and stream walk entry points funnel through a single
+generic private core, `IterateSources<T>`, which iterates `(string sourceName, Func<XgSourceRead> read)`
 pairs — so the read, filter-evaluation, failed-source skip+log, and
 early-exit pipeline is guaranteed identical across every shape *and* every
-source. Only the terminal yield and the per-source mapping differ:
+source. (The parsed-file operations `IterateFile` and
+`IterateFileDiagrams` read nothing, take no `SourceReport` and do not go
+through it: they are what it calls.) Only the terminal yield and the
+per-source mapping differ:
 
 * directory paths map `p → (Path.GetFileName(p), () => XgSourceReader.ReadFile(p, format))`
   via the thin `IterateFiles<T>` adapter (extension preserved by
@@ -1148,11 +1151,13 @@ propagates out of the walk and leaves it incomplete — the old catch-all
 counted it as a rejected file. A usage error the read refuses propagates
 the same way.
 
-The output shape is selected by passing the producer's row surface or its
-record surface as the source delegate (the private `Rows` / `Records`,
-the one place each is called), together with the shape's view: a row is
-its own view, a record is filtered through `ViewFor(ranking)`. So the
-filter calls bind identically for either shape, under the one ranking.
+The output shape is selected by the per-source filter the walk passes to
+`IterateSources`: `IterateFile` for rows, `IterateFileDiagrams` for
+records. Each makes the one producer call for its shape and hands the
+producer's output to the private `Passing`, which evaluates
+`DecisionFilterSet.Matches` through the shape's view — a row is its own
+view, a record is filtered through `ViewFor(ranking)` — under the one
+ranking. So the filter calls bind identically for either shape.
 
 The read is always deferred into the thunk and invoked by
 `IterateSources` in walk order, so a malformed *file/stream content* is a
@@ -1177,8 +1182,10 @@ the failed outcome's exception (type, stack, inner) is captured on the
 log entry, not stringified. Iteration continues with the next source
 rather than aborting the run.
 
-**Rejected sources, as data** (halheinrich/backgammon#368). Every entry
-point takes an optional `SourceReport`; a caller that passes one reads,
+**Rejected sources, as data** (halheinrich/backgammon#368). Every
+directory and stream walk entry point takes an optional `SourceReport`
+(the parsed-file operations read nothing and take none); a caller that
+passes one reads,
 during or after the enumeration, how many sources the walk attempted
 (`AttemptedCount`), how many read (`ReadableCount`), which it rejected
 and why (`Rejected`, each a `SourceRejection` carrying the source name

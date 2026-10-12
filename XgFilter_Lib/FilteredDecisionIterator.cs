@@ -448,11 +448,14 @@ public sealed class FilteredDecisionIterator
     /// filtered; one rejection per failed outcome, before the skip is logged
     /// and carrying the outcome's own exception, so the log is a trace of the
     /// record and never a second source of it; and completion after the last
-    /// source. Nothing else is recorded: a usage error thrown by the
-    /// <paramref name="sources"/> projection or by the read, a cancellation,
-    /// a failure in the producer, a filter or the consumer all leave the
-    /// walk, and the report, incomplete — an attempt ended that way is
-    /// neither readable nor rejected.
+    /// source. Nothing else is recorded. A read interrupted before either
+    /// outcome — a cancellation, or a usage error thrown by the
+    /// <paramref name="sources"/> projection or by the read — adds neither a
+    /// readable source nor a rejection. A later failure, in the producer, a
+    /// filter or the consumer's loop, leaves the walk, and the report,
+    /// incomplete, but the source it interrupted stays recorded readable: it
+    /// was recorded when it decoded. A failure enumerating the sources
+    /// themselves leaves the walk incomplete too.
     /// </para>
     /// </summary>
     private IEnumerable<T> IterateSources<T>(
