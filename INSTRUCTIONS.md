@@ -27,11 +27,14 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
   named-document machinery (`IJsonDocument`, `NamedCollection`). Tests build
   every record through its test-support project
   (`BgDataTypes_Lib.TestSupport`'s `TestRecords`).
-* **ConvertXgToJson_Lib** — `XgDecisionIterator`, `XgIteratorCallbacks`,
-  `XgIteratorOptions` (the ranking the producer builds rows for),
-  `XgMatchInfo`, `XgGameInfo`, `XgFileReader`, `Models.XgFile`. Used by
-  `FilteredDecisionIterator` to walk `.xg` files and drive early-exit
-  via callback registration on the producer. Tests additionally use
+* **ConvertXgToJson_Lib** — `XgSourceReader` (the one read of one source,
+  with its outcome pair `XgSourceDecoded` / `XgSourceFailed` and the
+  `XgSourceFormat` the caller states), `XgDecisionIterator`,
+  `XgIteratorCallbacks`, `XgIteratorOptions` (the ranking the producer
+  builds rows for), `XgMatchInfo`, `XgGameInfo`, `XgFileReader` (XG-format
+  discovery), `Models.XgFile`. Used by `FilteredDecisionIterator` to read
+  each source, walk its decisions and drive early-exit via callback
+  registration on the producer. Tests additionally use
   `XgFileBuilder` / `XgGameBuilder` — the producer's one public path to an
   in-memory `XgFile` — and `XgFileWriter` to synthesize integration
   fixtures; the XG record model behind them is internal to the producer and
@@ -1013,7 +1016,7 @@ Two **input** sources are exposed, both shapes for each. The directory
 methods above walk a filesystem path. The stream methods —
 `IterateXgStreams` (`DecisionRow`) and `IterateXgStreamDiagrams`
 (`BgDecisionData`) — take a caller-supplied `IEnumerable<XgFileStream>`
-instead, parsing each via `XgFileReader.ReadStream`. This is the
+instead, reading each through `XgSourceReader.ReadStream`. This is the
 directory-free entry for callers that hold the bytes rather than a
 server path — e.g. a Blazor WASM client parsing browser-picked files
 that never leave the browser. The directory and stream paths are
@@ -1023,16 +1026,28 @@ directory methods simply rely on `System.IO.Directory`, which compiles
 under `browser-wasm` but is never called by a remote consumer.
 
 All entry points funnel through a single generic private core,
-`IterateSources<T>`, which iterates `(string sourceFile, Func<XgFile> read)`
-pairs — so the filter-evaluation, malformed-file skip+log, and early-exit
-pipeline is guaranteed identical across every shape *and* every source.
-Only the terminal yield and the per-source mapping differ:
+`IterateSources<T>`, which iterates `(string sourceName, Func<XgSourceRead> read)`
+pairs — so the read, filter-evaluation, failed-source skip+log, and
+early-exit pipeline is guaranteed identical across every shape *and* every
+source. Only the terminal yield and the per-source mapping differ:
 
-* directory paths map `p → (Path.GetFileName(p), () => ReadFile(p))` via
-  the thin `IterateFiles<T>` adapter (extension preserved by
-  `Path.GetFileName`);
-* streams map `XgFileStream → (FileName, () => ReadStream(Data))` via
-  `ToSources`, after `RequireValid` enforces the name contract.
+* directory paths map `p → (Path.GetFileName(p), () => XgSourceReader.ReadFile(p, format))`
+  via the thin `IterateFiles<T>` adapter (extension preserved by
+  `Path.GetFileName`), the format the walk's: `XgSourceFormat.Xg` for the
+  two XG-format walks, `XgSourceFormat.Json` for the JSON one;
+* streams map `XgFileStream → (FileName, () => XgSourceReader.ReadStream(FileName, Data, format))`
+  via `ToSources`, after `RequireValid` enforces the entry contract this
+  iterator owns.
+
+**The read is the converter's** (`XgSourceReader`, Hal's ruling of
+2026-10-08 on halheinrich/backgammon#373): the one read of one source, under
+one failure policy, returning `XgSourceDecoded` or `XgSourceFailed`. The
+walk keeps no read and no catch of its own. A decoded source is iterated; a
+failed one is recorded and logged, and the walk continues with the next. A
+cancellation (`OperationCanceledException`) is never an outcome, so it
+propagates out of the walk and leaves it incomplete — the old catch-all
+counted it as a rejected file. A usage error the read refuses propagates
+the same way.
 
 The output shape is selected by passing the producer's row surface or its
 record surface as the source delegate (the private `Rows` / `Records`,
@@ -1040,23 +1055,27 @@ the one place each is called), together with the shape's view: a row is
 its own view, a record is filtered through `ViewFor(ranking)`. So the
 filter calls bind identically for either shape, under the one ranking.
 
-The read is always deferred into the thunk and invoked inside
-`IterateSources`'s try/catch, so a malformed *file/stream content* is
-logged and skipped (iteration continues). A malformed *stream name*
-(null/blank/extension-less name, null `Data`) is a different category —
-a usage error — and `RequireValid` throws `ArgumentException` from the
-`ToSources` projection, *outside* the try/catch, so it is never
-swallowed as a skipped file. `sourceFile` is passed straight through to
-the producer and **must carry its extension** — the producer's
-`DecisionId` stamping derives the `.xg`/`.xgp`/`.json` discrimination
-from `Path.GetExtension(sourceFile)` and throws on an extension-less
-name. The directory mapper preserves it; the stream mapper validates it.
+The read is always deferred into the thunk and invoked by
+`IterateSources` in walk order, so a malformed *file/stream content* is a
+failed outcome, logged and skipped (iteration continues). A misused
+*stream entry* is a different category — a usage error — in two places,
+each owned once: `RequireValid` throws `ArgumentException` from the
+`ToSources` projection for what the iterator owns (a null/blank/
+extension-less name, a null `Data`), before the source is attempted; and
+`XgSourceReader.ReadStream` throws it for what the converter owns, a
+stream it cannot decode in place (not readable, not seekable, not at
+position 0), when the attempt starts. Neither is ever recorded as a
+skipped file. `sourceName` is passed straight through to the producer and
+**must carry its extension** — the producer's `DecisionId` stamping
+derives the `.xg`/`.xgp`/`.json` discrimination from
+`Path.GetExtension(sourceFile)` and throws on an extension-less name. The
+directory mapper preserves it; the stream mapper validates it.
 
-Files that fail to read are skipped and logged via
-`ILogger.LogWarning(ex, "Skipping {File}", path)` — the original
-exception (type, stack, inner) is captured on the log entry, not
-stringified. Iteration continues with the next file rather than
-aborting the run.
+Sources that fail to read are skipped and logged via
+`ILogger.LogWarning(failed.Exception, "Skipping {File}", sourceName)` —
+the failed outcome's exception (type, stack, inner) is captured on the
+log entry, not stringified. Iteration continues with the next source
+rather than aborting the run.
 
 **Rejected sources, as data** (halheinrich/backgammon#368). Every entry
 point takes an optional `SourceReport`; a caller that passes one reads,
@@ -1092,14 +1111,18 @@ a second call, or the same enumerable walked again — so nothing can
 clear, append to or replace a record once made. Claiming is lazy like
 the walk itself (obtaining an enumerable claims nothing).
 
-*What is a rejection.* Exactly the boundary the catch already had: a
-source's read threw. A source that read is readable whatever the filters
-make of its decisions. A usage error from the source projection (a blank
-or extension-less name, a null stream — `ArgumentException`), a failure
-enumerating the caller's sources, a producer, filter or consumer failure
-all propagate as before, record nothing, and leave the report
-incomplete; `AttemptedCount` and `Rejected` then describe the sources
-reached and claim nothing about the rest.
+*What is a rejection.* Exactly the converter's failed outcome: the read
+returned `XgSourceFailed`. Its exception becomes the rejection's reason in
+one place (`SourceReport.Reject`, which takes the outcome), and the
+rejection is recorded before the skip is logged. A source that read is
+readable whatever the filters make of its decisions. A cancellation is
+never a rejection — the read propagates it, and so does the walk. A usage
+error (a blank or extension-less name, a null stream, a stream the read
+cannot decode in place — `ArgumentException`), a failure enumerating the
+caller's sources, a producer, filter or consumer failure all propagate,
+record no rejection, and leave the report incomplete; `AttemptedCount` and
+`Rejected` then describe the sources reached and claim nothing about the
+rest.
 
 The constructor-injected logger is also **forwarded into the producer**,
 beside the iterator's `XgIteratorOptions` — the ranking, and no opening
@@ -1301,9 +1324,10 @@ public sealed class NamedFilterCollectionJsonConverter
 namespace XgFilter_Lib;
 
 /// A named XG-format source supplied as a stream rather than a path.
-/// FileName must carry its extension (.xg/.xgp/.json); Data is read once,
-/// forward, and is owned/disposed by the caller. See the stream-ownership
-/// pitfall below.
+/// FileName must carry its extension (.xg/.xgp/.json); Data must be
+/// readable, seekable and at position 0 (XgSourceReader.ReadStream's
+/// precondition), is read once, and is owned/disposed by the caller. See
+/// the stream-ownership pitfall below.
 public readonly record struct XgFileStream(string FileName, Stream Data);
 
 /// One source a walk could not read: the name as the caller gave it, and
@@ -1697,16 +1721,19 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
 * **`XgFileStream` ownership + lazy-read hazard.** The stream entries
   (`IterateXgStreams` / `IterateXgStreamDiagrams`) are `yield`-based, so
   each `XgFileStream.Data` is read *during enumeration*, not at the call
-  site. The caller owns the stream and must keep it open, unread, and
-  positioned at the start until enumeration reaches it — a stream disposed
-  before its deferred read throws (and is then swallowed as a skipped
-  file). The boring-safe pattern, used by the tests, is to buffer the
-  bytes up front (`new MemoryStream(File.ReadAllBytes(path))`) so the
-  stream cannot be pulled out from under the read. The iterator does not
-  dispose streams. Separately, `FileName` **must** carry its extension:
-  `RequireValid` throws `ArgumentException` on a null/blank/extension-less
-  name (a usage error, surfaced loudly) — distinct from a malformed
-  *content* stream, which is skip+logged like any unreadable file.
+  site. The caller owns the stream and must keep it open, unread, and at
+  position 0 until enumeration reaches it — and it must be seekable, since
+  XG's decoder seeks to the payload its header locates. A stream disposed,
+  advanced or forward-only by then is refused by `XgSourceReader.ReadStream`
+  as a usage error (`ArgumentException`), which ends the walk; it is never
+  a skipped file. The boring-safe pattern, used by the tests and by BgQuiz,
+  is to buffer the bytes up front (`new MemoryStream(File.ReadAllBytes(path))`)
+  and hand each walk a fresh stream over them. The iterator does not
+  dispose streams, and does not restate the converter's stream check.
+  Separately, `FileName` **must** carry its extension: `RequireValid`
+  throws `ArgumentException` on a null/blank/extension-less name (a usage
+  error, surfaced loudly) — distinct from a malformed *content* stream,
+  which is skip+logged like any unreadable file.
 * **A `SourceReport` serves one walk; make a new one per enumeration.** A
   report is claimed by the first `MoveNext` of the enumeration it was
   passed to and throws `InvalidOperationException` on any later claim —
@@ -1717,17 +1744,20 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   the second walk's first step, like the stream-name validation. A
   consumer that retains a completed report (BgQuiz's cached parse) must
   not hand that same instance to the next walk.
-* **Only a failed read is a rejection — don't widen the catch to record
-  more.** `AllRejected`'s meaning ("every file in a completed selection
-  was unreadable") depends on `Rejected` holding exactly the sources whose
-  read threw. Catching a usage error, a source-enumeration failure or a
-  filter failure to record it as a rejection would turn a bug into a
-  "file could not be read" notice, and the report's incomplete state is
-  what tells a consumer such a walk never finished. The report records
-  at the three points the pipeline already has — attempt before the
-  read, reject in the existing catch, complete after the loop — and the
-  skip warning carries the same exception instance (pinned), so the log
-  and the record cannot drift.
+* **Only a failed read is a rejection — the walk catches nothing.**
+  `AllRejected`'s meaning ("every file in a completed selection was
+  unreadable") depends on `Rejected` holding exactly the sources whose
+  read failed. The failure policy is the converter's (`XgSourceReader`),
+  and a catch around it is the converter's own named pitfall: catching a
+  cancellation turns a cancelled run into a completed one (the walk did
+  exactly that before it adopted the read), and catching a usage error, a
+  source-enumeration failure or a filter failure to record it as a
+  rejection would turn a bug into a "file could not be read" notice. The
+  report's incomplete state is what tells a consumer such a walk never
+  finished. The report records at the points the pipeline has — attempt
+  before the read, reject on the failed outcome, complete after the loop
+  — and the skip warning carries the same exception instance (pinned), so
+  the log and the record cannot drift.
 
 ## Subproject-internal next steps
 

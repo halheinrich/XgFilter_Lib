@@ -20,16 +20,20 @@ namespace XgFilter_Lib;
 /// <para>
 /// Filters and a logger are configured at construction; per-call parameters
 /// are the sources under iteration and, optionally, a
-/// <see cref="SourceReport"/>. Files that fail to read
-/// (corruption, I/O, deserialization, anything else) are skipped with a
-/// warning logged via the injected <see cref="ILogger"/>; iteration
-/// continues with the next file rather than aborting the whole run. A
-/// caller that wants that fact as data rather than as a log line — which
-/// sources were rejected and why, how many were attempted, whether the walk
-/// finished — passes a fresh <see cref="SourceReport"/> to the entry point
-/// and reads it during or after the enumeration
-/// (halheinrich/backgammon#368); the warning stays as a trace of the same
-/// event, carrying the same exception.
+/// <see cref="SourceReport"/>. Every source is read through the converter's
+/// one read of one source, <see cref="XgSourceReader"/>, in the format the
+/// entry point states — <see cref="XgSourceFormat.Xg"/> for the XG-format
+/// walks, <see cref="XgSourceFormat.Json"/> for the JSON one — and its
+/// failure policy is the walk's: a source whose read fails (corruption, I/O,
+/// deserialization, anything else) is skipped with a warning logged via the
+/// injected <see cref="ILogger"/>, and iteration continues with the next
+/// source rather than aborting the whole run. A cancellation is never a
+/// failed source: it propagates and ends the walk. A caller that wants the
+/// failures as data rather than as log lines — which sources were rejected
+/// and why, how many were attempted, whether the walk finished — passes a
+/// fresh <see cref="SourceReport"/> to the entry point and reads it during
+/// or after the enumeration (halheinrich/backgammon#368); the warning stays
+/// as a trace of the same event, carrying the same exception.
 /// </para>
 ///
 /// <para>
@@ -105,7 +109,7 @@ public sealed class FilteredDecisionIterator
     /// <see cref="SourceReport"/> for the one-walk contract.
     /// </param>
     public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir, SourceReport? report = null) =>
-        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile, Rows, AsView, report);
+        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, Rows, AsView, report);
 
     /// <summary>
     /// Iterates all .json files in <paramref name="jsonDir"/> and returns
@@ -119,7 +123,7 @@ public sealed class FilteredDecisionIterator
     /// <see cref="SourceReport"/> for the one-walk contract.
     /// </param>
     public IEnumerable<DecisionRow> IterateJsonDirectory(string jsonDir, SourceReport? report = null) =>
-        IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"), XgFileReader.ReadJson, Rows, AsView, report);
+        IterateFiles(Directory.EnumerateFiles(jsonDir, "*.json"), XgSourceFormat.Json, Rows, AsView, report);
 
     /// <summary>
     /// Iterates every XG-format file in <paramref name="xgDir"/> — both
@@ -138,27 +142,28 @@ public sealed class FilteredDecisionIterator
     /// <see cref="SourceReport"/> for the one-walk contract.
     /// </param>
     public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir, SourceReport? report = null) =>
-        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgFileReader.ReadFile, Records, ViewOf, report);
+        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, Records, ViewOf, report);
 
     /// <summary>
     /// Iterates a caller-supplied list of XG-format files presented as named
     /// streams — the directory-free counterpart to
     /// <see cref="IterateXgDirectory"/> for callers that hold the bytes rather
     /// than a server path (e.g. a WASM client parsing browser-picked files).
-    /// Each <see cref="XgFileStream.Data"/> stream is parsed via
-    /// <see cref="XgFileReader.ReadStream"/>; filter semantics, malformed-file
+    /// Each <see cref="XgFileStream.Data"/> stream is read through
+    /// <see cref="XgSourceReader.ReadStream"/>; filter semantics, malformed-file
     /// skip+log behaviour, and the early-exit pipeline are identical to the
     /// directory overload. Yields <see cref="DecisionRow"/> built for the
     /// configured ranking.
     /// </summary>
     /// <remarks>
-    /// See <see cref="XgFileStream"/> for the stream ownership, single-forward-read,
+    /// See <see cref="XgFileStream"/> for the stream ownership, precondition
     /// and laziness contract. <see cref="XgFileStream.FileName"/> must be non-blank
-    /// and carry its extension; the iterator throws <see cref="ArgumentException"/>
-    /// when it reaches an entry that violates this. A stream that fails to parse
-    /// (corruption, truncation, anything else) is skipped and logged — and
-    /// recorded on <paramref name="report"/> when one is passed; only a
-    /// malformed <i>name</i> is treated as a usage error.
+    /// and carry its extension, and <see cref="XgFileStream.Data"/> must be
+    /// readable, seekable and at position 0; the iterator throws
+    /// <see cref="ArgumentException"/> when it reaches an entry that violates
+    /// either. A stream that fails to parse (corruption, truncation, anything
+    /// else) is skipped and logged — and recorded on <paramref name="report"/>
+    /// when one is passed; only a misused <i>entry</i> is a usage error.
     /// </remarks>
     /// <param name="files">The named streams to walk, lazily.</param>
     /// <param name="report">
@@ -221,32 +226,38 @@ public sealed class FilteredDecisionIterator
 
     /// <summary>
     /// Projects caller-supplied <see cref="XgFileStream"/> entries onto the
-    /// <c>(sourceFile, deferred-read)</c> pairs that <see cref="IterateSources{T}"/>
-    /// consumes. Validation runs lazily as each entry is reached during
-    /// enumeration — a usage error (null/blank/extension-less name, null stream)
-    /// throws <see cref="ArgumentException"/> rather than being swallowed as a
-    /// skipped file. The read itself is deferred into the returned thunk so a
-    /// parse failure surfaces inside <see cref="IterateSources{T}"/>'s try/catch
-    /// and is skipped+logged, exactly as for directory files.
+    /// <c>(sourceName, deferred-read)</c> pairs that <see cref="IterateSources{T}"/>
+    /// consumes. The entry's own validation runs lazily as each entry is
+    /// reached during enumeration — a usage error (null/blank/extension-less
+    /// name, null stream) throws <see cref="ArgumentException"/> before the
+    /// source is attempted, rather than being recorded as a rejection. The read
+    /// itself is deferred into the returned thunk, so <see cref="IterateSources{T}"/>
+    /// attempts it in walk order and handles its outcome exactly as for a
+    /// directory file. The stream's own state — readable, seekable, at
+    /// position 0 — is the converter's precondition, validated by
+    /// <see cref="XgSourceReader.ReadStream"/> when the read is attempted.
     /// </summary>
-    private static IEnumerable<(string sourceFile, Func<XgFile> read)> ToSources(
+    private static IEnumerable<(string sourceName, Func<XgSourceRead> read)> ToSources(
         IEnumerable<XgFileStream> files) =>
         files.Select(file =>
         {
-            // sourceFile must carry the extension — see RequireValid and the
+            // The name must carry the extension — see RequireValid and the
             // IterateSources contract comment. Validated here, eagerly per entry,
             // so a bad name fails fast instead of reaching the producer.
             Stream data = RequireValid(file);
-            return (file.FileName, (Func<XgFile>)(() => XgFileReader.ReadStream(data)));
+            return (file.FileName,
+                (Func<XgSourceRead>)(() => XgSourceReader.ReadStream(file.FileName, data, XgSourceFormat.Xg)));
         });
 
     /// <summary>
-    /// Enforces the <see cref="XgFileStream"/> usage contract for one entry and
-    /// returns its stream. Validation lives at the API boundary rather than in
-    /// the record-struct constructor because <c>default(XgFileStream)</c> would
-    /// bypass any primary-constructor guard, and "the name must carry an
-    /// extension" is the iterator's contract, not an intrinsic property of a
-    /// filename+stream pair.
+    /// Enforces the <see cref="XgFileStream"/> usage contract this iterator
+    /// owns for one entry — a name carrying its extension, and a stream to
+    /// read — and returns its stream. Validation lives at the API boundary
+    /// rather than in the record-struct constructor because
+    /// <c>default(XgFileStream)</c> would bypass any primary-constructor guard,
+    /// and "the name must carry an extension" is the iterator's contract, not
+    /// an intrinsic property of a filename+stream pair. Whether the stream can
+    /// be decoded in place is the converter's rule, and stays there.
     /// </summary>
     private static Stream RequireValid(XgFileStream file)
     {
@@ -265,43 +276,48 @@ public sealed class FilteredDecisionIterator
 
         return file.Data
             ?? throw new ArgumentException(
-                $"XgFileStream.Data for '{file.FileName}' must be a non-null, open, " +
-                "forward-readable stream positioned at the start of the file.",
+                $"XgFileStream.Data for '{file.FileName}' must be a stream holding the file " +
+                "(readable, seekable, at position 0), not null.",
                 nameof(file));
     }
 
     /// <summary>
     /// Maps a directory walk onto the shared <see cref="IterateSources{T}"/>
-    /// core: each path becomes a <c>(sourceFile, deferred-read)</c> pair, where
-    /// <c>sourceFile = Path.GetFileName(path)</c> (extension preserved — see the
-    /// contract comment in <see cref="IterateSources{T}"/>) and the read is
-    /// deferred so a failed read is skipped+logged rather than aborting the walk.
+    /// core: each path becomes a <c>(sourceName, deferred-read)</c> pair, where
+    /// <c>sourceName = Path.GetFileName(path)</c> (extension preserved — see the
+    /// contract comment in <see cref="IterateSources{T}"/>) and the read, in the
+    /// <paramref name="format"/> the walk states, is deferred so the core
+    /// attempts it in walk order.
     /// </summary>
     private IEnumerable<T> IterateFiles<T>(
         IEnumerable<string> paths,
-        Func<string, XgFile> reader,
+        XgSourceFormat format,
         Func<XgFile, string, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source,
         Func<T, IDecisionFilterData> view,
         SourceReport? report) =>
         IterateSources(
-            paths.Select(path => (Path.GetFileName(path), (Func<XgFile>)(() => reader(path)))),
+            paths.Select(path => (Path.GetFileName(path),
+                (Func<XgSourceRead>)(() => XgSourceReader.ReadFile(path, format)))),
             source,
             view,
             report);
 
     /// <summary>
-    /// The single-sourced filter / early-exit / skip-and-continue pipeline,
-    /// shared by every directory and stream entry point. Iterates
-    /// <c>(sourceFile, deferred-read)</c> pairs: the read is invoked inside the
-    /// try/catch so a malformed file is logged and skipped (iteration continues
-    /// with the next entry), the validated <paramref name="sources"/> name is
-    /// handed to the producer as the decision's <c>SourceFile</c>, and every
-    /// produced item is gated by <see cref="DecisionFilterSet.Matches"/> on
-    /// its <paramref name="view"/> for the configured ranking — a row as
-    /// itself, a record through <see cref="BgDecisionData.ViewFor"/>.
+    /// The single-sourced read / filter / early-exit pipeline, shared by every
+    /// directory and stream entry point. Iterates
+    /// <c>(sourceName, deferred-read)</c> pairs: each read is the converter's
+    /// (<see cref="XgSourceReader"/>), whose outcome decides what follows — a
+    /// decoded source is iterated, its validated <paramref name="sources"/>
+    /// name handed to the producer as the decision's <c>SourceFile</c>, and
+    /// every produced item gated by <see cref="DecisionFilterSet.Matches"/> on
+    /// its <paramref name="view"/> for the configured ranking (a row as itself,
+    /// a record through <see cref="BgDecisionData.ViewFor"/>); a failed source
+    /// is recorded and logged, and the walk goes on with the next. The walk
+    /// catches nothing: the read's failure policy is the converter's, so a
+    /// cancellation, and a usage error the read refuses, propagate.
     ///
     /// <para>
-    /// Contract: <c>sourceFile</c> is passed straight through to the producer
+    /// Contract: <c>sourceName</c> is passed straight through to the producer
     /// and must carry its extension — the producer's <c>DecisionId</c> stamping
     /// derives the .xg/.xgp/.json discrimination from
     /// <c>Path.GetExtension(sourceFile)</c>, and an extension-less name throws
@@ -311,20 +327,20 @@ public sealed class FilteredDecisionIterator
     /// </para>
     ///
     /// <para>
-    /// The report, when one is passed, is written at exactly the points the
-    /// pipeline already has: claimed when this walk starts (the enumeration's
-    /// first <c>MoveNext</c>, so a report reused across walks fails on the
-    /// second walk's first step), one attempt per source as its read starts,
-    /// one rejection in the catch that already logs the skip — the same
-    /// exception, so the log is a trace of the record and never a second
-    /// source of it — and completion after the last source. Nothing outside
-    /// the catch is recorded: a usage error thrown by the <paramref name="sources"/>
-    /// projection, a failure in the producer, a filter or the consumer all
-    /// leave the walk, and the report, incomplete.
+    /// The report, when one is passed, is written at the points the pipeline
+    /// has: claimed when this walk starts (the enumeration's first
+    /// <c>MoveNext</c>, so a report reused across walks fails on the second
+    /// walk's first step), one attempt per source as its read starts, one
+    /// rejection per failed outcome — before the skip is logged, carrying the
+    /// outcome's own exception, so the log is a trace of the record and never
+    /// a second source of it — and completion after the last source. Nothing
+    /// else is recorded: a usage error thrown by the <paramref name="sources"/>
+    /// projection or by the read, a cancellation, a failure in the producer, a
+    /// filter or the consumer all leave the walk, and the report, incomplete.
     /// </para>
     /// </summary>
     private IEnumerable<T> IterateSources<T>(
-        IEnumerable<(string sourceFile, Func<XgFile> read)> sources,
+        IEnumerable<(string sourceName, Func<XgSourceRead> read)> sources,
         Func<XgFile, string, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source,
         Func<T, IDecisionFilterData> view,
         SourceReport? report)
@@ -337,26 +353,22 @@ public sealed class FilteredDecisionIterator
             StopGameAfter:  _filters.ShouldAdvanceGame,
             StopMatchAfter: _filters.ShouldAdvanceMatch);
 
-        foreach (var (sourceFile, read) in sources)
+        foreach (var (sourceName, read) in sources)
         {
-            XgFile file;
             report?.Attempted();
-            try
-            {
-                file = read();
-            }
-            catch (Exception ex)
-            {
-                // The record before the trace: a logger that throws still
-                // propagates and still leaves the walk incomplete, but the
-                // source that failed to read is already on the report rather
-                // than counted as readable by its absence.
-                report?.Reject(sourceFile, ex);
-                _logger.LogWarning(ex, "Skipping {File}", sourceFile);
-                continue;
-            }
+            var decisions = read().Match(
+                decoded => source(decoded.File, sourceName, null, callbacks),
+                failed =>
+                {
+                    // The record before the trace: a logger that throws still
+                    // propagates and still leaves the walk incomplete, but the
+                    // source that failed to read is already on the report.
+                    report?.Reject(sourceName, failed);
+                    _logger.LogWarning(failed.Exception, "Skipping {File}", sourceName);
+                    return [];
+                });
 
-            foreach (var item in source(file, sourceFile, null, callbacks))
+            foreach (var item in decisions)
             {
                 if (!_filters.Matches(view(item))) continue;
                 yield return item;

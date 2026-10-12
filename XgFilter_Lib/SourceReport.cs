@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ConvertXgToJson_Lib;
 
 namespace XgFilter_Lib;
 
@@ -26,14 +27,17 @@ namespace XgFilter_Lib;
 ///
 /// <para>
 /// <b>What counts.</b> A source is <em>attempted</em> when the iterator
-/// starts reading it, and <em>rejected</em> when that read throws — the one
-/// boundary the iterator already skipped and logged, and the only one this
-/// report records. A source that reads is readable whether or not any of its
-/// decisions pass the filters. An invalid source name or null stream (a usage
-/// error, <see cref="ArgumentException"/>), a failure enumerating the sources
-/// themselves, and a failure inside a filter or the consumer's loop all
-/// propagate exactly as before and are never a rejection; they leave the
-/// report incomplete.
+/// starts reading it, and <em>rejected</em> when that read fails — when the
+/// converter's read (<see cref="XgSourceReader"/>) returns
+/// <see cref="XgSourceFailed"/>, the one outcome the iterator skips and logs,
+/// and the only one this report records as a rejection. A source that reads
+/// is readable whether or not any of its decisions pass the filters. A
+/// cancellation is never a rejection: it propagates out of the walk and
+/// leaves the report incomplete. Nor is a usage error (an invalid source
+/// name, a null stream, a stream the read cannot decode in place —
+/// <see cref="ArgumentException"/>), a failure enumerating the sources
+/// themselves, or a failure inside the producer, a filter or the consumer's
+/// loop: each propagates and leaves the report incomplete.
 /// </para>
 ///
 /// <para>
@@ -113,9 +117,14 @@ public sealed class SourceReport
     /// <summary>Records that a source's read is starting.</summary>
     internal void Attempted() => AttemptedCount++;
 
-    /// <summary>Records that the source just attempted could not be read.</summary>
-    internal void Reject(string sourceName, Exception reason) =>
-        _rejected = _rejected.Add(new SourceRejection(sourceName, reason));
+    /// <summary>
+    /// Records that the source just attempted could not be read: the
+    /// converter's failed outcome, projected into a <see cref="SourceRejection"/>
+    /// here and nowhere else, under the name the walk gave the source and with
+    /// the exception that failed it.
+    /// </summary>
+    internal void Reject(string sourceName, XgSourceFailed failure) =>
+        _rejected = _rejected.Add(new SourceRejection(sourceName, failure.Exception));
 
     /// <summary>Records that the walk reached the end of its sources.</summary>
     internal void Complete() => IsComplete = true;

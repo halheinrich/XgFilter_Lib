@@ -2,9 +2,11 @@ namespace XgFilter_Lib;
 
 /// <summary>
 /// One source a <see cref="FilteredDecisionIterator"/> walk could not read:
-/// the name the caller gave it and the exception the read raised. Recorded
-/// on a <see cref="SourceReport"/> at the moment the iterator skips the
-/// source and continues (halheinrich/backgammon#368).
+/// the name the caller gave it and the exception that failed its read.
+/// Recorded on a <see cref="SourceReport"/> at the moment the iterator skips
+/// the source and continues (halheinrich/backgammon#368) — the projection of
+/// the converter's failed outcome, <see cref="ConvertXgToJson_Lib.XgSourceFailed"/>,
+/// whose exception it carries unchanged.
 ///
 /// <para>
 /// <see cref="Reason"/> is the read's own exception, carried as the value it
@@ -42,6 +44,10 @@ public sealed record SourceRejection
     /// </summary>
     public string SourceName { get; }
 
-    /// <summary>The exception the read raised; never null.</summary>
+    /// <summary>
+    /// The exception that failed the read — the converter's
+    /// <see cref="ConvertXgToJson_Lib.XgSourceFailed.Exception"/>, never a
+    /// cancellation; never null.
+    /// </summary>
     public Exception Reason { get; }
 }

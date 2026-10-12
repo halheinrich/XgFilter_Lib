@@ -19,15 +19,27 @@ namespace XgFilter_Lib;
 /// </para>
 ///
 /// <para>
-/// <b>Stream ownership and lifetime.</b> The iterator reads each
-/// <see cref="Data"/> stream exactly once, forward, from its current
-/// position — which must be the start of the file (a fresh
-/// <c>new MemoryStream(bytes)</c> satisfies this). The caller owns the stream
-/// and is responsible for disposing it; the iterator does not close it. Because
-/// the iterator methods are lazy (<c>yield</c>-based), the read happens during
-/// enumeration, not at the call site: the caller must keep every stream open
-/// and unread until enumeration reaches it. If that lifetime cannot be
-/// guaranteed, buffer the bytes first (<c>new MemoryStream(File.ReadAllBytes(...))</c>
+/// <b>The stream must be readable, seekable and at position 0.</b> The
+/// iterator reads each <see cref="Data"/> stream through the converter's
+/// <see cref="ConvertXgToJson_Lib.XgSourceReader.ReadStream"/>, whose
+/// precondition this is: XG's header states its payload's offset from the
+/// file's first byte and the decoder seeks there, so the stream must hold
+/// the file from position 0 and be able to seek. A stream that is not
+/// readable (a disposed one is not), not seekable, or not at position 0 is a
+/// usage error, thrown when the iterator reaches it, and never a rejected
+/// source. A fresh <c>new MemoryStream(bytes)</c> satisfies the
+/// precondition; a forward-only source (a network or upload stream) is
+/// buffered first.
+/// </para>
+///
+/// <para>
+/// <b>Stream ownership and lifetime.</b> The caller owns the stream and is
+/// responsible for disposing it; the iterator does not close it, and leaves
+/// its position wherever decoding did. Because the iterator methods are lazy
+/// (<c>yield</c>-based), the read happens during enumeration, not at the
+/// call site: the caller must keep every stream open, and at position 0,
+/// until enumeration reaches it. If that lifetime cannot be guaranteed,
+/// buffer the bytes first (<c>new MemoryStream(File.ReadAllBytes(...))</c>
 /// or <c>ReadOnlyMemory&lt;byte&gt;</c>-backed) so the stream cannot be
 /// disposed out from under the deferred read.
 /// </para>
@@ -38,7 +50,7 @@ namespace XgFilter_Lib;
 /// <c>SourceFile</c>; never stripped.
 /// </param>
 /// <param name="Data">
-/// An open, forward-readable stream positioned at the start of the file's
-/// bytes. Read once during enumeration; owned and disposed by the caller.
+/// An open stream holding the file's bytes: readable, seekable, and at
+/// position 0. Read once during enumeration; owned and disposed by the caller.
 /// </param>
 public readonly record struct XgFileStream(string FileName, Stream Data);
