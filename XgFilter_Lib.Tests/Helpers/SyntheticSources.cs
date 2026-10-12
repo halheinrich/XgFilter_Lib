@@ -63,6 +63,24 @@ internal static class SyntheticSources
         return builder.Build();
     }
 
+    /// <summary>
+    /// The standard opening in XG's player-1 frame with one of player 1's
+    /// checkers moved from the 6-point to the 5-point: a game that does not
+    /// start from the standard position, from which the opening sequence of
+    /// <see cref="WithMoves"/> is still legal.
+    /// </summary>
+    public static IReadOnlyList<int> NonStandardStart { get; } = Board(
+        (24, 2), (13, 5), (8, 3), (6, 4), (5, 1),
+        (1, -2), (12, -5), (17, -3), (19, -5));
+
+    private static int[] Board(params (int Index, int Count)[] cells)
+    {
+        var board = new int[26];
+        foreach (var (index, count) in cells)
+            board[index] = count;
+        return board;
+    }
+
     /// <summary>The analysed-cube equities the synthesized cube decisions share; nothing here reads them.</summary>
     public static readonly XgCubeEquities Equities = new(NoDouble: 0.30, DoubleTake: 0.45, DoubleDrop: 1.0);
 

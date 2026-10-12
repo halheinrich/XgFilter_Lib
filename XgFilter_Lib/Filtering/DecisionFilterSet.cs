@@ -4,7 +4,10 @@ namespace XgFilter_Lib.Filtering;
 
 /// <summary>
 /// An ordered list of <see cref="IDecisionFilter"/> instances combined with AND semantics.
-/// A row must satisfy every filter to pass.
+/// A row must satisfy every filter to pass. The set's skip and advance votes
+/// are any member's, and each is sound for the whole set because its members
+/// honour the hint contract on <see cref="IDecisionFilter"/>: early exit
+/// driven by them never changes what <see cref="Matches"/> accepts.
 /// </summary>
 public sealed class DecisionFilterSet
 {
@@ -47,27 +50,35 @@ public sealed class DecisionFilterSet
 
     /// <summary>
     /// Pre-stream: true if any <see cref="IMatchFilter"/> in the set votes to
-    /// skip the match from header metadata alone.
+    /// skip the match from header metadata alone. One vote suffices: it
+    /// guarantees no decision in the match passes that filter, so none passes
+    /// the set (the hint contract on <see cref="IDecisionFilter"/>).
     /// </summary>
     public bool ShouldSkipMatch(IMatchInfo match) =>
         _filters.OfType<IMatchFilter>().Any(f => f.ShouldSkipMatch(match));
 
     /// <summary>
     /// Pre-stream: true if any <see cref="IMatchFilter"/> in the set votes to
-    /// skip the game from header metadata alone.
+    /// skip the game from header metadata alone. One vote suffices, as for
+    /// <see cref="ShouldSkipMatch"/>.
     /// </summary>
     public bool ShouldSkipGame(IGameInfo game) =>
         _filters.OfType<IMatchFilter>().Any(f => f.ShouldSkipGame(game));
 
     /// <summary>
-    /// Mid-stream: true if any filter — evaluating the just-matched row —
-    /// votes to cut the rest of the current game.
+    /// Mid-stream: true if any filter, given the decision just yielded —
+    /// matching the set or not; the vote is never gated on
+    /// <see cref="Matches"/> — votes to cut the rest of the current game. One
+    /// vote suffices: it guarantees no later decision in the game passes that
+    /// filter, so none passes the set (the hint contract on
+    /// <see cref="IDecisionFilter"/>).
     /// </summary>
     public bool ShouldAdvanceGame(IDecisionFilterData data) => _filters.Any(f => f.ShouldAdvanceGame(data));
 
     /// <summary>
-    /// Mid-stream: true if any filter — evaluating the just-matched row —
-    /// votes to cut the rest of the current match.
+    /// Mid-stream: true if any filter, given the decision just yielded —
+    /// matching the set or not — votes to cut the rest of the current match.
+    /// One vote suffices, as for <see cref="ShouldAdvanceGame"/>.
     /// </summary>
     public bool ShouldAdvanceMatch(IDecisionFilterData data) => _filters.Any(f => f.ShouldAdvanceMatch(data));
 }

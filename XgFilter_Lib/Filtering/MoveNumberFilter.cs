@@ -19,9 +19,9 @@ namespace XgFilter_Lib.Filtering;
 /// Non-standard-start games (custom problem positions, Bg960, etc.) are
 /// dropped wholesale via <see cref="IMatchFilter.ShouldSkipGame"/>; for them
 /// no canonical move numbering is meaningful. Within standard-start games,
-/// once a decision past <c>max</c> has been seen
-/// <see cref="ShouldAdvanceGame"/> signals the iterator to skip the rest of
-/// the game — move number is monotonically increasing per game, so no
+/// once a decision past <c>max</c> has been seen — a decision this filter
+/// rejects — <see cref="ShouldAdvanceGame"/> signals the iterator to skip
+/// the rest of the game: move number never decreases within a game, so no
 /// later decision can match.
 /// </para>
 ///
@@ -138,12 +138,18 @@ internal sealed class MoveNumberFilter : IDecisionFilter, IMatchFilter
 
     /// <summary>
     /// Mid-stream early exit: once a decision past <c>max</c> is seen, no
-    /// later decision in the same game can match, since move numbers
-    /// increase monotonically. Does not need to check
-    /// <see cref="IDecisionFilterData.IsStandardStart"/>: non-standard games
-    /// are skipped by <see cref="ShouldSkipGame"/> before any rows reach the
-    /// row-level pipeline. A standalone position has no move number and
-    /// belongs to no game, so it never votes to advance.
+    /// later decision in the same game can match, since move numbers never
+    /// decrease within a game. The decision voted on fails
+    /// <see cref="Matches"/> itself, and that is the point: the hint is given
+    /// every decision yielded, never only the matching ones, so the first
+    /// decision past the maximum is what ends the game (the hint contract on
+    /// <see cref="IDecisionFilter"/>). The vote needs no
+    /// <see cref="IDecisionFilterData.IsStandardStart"/> check: in a game that
+    /// did not start from the standard position no decision passes this
+    /// filter at all, so any vote there is sound — and
+    /// <see cref="ShouldSkipGame"/> skips such a game before it yields one. A
+    /// standalone position has no move number and belongs to no game, so it
+    /// never votes to advance.
     /// </summary>
     public bool ShouldAdvanceGame(IDecisionFilterData data) =>
         _max is int max && data.MoveNumber is int move && move > max;

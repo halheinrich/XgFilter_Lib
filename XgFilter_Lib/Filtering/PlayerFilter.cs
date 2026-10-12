@@ -27,7 +27,10 @@ internal sealed class PlayerFilter : IDecisionFilter, IMatchFilter
         data.Player is { } player && _players.Contains(player);
 
     /// <summary>
-    /// Skip the match if neither player is in the include list.
+    /// Skip the match if neither player is in the include list: every
+    /// decision's player is one of the header's two, so none can then pass
+    /// (the skip guarantee on <see cref="IMatchFilter"/>). Compared the way
+    /// <see cref="Matches"/> compares, case-insensitively.
     /// </summary>
     public bool ShouldSkipMatch(IMatchInfo match) =>
         !_players.Contains(match.Player1) && !_players.Contains(match.Player2);

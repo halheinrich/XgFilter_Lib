@@ -223,17 +223,31 @@ surface, and are reachable from the test project via
 * `IDecisionFilter` — `bool Matches(IDecisionFilterData data)`. Two virtual
   defaults for game/match-level early-exit hints:
   `ShouldAdvanceGame(data)` and `ShouldAdvanceMatch(data)`, both returning
-  `false` unless a filter opts in.
+  `false` unless a filter opts in. **The hint contract**, stated on the
+  interface (halheinrich/backgammon#373, Hal's ruling of 2026-10-08): an
+  advance hint receives any just-yielded decision, whether or not it
+  matches, and is never gated on `Matches`; a true vote guarantees that no
+  later decision in the relevant game or match can pass that filter. It
+  says nothing about the decision voted on — `MoveNumberFilter`'s vote
+  comes from the first decision past the maximum, which it rejects. What
+  the contract buys is **Early exit only saves work** (under Iteration).
+  Until this leg the interface said the hints were called "after `data`
+  has matched", which the producer never did and `MoveNumberFilter`'s
+  cutoff could not have worked under.
 * `IMatchFilter` — optional extension for filters that can skip an entire
   match or game before any rows are yielded:
   `ShouldSkipMatch(IMatchInfo)` and `ShouldSkipGame(IGameInfo)`. Filters
-  implement both interfaces where applicable.
+  implement both interfaces where applicable. The skip hints carry the same
+  guarantee from the header: a true vote means no decision in the match or
+  game can pass the filter; a false one promises nothing.
 * `DecisionFilterSet` — ordered list of `IDecisionFilter` combined with AND
   semantics. Fluent `Add()`. `IsEmpty` is the SSOT for "no filters
   active" — consumers consult it rather than re-inspecting whatever
   config produced the set. `Matches()` passes when every filter passes (or
   the set is empty). `ShouldSkipMatch` / `ShouldSkipGame` delegate to any
-  filter in the set that also implements `IMatchFilter`. Duplicates of the
+  filter in the set that also implements `IMatchFilter`, and the advance
+  votes to any filter: one member's vote is sound for the set, since the
+  set is an AND. Duplicates of the
   same concrete filter type are allowed and compose with AND (e.g. two
   `ErrorRangeFilter`s intersect their ranges).
 * `FilterConfig` — serializable, default-constructible, mutable DTO that
@@ -499,7 +513,14 @@ surface, and are reachable from the test project via
   occurred, and a post-Crawford `(1, m)` requires `m < max(current)`.
   `ShouldAdvanceGame` deliberately stays at the interface default
   (false): a matching decision can be followed by mirror-orientation
-  decisions in the same game, so there is no sound game-level cut.
+  decisions in the same game, so there is no sound game-level cut. Wired
+  beside the filter's own `ShouldSkipGame`, as the iterator wires them,
+  `ShouldAdvanceMatch` never votes true: every decision's session is built
+  from its game's standing (ConvertXgToJson_Lib `MatchContext.SessionFor`),
+  so a game no tuple matches in either orientation — the only game it could
+  cut from — was skipped at its header before it yielded a decision. The
+  hint is sound standing alone, which is all the contract asks; it is
+  inert, not wrong.
 
   **Money and match are the session's kind** (halheinrich/backgammon#273).
   Every gate reads the kind the producer states — a decision's `Session`, a
@@ -1070,7 +1091,8 @@ in the walks: the file name with its extension.
   filter changes (ExtractFromXgToCsv's web mode) applies
   `DecisionFilterSet.Matches` to each retained row or record view itself:
   the filtering rules are this library's in both strategies, and only the
-  execution differs.
+  execution differs. The two agree because early exit never changes what
+  passes (**Early exit only saves work**, below).
 
 Two **input** sources are exposed, both shapes for each. The directory
 methods above walk a filesystem path. The stream methods —
@@ -1263,6 +1285,22 @@ callbacks. The producer owns iteration control; the consumer owns
 the predicates; `XgIteratorState` remains a read-only observer for
 callers that want per-row context (this consumer does not).
 
+**Early exit only saves work** (halheinrich/backgammon#373, Hal's ruling
+of 2026-10-08). For any filter set whose filters honour the hint contract
+on `IDecisionFilter`, and any source, the filtering operation yields
+exactly the decisions `DecisionFilterSet.Matches` accepts from what the
+producer yields for that source with no callbacks, in the same order. Each
+vote guarantees no later decision in its scope passes its filter, and the
+set is an AND, so a cut drops only decisions the set would reject. That is
+what lets a consumer refilter retained, unfiltered decisions with `Matches`
+and agree with one that streams. The guarantee holds for `.xgp` sources
+too because the producer runs its stop callbacks only on decisions it
+yields to its caller, after the single-decision selection
+(halheinrich/backgammon#392, fixed in ConvertXgToJson_Lib); before that, a
+vote cast on an `.xgp`'s cube could make the selection fall back to it.
+`EarlyExitEquivalenceTests` enforces the guarantee; its doc comment says
+what it compares and over which sources.
+
 ## Public API
 
 ```csharp
@@ -1307,6 +1345,9 @@ public sealed class StrictJsonStringEnumConverter<TEnum> : JsonStringEnumConvert
 ```csharp
 namespace XgFilter_Lib.Filtering;
 
+/// The hint contract: an advance hint receives any just-yielded decision,
+/// matching or not; a true vote guarantees no later decision in the game /
+/// match can pass this filter. So early exit never changes the result.
 public interface IDecisionFilter
 {
     bool Matches(IDecisionFilterData data);
@@ -1701,6 +1742,14 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
 * **`IDecisionFilter.ShouldAdvanceGame` / `ShouldAdvanceMatch` default to
   `false`.** A filter that *can* early-exit mid-game must override them.
   Missing an override is silent — rows just stop being skipped.
+* **A hint is judged on every decision yielded, and must be sound for
+  each.** Don't gate the advance hints on `Matches` (in the wiring or in a
+  filter): the vote that ends a game is often cast on a decision the
+  filter rejects — `MoveNumberFilter`'s first move past the maximum — and
+  gating it loses the cut. And never vote true where a later decision could
+  still pass: the cut drops it silently, and the filtering operation then
+  disagrees with `Matches` over the same decisions. `EarlyExitEquivalenceTests`
+  is the pin for both; a new hint gets a case there.
 * **`PositionType` is multi-membership by design.** A position can satisfy
   several structural categories at once (e.g. InnerBoard631 +
   VsTwoPlusUp). `PositionTypeFilter` takes the union: a row passes when

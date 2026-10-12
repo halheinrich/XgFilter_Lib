@@ -210,6 +210,14 @@ internal sealed class MatchScoreFilter : IDecisionFilter, IMatchFilter
     /// once-per-match Crawford rule. A money session always returns false:
     /// it has no away scores to run down, and its rule is the same in every
     /// game, which <see cref="ShouldSkipMatch"/> has already judged.
+    /// <para>
+    /// Given any decision yielded, matching or not (the hint contract on
+    /// <see cref="IDecisionFilter"/>). Wired beside this filter's own
+    /// <see cref="ShouldSkipGame"/>, as the iterator wires them, it never
+    /// votes true: a vote needs a game no tuple matches in either orientation,
+    /// and that game's header was skipped before it yielded a decision. It is
+    /// sound standing alone, which is what the contract asks of it.
+    /// </para>
     /// </summary>
     public bool ShouldAdvanceMatch(IDecisionFilterData data) => data.Session.Match(
         static _ => false,
