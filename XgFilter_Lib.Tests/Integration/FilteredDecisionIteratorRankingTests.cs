@@ -57,6 +57,8 @@ public class FilteredDecisionIteratorRankingTests
         nameof(FilteredDecisionIterator.IterateXgStreams),
         nameof(FilteredDecisionIterator.IterateXgDirectoryDiagrams),
         nameof(FilteredDecisionIterator.IterateXgStreamDiagrams),
+        nameof(FilteredDecisionIterator.IterateFile),
+        nameof(FilteredDecisionIterator.IterateFileDiagrams),
     ];
 
     /// <summary>
@@ -64,7 +66,7 @@ public class FilteredDecisionIteratorRankingTests
     /// for <paramref name="file"/> through an iterator built with
     /// <paramref name="filters"/> under <paramref name="ranking"/> — the file
     /// staged as the entry point reads it: a directory holding its XG bytes or
-    /// its JSON, or a named stream of its bytes.
+    /// its JSON, a named stream of its bytes, or the parsed file itself.
     /// </summary>
     private static List<DecisionId> Run(
         string entryPoint, XgFile file, DecisionFilterSet filters, PlayRanking ranking)
@@ -90,6 +92,10 @@ public class FilteredDecisionIteratorRankingTests
                     iterator.IterateXgDirectoryDiagrams(dir).Select(d => d.Id).ToList(),
                 nameof(FilteredDecisionIterator.IterateXgStreamDiagrams) =>
                     iterator.IterateXgStreamDiagrams(streams).Select(d => d.Id).ToList(),
+                nameof(FilteredDecisionIterator.IterateFile) =>
+                    iterator.IterateFile(file, "match.xg").Select(r => r.Id).ToList(),
+                nameof(FilteredDecisionIterator.IterateFileDiagrams) =>
+                    iterator.IterateFileDiagrams(file, "match.xg").Select(d => d.Id).ToList(),
                 _ => throw new ArgumentOutOfRangeException(nameof(entryPoint), entryPoint, null),
             };
         }

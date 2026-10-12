@@ -7,8 +7,12 @@ using XgFilter_Lib.Filtering;
 namespace XgFilter_Lib;
 
 /// <summary>
-/// Iterates over .xg or .json files in a directory and yields the
-/// decision records that pass the configured <see cref="DecisionFilterSet"/>.
+/// Yields the decisions that pass the configured <see cref="DecisionFilterSet"/>
+/// under the configured ranking: from one already-parsed source
+/// (<see cref="IterateFile"/>, <see cref="IterateFileDiagrams"/> — the
+/// filtering operation), or from a walk over many sources, a directory of
+/// .xg/.xgp or .json files or a list of named streams, which reads each
+/// source and filters each decoded one through that same operation.
 /// Two output shapes are supported: <see cref="DecisionRow"/> (CSV-flat) and
 /// <see cref="BgDecisionData"/> (diagram-shaped, with after-boards and
 /// per-candidate plays). Both share the same filter-evaluation and
@@ -18,9 +22,10 @@ namespace XgFilter_Lib;
 /// match, game, and per-row boundaries.
 ///
 /// <para>
-/// Filters and a logger are configured at construction; per-call parameters
-/// are the sources under iteration and, optionally, a
-/// <see cref="SourceReport"/>. Every source is read through the converter's
+/// Filters, the ranking, a logger and, optionally, the producer's opening
+/// book are configured at construction; per-call parameters are the source
+/// or sources under iteration and, for a walk, optionally a
+/// <see cref="SourceReport"/>. Every source a walk takes is read through the converter's
 /// one read of one source, <see cref="XgSourceReader"/>, in the format the
 /// entry point states — <see cref="XgSourceFormat.Xg"/> for the XG-format
 /// walks, <see cref="XgSourceFormat.Json"/> for the JSON one — and its
@@ -53,7 +58,9 @@ namespace XgFilter_Lib;
 /// itself does not depend on the ranking. The filters hold none of their own:
 /// they read the ranking the view or row was built for. An application
 /// without a ranking setting passes <see cref="PlayRanking.Equity"/>, the
-/// default.
+/// default. The ranking is stated here once: the opening book a caller
+/// supplies is the book alone, never producer options that could carry a
+/// second ranking.
 /// </para>
 /// </summary>
 public sealed class FilteredDecisionIterator
@@ -68,14 +75,27 @@ public sealed class FilteredDecisionIterator
     private const string JsonExtension = ".json";
 
     private readonly DecisionFilterSet _filters;
-    private readonly PlayRanking _ranking;
+
+    /// <summary>
+    /// The producer's options for every call: the ranking in force, the one
+    /// statement of it here, and the caller's opening book, if any.
+    /// </summary>
     private readonly XgIteratorOptions _options;
+
+    /// <summary>
+    /// The filter set's four early-exit predicates, wired once to the
+    /// producer's boundaries — the only place they are wired, so no caller
+    /// writes them.
+    /// </summary>
+    private readonly XgIteratorCallbacks _callbacks;
+
     private readonly ILogger<FilteredDecisionIterator> _logger;
 
     /// <summary>
     /// Creates an iterator that applies <paramref name="filters"/> under
-    /// <paramref name="ranking"/> on every walk and logs file-skip events to
-    /// <paramref name="logger"/>.
+    /// <paramref name="ranking"/> on every walk and filtering call, enriches
+    /// book-analysed decisions from <paramref name="openingBook"/> when one is
+    /// supplied, and logs file-skip events to <paramref name="logger"/>.
     /// </summary>
     /// <param name="filters">The filters every decision must pass.</param>
     /// <param name="ranking">
@@ -84,6 +104,13 @@ public sealed class FilteredDecisionIterator
     /// setting passes <see cref="PlayRanking.Equity"/>, the default.
     /// </param>
     /// <param name="logger">Where file-skip events, and the producer's per-decision warnings, are logged.</param>
+    /// <param name="openingBook">
+    /// The producer's loaded opening book (<see cref="XgIteratorOptions.OpeningBook"/>),
+    /// which enriches each book-analysed candidate with the rollout behind it,
+    /// on every walk and filtering call; or null, the default, for none — a
+    /// book hit then states the bare book facts. Locating and loading the
+    /// book is the application's concern.
+    /// </param>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="filters"/> or <paramref name="logger"/> is null.
     /// </exception>
@@ -93,17 +120,90 @@ public sealed class FilteredDecisionIterator
     public FilteredDecisionIterator(
         DecisionFilterSet filters,
         PlayRanking ranking,
-        ILogger<FilteredDecisionIterator> logger)
+        ILogger<FilteredDecisionIterator> logger,
+        OpeningBook? openingBook = null)
     {
         ArgumentNullException.ThrowIfNull(filters);
         if (!Enum.IsDefined(ranking))
             throw new ArgumentOutOfRangeException(nameof(ranking), ranking, "Not a defined play ranking.");
         ArgumentNullException.ThrowIfNull(logger);
         _filters = filters;
-        _ranking = ranking;
-        _options = new XgIteratorOptions(Ranking: ranking);
+        _options = new XgIteratorOptions(openingBook, ranking);
+        _callbacks = new XgIteratorCallbacks(
+            SkipMatchAt:    filters.ShouldSkipMatch,
+            SkipGameAt:     filters.ShouldSkipGame,
+            StopGameAfter:  filters.ShouldAdvanceGame,
+            StopMatchAfter: filters.ShouldAdvanceMatch);
         _logger = logger;
     }
+
+    /// <summary>
+    /// The filtering operation over one already-parsed source, as
+    /// <see cref="DecisionRow"/>s built for the configured ranking: the
+    /// decisions of <paramref name="file"/> that pass the configured filters,
+    /// in the producer's order. This operation owns what filtering a source
+    /// takes — the producer call under the configured ranking and opening
+    /// book, the filter set's early-exit hints wired to the producer's
+    /// boundaries, and the evaluation of <see cref="DecisionFilterSet.Matches"/>
+    /// on each row — so a caller holding a decoded file (from
+    /// <see cref="XgSourceReader"/>, say) writes none of it. Every walk filters
+    /// each source it decodes through this operation.
+    /// </summary>
+    /// <remarks>
+    /// Lazy, like the walks: arguments are checked at the call, and the file
+    /// is iterated as the result is enumerated. A failure while iterating —
+    /// the producer refusing the file's contents, a filter throwing — is not
+    /// caught: it propagates to the enumerating caller.
+    /// </remarks>
+    /// <param name="file">The parsed source.</param>
+    /// <param name="sourceName">
+    /// The source's file name with its extension (e.g. <c>"match.xg"</c>):
+    /// handed to the producer as every decision's <c>SourceFile</c>, it is the
+    /// decisions' identity, and its extension decides it — the producer stamps
+    /// <c>.xg</c> and <c>.json</c> sources one way and <c>.xgp</c> positions
+    /// another (one decision each), and refuses any other extension when it
+    /// stamps the first decision.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="file"/> or <paramref name="sourceName"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="sourceName"/> is empty or white space.</exception>
+    public IEnumerable<DecisionRow> IterateFile(XgFile file, string sourceName)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        return Passing(
+            XgDecisionIterator.Iterate(file, sourceName, state: null, _callbacks, _options, _logger),
+            static row => row);
+    }
+
+    /// <summary>
+    /// The filtering operation over one already-parsed source, as
+    /// <see cref="BgDecisionData"/> records — the diagram form, with the full
+    /// candidate list and after-boards. Identical to <see cref="IterateFile"/>
+    /// in everything but the shape: each record is filtered through its view
+    /// for the configured ranking (<see cref="BgDecisionData.ViewFor"/>), and
+    /// the record itself, which depends on no ranking, is yielded.
+    /// </summary>
+    /// <remarks>Lazy, and uncaught while iterating, as <see cref="IterateFile"/>.</remarks>
+    /// <param name="file">The parsed source.</param>
+    /// <param name="sourceName">The source's file name with its extension; see <see cref="IterateFile"/>.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="file"/> or <paramref name="sourceName"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="sourceName"/> is empty or white space.</exception>
+    public IEnumerable<BgDecisionData> IterateFileDiagrams(XgFile file, string sourceName)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        return Passing(
+            XgDecisionIterator.IterateDiagramRequests(file, sourceName, state: null, _callbacks, _options, _logger),
+            record => record.ViewFor(_options.Ranking));
+    }
+
+    /// <summary>
+    /// The filter evaluation, stated once for both shapes: the items the
+    /// producer yields whose <paramref name="view"/> for the configured
+    /// ranking passes every filter.
+    /// </summary>
+    private IEnumerable<T> Passing<T>(IEnumerable<T> produced, Func<T, IDecisionFilterData> view) =>
+        produced.Where(item => _filters.Matches(view(item)));
 
     /// <summary>
     /// Iterates every XG-format file in <paramref name="xgDir"/> — both
@@ -118,7 +218,7 @@ public sealed class FilteredDecisionIterator
     /// <see cref="SourceReport"/> for the one-walk contract.
     /// </param>
     public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir, SourceReport? report = null) =>
-        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, Rows, AsView, report);
+        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, IterateFile, report);
 
     /// <summary>
     /// Iterates all .json files in <paramref name="jsonDir"/> and returns
@@ -132,7 +232,7 @@ public sealed class FilteredDecisionIterator
     /// <see cref="SourceReport"/> for the one-walk contract.
     /// </param>
     public IEnumerable<DecisionRow> IterateJsonDirectory(string jsonDir, SourceReport? report = null) =>
-        IterateFiles(Directory.EnumerateFiles(jsonDir, "*" + JsonExtension), XgSourceFormat.Json, Rows, AsView, report);
+        IterateFiles(Directory.EnumerateFiles(jsonDir, "*" + JsonExtension), XgSourceFormat.Json, IterateFile, report);
 
     /// <summary>
     /// Iterates every XG-format file in <paramref name="xgDir"/> — both
@@ -151,7 +251,7 @@ public sealed class FilteredDecisionIterator
     /// <see cref="SourceReport"/> for the one-walk contract.
     /// </param>
     public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir, SourceReport? report = null) =>
-        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, Records, ViewOf, report);
+        IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, IterateFileDiagrams, report);
 
     /// <summary>
     /// Iterates a caller-supplied list of sources presented as named streams —
@@ -188,7 +288,7 @@ public sealed class FilteredDecisionIterator
         IEnumerable<XgFileStream> files, SourceReport? report = null)
     {
         ArgumentNullException.ThrowIfNull(files);
-        return IterateSources(ToSources(files), Rows, AsView, report);
+        return IterateSources(ToSources(files), IterateFile, report);
     }
 
     /// <summary>
@@ -211,32 +311,8 @@ public sealed class FilteredDecisionIterator
         IEnumerable<XgFileStream> files, SourceReport? report = null)
     {
         ArgumentNullException.ThrowIfNull(files);
-        return IterateSources(ToSources(files), Records, ViewOf, report);
+        return IterateSources(ToSources(files), IterateFileDiagrams, report);
     }
-
-    /// <summary>
-    /// The producer's row surface for one file, under this iterator's options
-    /// (the ranking every row is built for) and logger — the one place either
-    /// is handed to the producer for rows.
-    /// </summary>
-    private IEnumerable<DecisionRow> Rows(
-        XgFile file, string sourceFile, XgIteratorState? state, XgIteratorCallbacks? callbacks) =>
-        XgDecisionIterator.Iterate(file, sourceFile, state, callbacks, _options, _logger);
-
-    /// <summary>
-    /// The producer's record surface for one file, under the same options and
-    /// logger as <see cref="Rows"/>: its post-yield callbacks see each record
-    /// through its view for the same ranking this iterator filters under.
-    /// </summary>
-    private IEnumerable<BgDecisionData> Records(
-        XgFile file, string sourceFile, XgIteratorState? state, XgIteratorCallbacks? callbacks) =>
-        XgDecisionIterator.IterateDiagramRequests(file, sourceFile, state, callbacks, _options, _logger);
-
-    /// <summary>A row is its own view, built for the configured ranking.</summary>
-    private static IDecisionFilterData AsView(DecisionRow row) => row;
-
-    /// <summary>A record's view for the configured ranking.</summary>
-    private IDecisionFilterData ViewOf(BgDecisionData record) => record.ViewFor(_ranking);
 
     /// <summary>
     /// Projects caller-supplied <see cref="XgFileStream"/> entries onto the
@@ -331,29 +407,27 @@ public sealed class FilteredDecisionIterator
     private IEnumerable<T> IterateFiles<T>(
         IEnumerable<string> paths,
         XgSourceFormat format,
-        Func<XgFile, string, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source,
-        Func<T, IDecisionFilterData> view,
+        Func<XgFile, string, IEnumerable<T>> filter,
         SourceReport? report) =>
         IterateSources(
             paths.Select(path => (Path.GetFileName(path),
                 (Func<XgSourceRead>)(() => XgSourceReader.ReadFile(path, format)))),
-            source,
-            view,
+            filter,
             report);
 
     /// <summary>
-    /// The single-sourced read / filter / early-exit pipeline, shared by every
-    /// directory and stream entry point. Iterates
+    /// The single-sourced walk, shared by every directory and stream entry
+    /// point: read each source, then filter each decoded one. Iterates
     /// <c>(sourceName, deferred-read)</c> pairs: each read is the converter's
     /// (<see cref="XgSourceReader"/>), whose outcome decides what follows — a
-    /// decoded source is iterated, its validated <paramref name="sources"/>
-    /// name handed to the producer as the decision's <c>SourceFile</c>, and
-    /// every produced item gated by <see cref="DecisionFilterSet.Matches"/> on
-    /// its <paramref name="view"/> for the configured ranking (a row as itself,
-    /// a record through <see cref="BgDecisionData.ViewFor"/>); a failed source
-    /// is recorded and logged, and the walk goes on with the next. The walk
-    /// catches nothing: the read's failure policy is the converter's, so a
-    /// cancellation, and a usage error the read refuses, propagate.
+    /// decoded source goes through the filtering operation,
+    /// <paramref name="filter"/> (<see cref="IterateFile"/> or
+    /// <see cref="IterateFileDiagrams"/>, so a walk filters exactly as a
+    /// caller holding the parsed file does), under its validated
+    /// <paramref name="sources"/> name; a failed source is recorded and
+    /// logged, and the walk goes on with the next. The walk catches nothing:
+    /// the read's failure policy is the converter's, so a cancellation, and a
+    /// usage error the read refuses, propagate.
     ///
     /// <para>
     /// Contract: <c>sourceName</c> is passed straight through to the producer
@@ -383,17 +457,10 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     private IEnumerable<T> IterateSources<T>(
         IEnumerable<(string sourceName, Func<XgSourceRead> read)> sources,
-        Func<XgFile, string, XgIteratorState?, XgIteratorCallbacks?, IEnumerable<T>> source,
-        Func<T, IDecisionFilterData> view,
+        Func<XgFile, string, IEnumerable<T>> filter,
         SourceReport? report)
     {
         report?.Claim();
-
-        var callbacks = new XgIteratorCallbacks(
-            SkipMatchAt:    _filters.ShouldSkipMatch,
-            SkipGameAt:     _filters.ShouldSkipGame,
-            StopGameAfter:  _filters.ShouldAdvanceGame,
-            StopMatchAfter: _filters.ShouldAdvanceMatch);
 
         foreach (var (sourceName, read) in sources)
         {
@@ -405,7 +472,7 @@ public sealed class FilteredDecisionIterator
                     // decisions is filtered, so a source none of whose
                     // decisions match still counts.
                     report?.Decoded();
-                    return source(decoded.File, sourceName, null, callbacks);
+                    return filter(decoded.File, sourceName);
                 },
                 failed =>
                 {
@@ -418,10 +485,7 @@ public sealed class FilteredDecisionIterator
                 });
 
             foreach (var item in decisions)
-            {
-                if (!_filters.Matches(view(item))) continue;
                 yield return item;
-            }
         }
 
         report?.Complete();

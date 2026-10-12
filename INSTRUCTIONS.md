@@ -31,8 +31,9 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
   with its outcome pair `XgSourceDecoded` / `XgSourceFailed` and the
   `XgSourceFormat` the caller states), `XgDecisionIterator`,
   `XgIteratorCallbacks`, `XgIteratorOptions` (the ranking the producer
-  builds rows for), `XgMatchInfo`, `XgGameInfo`, `XgFileReader` (XG-format
-  discovery), `Models.XgFile`. Used by `FilteredDecisionIterator` to read
+  builds rows for, and the opening book), `OpeningBook` (the loaded book a
+  caller hands the iterator), `XgMatchInfo`, `XgGameInfo`, `XgFileReader`
+  (XG-format discovery), `Models.XgFile`. Used by `FilteredDecisionIterator` to read
   each source, walk its decisions and drive early-exit via callback
   registration on the producer. Tests additionally use
   `XgFileBuilder` / `XgGameBuilder` — the producer's one public path to an
@@ -83,8 +84,9 @@ chain builds from this solution rather than from packages.
   `CheckerLocation`, and `CheckerSpanRange` over `CheckerSpan` — plus the
   converter that carries the bracket-list text form onto the wire.
 - **`Projection/`** — `ColumnSelector`, the `Column`-driven CSV projection.
-- **Top level** — `FilteredDecisionIterator`, the integration point that walks
-  XG and JSON sources through a filter set; `XgFileStream`, the named
+- **Top level** — `FilteredDecisionIterator`, the integration point that
+  filters one parsed source through a filter set and walks XG and JSON
+  sources through the same operation; `XgFileStream`, the named
   stream its directory-free entries take; and `SourceReport` with its
   `SourceRejection` entries, the caller-supplied record of what one walk
   attempted and rejected.
@@ -130,8 +132,11 @@ built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
   selection; the ranking is the application's one setting (§2a), so the
   persisted form does not carry it and did not change with it.
 * **The caller states it where records are filtered.** Where this library
-  builds views and rows itself — `FilteredDecisionIterator` — the ranking is
-  a required constructor argument beside the filters. A caller filtering
+  builds views and rows itself — `FilteredDecisionIterator`, its walks and
+  its filtering operation alike — the ranking is a required constructor
+  argument beside the filters, and the only one: the producer's opening
+  book, the other producer configuration a caller supplies, is taken as
+  the book alone, so no caller can state a second ranking. A caller filtering
   records it holds builds the views itself (`set.Matches(record.ViewFor(ranking))`).
   An application without a ranking setting passes `PlayRanking.Equity`, the
   default; the argument is required rather than defaulted, as the
@@ -996,21 +1001,76 @@ reintroduction-ready alternative to the named `PositionType` machinery.
 ### Iteration
 
 The top-level integration point. A sealed instance class constructed
-with `(DecisionFilterSet, PlayRanking, ILogger<FilteredDecisionIterator>)`
-— all required: the filters and null logger are refused, and so is an
-undefined ranking. The filters and the ranking are configuration (see
-**The ranking in force**); the directory is the per-call argument. Walks
-XG-format files (`*.xg` match files plus `*.xgp` position files) or
-`*.json` files, yielding only the decisions that pass the configured
-filter set under the configured ranking.
+with `(DecisionFilterSet, PlayRanking, ILogger<FilteredDecisionIterator>,
+OpeningBook? openingBook = null)` — the first three required: the filters
+and null logger are refused, and so is an undefined ranking. The filters,
+the ranking and the book are configuration (see **The ranking in
+force**); the source or sources are the per-call argument. Yields only the
+decisions that pass the configured filter set under the configured
+ranking — from one parsed source (the filtering operation, below), or from
+a walk over XG-format files (`*.xg` match files plus `*.xgp` position
+files), `*.json` files, or named streams of either.
 
 Two output shapes are exposed: `DecisionRow` (CSV-flat, built for the
-ranking) via `IterateXgDirectory` / `IterateJsonDirectory`, and
-`BgDecisionData` (diagram-shaped — the full candidate list, after-boards —
-and depending on no ranking; each is filtered through its view for the
-ranking) via `IterateXgDirectoryDiagrams`. The JSON-directory source offers only the
-row shape — its diagram variant (`IterateJsonDirectoryDiagrams`) was
-deleted as dead code (zero consumers umbrella-wide).
+ranking) via `IterateFile`, `IterateXgDirectory`, `IterateJsonDirectory`
+and `IterateXgStreams`, and `BgDecisionData` (diagram-shaped — the full
+candidate list, after-boards — and depending on no ranking; each is
+filtered through its view for the ranking) via `IterateFileDiagrams`,
+`IterateXgDirectoryDiagrams` and `IterateXgStreamDiagrams`. The
+JSON-directory source offers only the row shape — its diagram variant
+(`IterateJsonDirectoryDiagrams`) was deleted as dead code (zero consumers
+umbrella-wide); a caller wanting JSON documents as records reads them as
+`.json` stream entries.
+
+**The filtering operation** (halheinrich/backgammon#373, Hal's ruling of
+2026-10-08: "a new producer-owned filtering operation over an
+already-parsed source owns the callback wiring and filter evaluation; the
+existing directory and stream entry points use it"). `IterateFile(XgFile
+file, string sourceName)` and `IterateFileDiagrams(XgFile file, string
+sourceName)` yield the decisions of one decoded file that pass the
+configured filters under the configured ranking, in the producer's order.
+They own everything filtering a parsed source takes — the producer call
+under the iterator's `XgIteratorOptions` (the ranking, and the caller's
+opening book if any) and logger, the filter set's four early-exit hints
+wired once to the producer's boundaries (the `_callbacks` built at
+construction), and `DecisionFilterSet.Matches` on each row or each
+record's view (`Passing`, stated once for both shapes) — so a caller
+holding a decoded file writes none of it. Arguments are checked at the
+call (null file; null or blank name); the rest is lazy, and a failure
+while iterating propagates. `sourceName` is every decision's identity, as
+in the walks: the file name with its extension.
+
+* *Where it lives, and why.* On `FilteredDecisionIterator`, beside the
+  walks, because it needs exactly the iterator's configuration — the
+  filters, the ranking, the book and the logger — and the iterator is
+  already the one object that states them. A separate type would have to
+  take the same four arguments, or take an iterator; either way the
+  configuration would be stated twice or the type would be the iterator
+  by another name. The walk is then literally "read each source, then
+  filter each decoded one": `IterateSources` hands each decoded file to
+  `IterateFile` / `IterateFileDiagrams` and adds only the read, the report
+  and the skip.
+* *The name and the shape.* The siblings' pattern, `Iterate` + the source
+  + `Diagrams` for the record shape, with the source here a parsed
+  `XgFile`. It takes `(XgFile, string)` rather than the converter's
+  `XgSourceDecoded` because a decoded outcome's `SourceName` is the path as
+  read, where the producer needs a file name, and because a file parsed
+  some other way is filtered the same.
+* *The opening book* is an optional constructor argument, the book alone
+  (`OpeningBook?`), never producer options: `XgIteratorOptions` carries a
+  ranking too, and a caller able to pass one could state a second ranking
+  that disagrees with the iterator's. ExtractFromXgToCsv's local mode
+  passes a book today; BgQuiz passes none, and its three-argument call is
+  unchanged. Optional rather than required because "no book" is a real
+  configuration, not a fallback that masks a missing setting, and because
+  the iterator's every caller but one has none.
+* *Two strategies, one rule set.* The operation is the streaming strategy:
+  it filters as it iterates and exits early where the filters allow. A
+  consumer that retains unfiltered decisions and refilters them when the
+  filter changes (ExtractFromXgToCsv's web mode) applies
+  `DecisionFilterSet.Matches` to each retained row or record view itself:
+  the filtering rules are this library's in both strategies, and only the
+  execution differs.
 
 Two **input** sources are exposed, both shapes for each. The directory
 methods above walk a filesystem path. The stream methods —
@@ -1159,9 +1219,11 @@ record no rejection, and leave the report incomplete; `AttemptedCount` and
 rest.
 
 The constructor-injected logger is also **forwarded into the producer**,
-beside the iterator's `XgIteratorOptions` — the ranking, and no opening
-book: every `XgDecisionIterator.Iterate` / `IterateDiagramRequests` call
-passes both, so each row is built for the ranking, and per-decision
+beside the iterator's `XgIteratorOptions` — the ranking, and the caller's
+opening book or none: every `XgDecisionIterator.Iterate` /
+`IterateDiagramRequests` call, which the filtering operation makes for the
+walks and for its own callers alike, passes both, so each row is built for
+the ranking, each book hit is enriched when a book was supplied, and per-decision
 warnings the producer raises — notably an illegal-play skip — surface
 through this same pipeline alongside the file-level skip warnings above,
 rather than being swallowed inside the producer.
@@ -1171,9 +1233,10 @@ producer's public `XgFileReader.EnumerateXgFormatFiles`, the single
 source of truth for the rule. The former private duplicate here has
 been deleted.
 
-Early-exit pipeline. At the start of each directory walk the iterator
-constructs a single `XgIteratorCallbacks` record threading the filter
-set's four skip / advance predicates to the producer:
+Early-exit pipeline. At construction the iterator builds a single
+`XgIteratorCallbacks` record threading the filter set's four skip /
+advance predicates to the producer, which the filtering operation hands to
+every producer call — the one place they are wired:
 
 ```
 SkipMatchAt    ← DecisionFilterSet.ShouldSkipMatch     (IMatchInfo)
@@ -1186,8 +1249,8 @@ The producer evaluates each predicate at its declared boundary (match
 header, game header, post-yield) and short-circuits its own iteration
 when the predicate returns `true`. The post-yield predicates see each
 decision through a view for the options' ranking — the same ranking the
-iterator filters under. The consumer's loop is reduced to
-a filter-and-yield: every item produced by `source(...)` is gated by
+iterator filters under. The filtering operation's own work is reduced to
+a filter-and-yield: every item the producer yields is gated by
 `DecisionFilterSet.Matches` and yielded if it passes. No iterator
 state is observed; `XgIteratorState` is passed as `null`. The
 match-skip decision flows through `SkipMatchAt`, which the producer
@@ -1396,9 +1459,17 @@ public sealed class FilteredDecisionIterator
     public FilteredDecisionIterator(
         DecisionFilterSet filters,
         PlayRanking ranking,                  // required; Equity is the default an
-        ILogger<FilteredDecisionIterator> logger);   // app without the setting passes
+        ILogger<FilteredDecisionIterator> logger,    // app without the setting passes
+        OpeningBook? openingBook = null);     // the book alone: the ranking is stated once
 
-    // Every entry point takes an optional report; null records nothing and
+    // The filtering operation over one parsed source: the decisions that pass
+    // the filters under the ranking, the early-exit hints wired for the
+    // caller. Arguments checked at the call; lazy otherwise. Every walk below
+    // filters each decoded source through it.
+    public IEnumerable<DecisionRow>      IterateFile          (XgFile file, string sourceName);
+    public IEnumerable<BgDecisionData>   IterateFileDiagrams  (XgFile file, string sourceName);
+
+    // Every walk takes an optional report; null records nothing and
     // behaves exactly as before. One fresh report per enumeration.
 
     // Directory sources
