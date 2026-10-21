@@ -2,7 +2,6 @@ using System.Reflection;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Patterns;
-using XgFilter_Lib.Projection;
 
 namespace XgFilter_Lib.Tests;
 
@@ -64,34 +63,6 @@ public class PublicCollectionsTests
 
         pattern.Constraints.Should().ContainSingle();
         pattern.ToBracketList().Should().Be("[6,2,]");
-    }
-
-    [Fact]
-    public void ColumnSelector_SelectedColumns_AreImmutable()
-    {
-        ShouldBeImmutable(new ColumnSelector([Column.Player, Column.Error]).SelectedColumns);
-        ShouldBeImmutable(new ColumnSelector().SelectedColumns);
-    }
-
-    [Fact]
-    public void ColumnSelector_SelectedColumns_DoNotAliasTheCallersCollection()
-    {
-        var columns = new List<Column> { Column.Player, Column.Error };
-        var selector = new ColumnSelector(columns);
-
-        columns.Add(Column.Roll);
-
-        selector.SelectedColumns.Should().Equal(Column.Player, Column.Error);
-        selector.Header.Should().Be("Player,Error");
-    }
-
-    [Fact]
-    public void ColumnSelector_AllColumns_IsImmutable()
-    {
-        // Shared by every caller and every default selector, so a write
-        // through it would change every other one.
-        ShouldBeImmutable(ColumnSelector.AllColumns);
-        ColumnSelector.AllColumns.Should().Equal(Enum.GetValues<Column>());
     }
 
     [Fact]

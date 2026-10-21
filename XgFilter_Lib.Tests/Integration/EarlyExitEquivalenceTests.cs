@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
@@ -20,7 +21,7 @@ namespace XgFilter_Lib.Tests.Integration;
 /// <c>Matches</c> and agree with one that streams.
 ///
 /// <para>
-/// Each case runs both shapes — rows compared by their whole CSV line,
+/// Each case runs both shapes — rows compared by their whole wire form,
 /// records by identity — over synthesized sources (<see cref="SyntheticSources"/>),
 /// <c>.xg</c> matches and an <c>.xgp</c> position alike, so the suite gates.
 /// Each case also shows its hint operated: every filter is wrapped in an
@@ -37,9 +38,17 @@ public class EarlyExitEquivalenceTests
     private sealed record Source(string Name, XgFile File);
 
     /// <summary>
+    /// A row's value: its JSON wire form under the producer's registered
+    /// metadata, which carries every stored fact — Error and Equity under the
+    /// ranking in force included — and so tells rows apart that share an id.
+    /// </summary>
+    private static string WireForm(DecisionRow row) =>
+        JsonSerializer.Serialize(row, BgDataTypesJsonContext.Default.DecisionRow);
+
+    /// <summary>
     /// The decisions the operation yields for <paramref name="source"/> under
     /// <paramref name="filters"/>, against those <c>Matches</c> accepts from
-    /// the producer's no-callback output — rows as CSV lines, records as ids
+    /// the producer's no-callback output — rows as wire forms, records as ids
     /// — and the count of decisions the producer yields with no callbacks.
     /// </summary>
     private static (List<string> Actual, List<string> Expected, int Produced) Run(
@@ -60,8 +69,8 @@ public class EarlyExitEquivalenceTests
         else
         {
             var produced = XgDecisionIterator.Iterate(source.File, source.Name, options: options).ToList();
-            var actual = iterator.IterateFile(source.File, source.Name).Select(r => r.ToCsvLine()).ToList();
-            var expected = produced.Where(r => unobserved.Matches(r)).Select(r => r.ToCsvLine()).ToList();
+            var actual = iterator.IterateFile(source.File, source.Name).Select(WireForm).ToList();
+            var expected = produced.Where(r => unobserved.Matches(r)).Select(WireForm).ToList();
             return (actual, expected, produced.Count);
         }
     }

@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Classification;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
-using XgFilter_Lib.Projection;
 
 namespace XgFilter_Lib.Tests.Integration;
 
@@ -50,23 +49,6 @@ public class FilteredDecisionIteratorTests
 
         rows.Should().NotBeEmpty("expected at least one decision by halheinrich in the test files");
         rows.Should().OnlyContain(r => string.Equals(r.Player, "halheinrich", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void IterateXgDirectory_FilterByPlayer_CustomColumns()
-    {
-        var iterator = NewIterator(
-            new DecisionFilterSet().Add(new PlayerFilter(["halheinrich"])));
-
-        var rows = iterator.IterateXgDirectory(FixtureDir).ToList();
-
-        var selector = new ColumnSelector([
-            Column.Player, Column.SourceFile, Column.Game,
-            Column.MoveNumber, Column.Roll, Column.Error, Column.Equity]);
-        selector.Header.Should().Be("Player,SourceFile,Game,MoveNumber,Roll,Error,Equity");
-
-        rows.Should().NotBeEmpty();
-        rows.Should().OnlyContain(r => selector.Serialize(r).Split(',').Length == 7);
     }
 
     [Fact]

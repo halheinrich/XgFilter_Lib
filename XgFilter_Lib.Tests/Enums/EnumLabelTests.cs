@@ -92,18 +92,6 @@ public class EnumLabelTests
         FilterFacet.AnalysisDepth.ToLabel().Should().Be("Analysis depth");
     }
 
-    [Fact]
-    public void Column_Xgid_HasExpectedLabel()
-    {
-        Column.Xgid.ToLabel().Should().Be("Xgid");
-    }
-
-    [Fact]
-    public void Column_MoveNumber_HasExpectedLabel()
-    {
-        Column.MoveNumber.ToLabel().Should().Be("MoveNumber");
-    }
-
     // The two depth-taxonomy enums are owned by BgDataTypes_Lib but their
     // UI labels are read through this same helper; a missing [Description]
     // on either must surface as a loud failure, per the shared convention.
@@ -174,13 +162,6 @@ public class EnumLabelTests
     }
 
     [Fact]
-    public void EveryColumn_HasNonEmptyLabel()
-    {
-        foreach (var value in Enum.GetValues<Column>())
-            value.ToLabel().Should().NotBeNullOrWhiteSpace();
-    }
-
-    [Fact]
     public void EveryAnalysisMode_HasNonEmptyLabel()
     {
         foreach (var value in Enum.GetValues<AnalysisMode>())
@@ -230,13 +211,6 @@ public class EnumLabelTests
     public void UnknownFilterFacetValue_Throws()
     {
         var act = () => ((FilterFacet)999).ToLabel();
-        act.Should().Throw<ArgumentException>();
-    }
-
-    [Fact]
-    public void UnknownColumnValue_Throws()
-    {
-        var act = () => ((Column)999).ToLabel();
         act.Should().Throw<ArgumentException>();
     }
 

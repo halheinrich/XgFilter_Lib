@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
@@ -26,6 +27,14 @@ public class FilteredDecisionIteratorFileTests
     private static FilteredDecisionIterator NewIterator(DecisionFilterSet filters) =>
         new(filters, PlayRanking.Equity, NullLogger);
 
+    /// <summary>
+    /// A row's value: its JSON wire form under the producer's registered
+    /// metadata, which carries every stored fact — Error and Equity under the
+    /// ranking in force included — and so tells rows apart that share an id.
+    /// </summary>
+    private static string WireForm(DecisionRow row) =>
+        JsonSerializer.Serialize(row, BgDataTypesJsonContext.Default.DecisionRow);
+
     // -----------------------------------------------------------------------
     //  What the operation yields
     // -----------------------------------------------------------------------
@@ -40,10 +49,10 @@ public class FilteredDecisionIteratorFileTests
 
         var expected = XgDecisionIterator.Iterate(file, "match.xg")
             .Where(r => filters.Matches(r))
-            .Select(r => r.ToCsvLine())
+            .Select(WireForm)
             .ToList();
         expected.Should().NotBeEmpty();
-        rows.Select(r => r.ToCsvLine()).Should().Equal(expected);
+        rows.Select(WireForm).Should().Equal(expected);
         rows.Should().OnlyContain(r => r.Player == "P2");
     }
 

@@ -53,11 +53,10 @@ under that rule. `XgFilter_Lib.slnx` additionally carries the
 `BgDataTypes_Lib` and `ConvertXgToJson_Lib` project files, so the dependency
 chain builds from this solution rather than from packages.
 
-**`XgFilter_Lib/`** — the library. Five areas plus two top-level types:
+**`XgFilter_Lib/`** — the library. Four areas plus two top-level types:
 
 - **`Enums/`** — the vocabulary consumers name. The filterable categories
-  (`ContactType`, `PositionType`, `PlayType`), `DecisionTypeOption`, the
-  projectable `Column` set, and two reflection vocabularies over
+  (`ContactType`, `PositionType`, `PlayType`), `DecisionTypeOption`, and two reflection vocabularies over
   `FilterConfig`: `FilterFacet` (complete — one member per add/skip gate) and
   `FilterField` (deliberately partial — one member per individually-blameable
   field). `EnumLabel` reads the `[Description]` labels, keeping display text
@@ -83,7 +82,6 @@ chain builds from this solution rather than from packages.
   `BoardPattern` over its two `IPatternConstraint` kinds — `CheckerRange` over
   `CheckerLocation`, and `CheckerSpanRange` over `CheckerSpan` — plus the
   converter that carries the bracket-list text form onto the wire.
-- **`Projection/`** — `ColumnSelector`, the `Column`-driven CSV projection.
 - **Top level** — `FilteredDecisionIterator`, the integration point that
   filters one parsed source through a filter set and walks XG and JSON
   sources through the same operation; `XgFileStream`, the named
@@ -164,9 +162,6 @@ built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
   play-shape classifiers land alongside their matching values.
 * `DecisionTypeOption` — which decision types `DecisionTypeFilter`
   admits. Members: CheckerPlaysOnly, CubeOnly, Both.
-* `Column` — CSV columns `ColumnSelector` can project. One member
-  per column; declaration order is the default output order. Each
-  label is the column's CSV-header text.
 * `FilterFacet` — the facet vocabulary of `FilterConfig`: one member
   per add/skip gate `Build()` recognizes (Players, DecisionType,
   MatchScores, ErrorRange, MoveNumberRange, ContactTypes,
@@ -1003,21 +998,7 @@ reintroduction-ready alternative to the named `PositionType` machinery.
 
 ### Projection
 
-* `ColumnSelector` — enum-driven column selection. Constructor takes
-  `IEnumerable<Column>` and keeps an immutable copy (`SelectedColumns`,
-  like the shared `AllColumns`, is immutable); header text comes from each
-  member's `[Description]` label. Typed to `DecisionRow` because the projection
-  target is CSV; `Board` is deliberately not exposed as a column. The
-  internal `GetValue` switch is exhaustive, throwing
-  `ArgumentOutOfRangeException` on undefined `Column` values. Each cell is
-  written as the row's own CSV writes it (`DecisionRow.ToCsvLine`): a
-  column whose fact does not apply — the other decision kind's, the other
-  session kind's, a standalone position's game and move, an error the
-  result does not have — is an empty cell, never 0, and every number is
-  written in the invariant culture. The cell formatting is restated here
-  because the producer exposes the row's CSV only as a whole line;
-  `EveryColumn_WritesTheCellTheRowsOwnCsvWrites` holds the two to
-  agreement.
+Retired on 2026-10-20 (`halheinrich/backgammon#424`, `halheinrich/backgammon#297`): `ColumnSelector` and `Column` are gone because Extract's CSV is Extract's own (`CsvLayout`), so this library projects no CSV.
 
 ### Iteration
 
@@ -1317,11 +1298,6 @@ public enum PlayType           { Make20Pt }
 public enum ContactType        { Contact, Race }
 public enum PositionType       { InnerBoard631, InnerBoard54321, VsTwoPlusUp, Holding1386Vs20 }
 public enum DecisionTypeOption { CheckerPlaysOnly, CubeOnly, Both }
-public enum Column
-{
-    Xgid, Error, MatchScore, MatchLength, Player, SourceFile,
-    Game, MoveNumber, Roll, AnalysisDepth, Equity,
-}
 public enum FilterFacet          // declaration order == FilterConfig.Build()'s add order
 {
     Players, DecisionType, MatchScores, ErrorRange, MoveNumberRange,
@@ -1528,23 +1504,6 @@ public sealed class FilteredDecisionIterator
     // Stream / file-list sources (directory-free; WASM-friendly)
     public IEnumerable<DecisionRow>      IterateXgStreams      (IEnumerable<XgFileStream> files, SourceReport? report = null);
     public IEnumerable<BgDecisionData>   IterateXgStreamDiagrams(IEnumerable<XgFileStream> files, SourceReport? report = null);
-}
-```
-
-```csharp
-namespace XgFilter_Lib.Projection;
-
-public sealed class ColumnSelector
-{
-    public static IReadOnlyList<Column> AllColumns { get; }       // immutable
-
-    public ColumnSelector();
-    public ColumnSelector(IEnumerable<Column> columns);
-
-    public IReadOnlyList<Column> SelectedColumns { get; }        // immutable copy
-    public string Header { get; }
-    public string Serialize(DecisionRow row);
-    public string BuildCsv (IEnumerable<DecisionRow> rows);
 }
 ```
 
@@ -1873,7 +1832,7 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   behind `IReadOnlyList<T>` that is really the type's own `List<T>` or
   array can be cast back and written, silently changing the object that
   handed it out. Hand out an `ImmutableArray<T>`, boxed once, as
-  `BoardPattern.Constraints` and `ColumnSelector.SelectedColumns` do;
+  `BoardPattern.Constraints` does;
   `PublicCollectionsTests` holds each site and sweeps the exported surface
   for public members declared as arrays. `FilterConfig`'s `IList<T>`
   members are mutable by design (the DTO a UI binds to) and are not behind
