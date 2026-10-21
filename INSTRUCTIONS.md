@@ -61,8 +61,8 @@ chain builds from this solution rather than from packages.
   `FilterField` (deliberately partial — one member per individually-blameable
   field). `EnumLabel` reads the `[Description]` labels, keeping display text
   owned by the library that defines the enum rather than by a UI layer.
-  `StrictJsonStringEnumConverter<T>` is bundled by type-level attribute onto
-  the four enums that cross a wire, so they serialize as declaration names and
+  BgDataTypes_Lib's `StrictJsonStringEnumConverter<T>` is bundled by type-level
+  attribute onto the four enums that cross a wire, so they serialize as declaration names and
   reject numeric ordinals under *any* consumer's serializer.
 - **`Filtering/`** — the intent surface and the machinery behind it.
   `FilterConfig` is the serializable DTO a consumer fills; its `Build()`
@@ -96,7 +96,8 @@ counterpart for:
 `Helpers/` (`BoardBuilder`, the shared `DecisionFilterAsserts` over one
 record's view and row under one ranking, `RankingSplit` — a record whose best
 play differs by ranking — and the `FakeGameInfo` / `FakeMatchInfo` headers;
-the records themselves come from `BgDataTypes_Lib.TestSupport`) and
+the records themselves, and the `RecordingLogger<T>` / `ThrowingLogger<T>`
+test loggers, come from `BgDataTypes_Lib.TestSupport`) and
 `Integration/` (end-to-end iterator runs, synthesized or over the corpus, and
 the corpus oracles). Reaches the library's `internal` surface via
 `InternalsVisibleTo` and the umbrella corpus at `..\..\TestData` via a `Link`
@@ -265,8 +266,8 @@ surface, and are reachable from the test project via
   carries **no converters and no policy at all** — every member that needs one
   carries it on its own type. `DecisionType` /
   `ContactTypes` / `PositionTypes` / `PlayTypes` carry
-  `StrictJsonStringEnumConverter<T>` (this repo's, in `Enums/`); the depth level
-  lists hold `AnalysisLevel`, which carries `BgDataTypes_Lib`'s equivalent; and
+  `BgDataTypes_Lib`'s `StrictJsonStringEnumConverter<T>` (the one converter all
+  five wire enums carry, `AnalysisLevel` included); and
   `DiceRoll` carries its own. So every enum member round-trips
   as an `["InnerBoard631", ...]` name-array and a numeric ordinal is rejected
   (halheinrich/backgammon#164), `DiceRolls` rides as a `["31","66"]` token
@@ -743,7 +744,7 @@ this context alone, and both orders of a chained consumer.
   names a `JsonTypeInfo<T>` off this context rather than a
   `JsonSerializerOptions`. Five more types are wire units by the other mark —
   a bundled type-level `[JsonConverter]` that defines their own token:
-  `BoardPattern` and the four `StrictJsonStringEnumConverter` enums. All seven
+  `BoardPattern` and the four enums that carry BgDataTypes_Lib's `StrictJsonStringEnumConverter`. All seven
   are declared roots.
 * **Public, deliberately.** XgFilter_Razor's `SavedFiltersStore` — and BgQuiz
   behind it — round-trips through the trio and owns no `JsonSerializerOptions`,
@@ -1315,14 +1316,10 @@ public static class EnumLabel
     public static string ToLabel<TEnum>(this TEnum value) where TEnum : struct, Enum;
 }
 
-/// A JsonStringEnumConverter<TEnum> pinned to allowIntegerValues: false, for
-/// attribute-form registration (an attribute cannot pass ctor arguments).
-/// Bundled onto ContactType / DecisionTypeOption / PlayType / PositionType.
-public sealed class StrictJsonStringEnumConverter<TEnum> : JsonStringEnumConverter<TEnum>
-    where TEnum : struct, Enum
-{
-    public StrictJsonStringEnumConverter();
-}
+// ContactType / DecisionTypeOption / PlayType / PositionType carry
+// BgDataTypes_Lib's StrictJsonStringEnumConverter<TEnum> by type-level
+// attribute. This library's own copy was retired (halheinrich/backgammon#424,
+// 2026-10-19: common code moves to one shared owner).
 ```
 
 ```csharp

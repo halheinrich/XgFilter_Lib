@@ -1,4 +1,5 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Filtering;
@@ -296,7 +297,7 @@ public class SourceReportTests
     {
         // The report is the source of the fact; the log line is a trace of
         // it, carrying the very exception the report records.
-        var spy = new ListLogger<FilteredDecisionIterator>();
+        var spy = new RecordingLogger<FilteredDecisionIterator>();
         var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spy);
         var report = new SourceReport();
 
@@ -318,7 +319,7 @@ public class SourceReportTests
         var report = new SourceReport();
 
         var act = () => iterator.IterateXgStreams([Malformed("malformed.xg")], report).ToList();
-        act.Should().Throw<InvalidOperationException>().WithMessage("*logger failure*");
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*{ThrowingLogger<FilteredDecisionIterator>.Failure}*");
 
         var rejection = report.Rejected.Should().ContainSingle().Which;
         rejection.SourceName.Should().Be("malformed.xg");
@@ -458,33 +459,5 @@ public class SourceReportTests
     {
         public bool Matches(IDecisionFilterData data) =>
             throw new InvalidOperationException("filter failure");
-    }
-
-    private sealed class ListLogger<T> : ILogger<T>
-    {
-        public List<LogEntry> Entries { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel, EventId eventId, TState state,
-            Exception? exception, Func<TState, Exception?, string> formatter)
-        {
-            Entries.Add(new LogEntry(logLevel, formatter(state, exception), exception));
-        }
-    }
-
-    private sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
-
-    private sealed class ThrowingLogger<T> : ILogger<T>
-    {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel, EventId eventId, TState state,
-            Exception? exception, Func<TState, Exception?, string> formatter) =>
-            throw new InvalidOperationException("logger failure");
     }
 }

@@ -1,4 +1,5 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using ConvertXgToJson_Lib;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -128,7 +129,7 @@ public class FilteredDecisionIteratorReadTests
         // exception; the rejection carries that instance, and so does the
         // skip warning — one fact, recorded once, traced once.
         var failure = new IOException("the disk failed");
-        var spy = new ListLogger<FilteredDecisionIterator>();
+        var spy = new RecordingLogger<FilteredDecisionIterator>();
         var report = new SourceReport();
 
         Walk(NewIterator(spy), shape, [new XgFileStream("failing.xg", new FailingStream(failure))], report)
@@ -350,21 +351,4 @@ public class FilteredDecisionIteratorReadTests
     {
         public bool Matches(IDecisionFilterData data) => false;
     }
-
-    private sealed class ListLogger<T> : ILogger<T>
-    {
-        public List<LogEntry> Entries { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel, EventId eventId, TState state,
-            Exception? exception, Func<TState, Exception?, string> formatter)
-        {
-            Entries.Add(new LogEntry(logLevel, formatter(state, exception), exception));
-        }
-    }
-
-    private sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
 }

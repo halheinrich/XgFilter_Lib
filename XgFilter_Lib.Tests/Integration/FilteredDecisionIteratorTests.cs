@@ -1,4 +1,5 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
 using Microsoft.Extensions.Logging;
@@ -399,7 +400,7 @@ public class FilteredDecisionIteratorTests
         // Parity with the directory walk: a stream that fails to PARSE (vs. a
         // malformed NAME) is skipped+logged, never thrown. Mix one garbage
         // .xg stream with the real corpus and assert survival + a warning.
-        var spyLogger = new ListLogger<FilteredDecisionIterator>();
+        var spyLogger = new RecordingLogger<FilteredDecisionIterator>();
         var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
 
         var streams = LoadStreams(FixtureDir);
@@ -465,7 +466,7 @@ public class FilteredDecisionIteratorTests
             var badPath = Path.Combine(tempDir, "malformed.xg");
             File.WriteAllBytes(badPath, []);
 
-            var spyLogger = new ListLogger<FilteredDecisionIterator>();
+            var spyLogger = new RecordingLogger<FilteredDecisionIterator>();
             var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
 
             var rows = iterator.IterateXgDirectory(tempDir).ToList();
@@ -516,7 +517,7 @@ public class FilteredDecisionIteratorTests
             var json = XgFileReader.ToJson(BuildFileWithIllegalPlay());
             File.WriteAllText(Path.Combine(tempDir, "illegal.json"), json);
 
-            var spyLogger = new ListLogger<FilteredDecisionIterator>();
+            var spyLogger = new RecordingLogger<FilteredDecisionIterator>();
             var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
 
             _ = iterator.IterateJsonDirectory(tempDir).ToList();
@@ -542,7 +543,7 @@ public class FilteredDecisionIteratorTests
         const string knownCarrier =
             "Avi Cohen (6.86) - Max Stockslager (10.55) 2023-02-09_18122.xg";
 
-        var spyLogger = new ListLogger<FilteredDecisionIterator>();
+        var spyLogger = new RecordingLogger<FilteredDecisionIterator>();
         var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
 
         _ = iterator.IterateXgDirectory(FixtureDir).ToList();
@@ -662,25 +663,4 @@ public class FilteredDecisionIteratorTests
         public bool Matches(IDecisionFilterData data) => true;
         public bool ShouldAdvanceGame(IDecisionFilterData data) => true;
     }
-
-    // -----------------------------------------------------------------------
-    //  Test double — captures structured log entries for assertion
-    // -----------------------------------------------------------------------
-
-    private sealed class ListLogger<T> : ILogger<T>
-    {
-        public List<LogEntry> Entries { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel, EventId eventId, TState state,
-            Exception? exception, Func<TState, Exception?, string> formatter)
-        {
-            Entries.Add(new LogEntry(logLevel, formatter(state, exception), exception));
-        }
-    }
-
-    private sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
 }

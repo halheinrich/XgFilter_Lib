@@ -24,7 +24,8 @@ namespace XgFilter_Lib.Tests.Filtering;
 ///
 /// <para>The strictness is inherited from each enum's own type-level
 /// attribute — <see cref="AnalysisLevel"/>'s, owned by BgDataTypes_Lib, and
-/// this library's four <c>StrictJsonStringEnumConverter</c> bundles. The seam
+/// the four enums' bundles of the same BgDataTypes_Lib
+/// <c>StrictJsonStringEnumConverter</c>. The seam
 /// that reads a saved filter registers nothing of its own and has not since
 /// the halheinrich/backgammon#16 dedupe, which is deliberate: an options-level
 /// converter outranks a type attribute — measured, and pinned in

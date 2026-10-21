@@ -1211,7 +1211,7 @@ public class FilterConfigTests
         // Pin the wire-format contract Razor relies on: enum values serialize
         // as their declaration names (PositionType.InnerBoard631 ->
         // "InnerBoard631"), not ordinals. Each of these enum types carries its
-        // own StrictJsonStringEnumConverter by type-level attribute
+        // BgDataTypes_Lib's StrictJsonStringEnumConverter by type-level attribute
         // (halheinrich/backgammon#37), so the spelling travels to a consumer's
         // serializer too — EnumTokenStrictnessTests pins that half.
         var json = new FilterConfig

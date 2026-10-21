@@ -1,3 +1,4 @@
+using BgDataTypes_Lib;
 using System.ComponentModel;
 using System.Text.Json.Serialization;
 
