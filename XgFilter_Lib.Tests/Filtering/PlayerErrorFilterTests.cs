@@ -355,7 +355,7 @@ public class PlayerErrorFilterTests
     public void Matches_ChatGptsCounterexample_TheListedTakersErrorQualifies()
     {
         // A take error of 0.200 and the opponent's doubling error of 0, under
-        // a 0.100 threshold (#440, 6401821443): listing the taker alone
+        // a 0.100 threshold (halheinrich/backgammon#440, 6401821443): listing the taker alone
         // passes, and so does listing both players — adding a name never
         // removes a decision. Listing the doubler alone does not: his half
         // has no error in range. Stated (a pass) and as the analyser's error.
