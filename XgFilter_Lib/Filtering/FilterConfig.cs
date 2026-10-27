@@ -552,8 +552,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <c>min &gt; max</c> is a fault of the pair, with neither bound wrong on
     /// its own, so it blames both and leaves the user to decide which end to
     /// move. The two facets differ only in what each bound must satisfy on its
-    /// own — a finite number of zero or greater for an error magnitude, one or
-    /// greater for a 1-based move ordinal — and each bound rule is stated by
+    /// own — a finite number of zero or greater for an error bound (the policy
+    /// stated on <see cref="PlayerErrorFilter.IsBoundFiniteNonNegative"/>), one
+    /// or greater for a 1-based move ordinal — and each bound rule is stated by
     /// the filter that owns it, never here.
     /// </para>
     /// </summary>

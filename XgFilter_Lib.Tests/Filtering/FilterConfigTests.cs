@@ -151,10 +151,9 @@ public class FilterConfigTests
     [Fact]
     public void Build_ErrorBoundsBothNull_AddsNoErrorFacet()
     {
-        // Skipping matters because the filter drops every result with no
-        // error. The default config must not silently drop a decision with no
-        // move recorded, nor — under depth first — a move the ranking does
-        // not score.
+        // The default config's inactive bounds must not reject a decision
+        // with no move recorded, nor — under depth first — a move the ranking
+        // does not score.
         var set = new FilterConfig().Build();
         var nothingRecorded = TestRecords.CheckerPlay(
             decision: TestRecords.CheckerPlayData(userPlayIndex: null));
@@ -615,9 +614,9 @@ public class FilterConfigTests
     [InlineData(double.PositiveInfinity, 0.20, "min")]   // a bound fault, not the ordering one
     public void Build_InadmissibleErrorBound_Throws(double? min, double? max, string expectedParam)
     {
-        // Filter error is a finite magnitude, so Build refuses rather than
-        // materializing a bound that is a no-op, admits nothing, or restates
-        // the open end.
+        // An error bound must be a finite number of zero or greater (the
+        // policy on PlayerErrorFilter.IsBoundFiniteNonNegative), so Build
+        // refuses one that is not rather than materializing it.
         var cfg = new FilterConfig { ErrorMin = min, ErrorMax = max };
         var act = () => cfg.Build();
 
@@ -2075,8 +2074,9 @@ public class FilterConfigTests
     {
         // The two range facets share a shape, not a rule: a valid error range
         // must not be dragged into the move-number facet's verdict, and the
-        // floors genuinely differ — zero is admissible for an error magnitude,
-        // never for a 1-based move ordinal.
+        // floors genuinely differ — zero is admissible for an error bound
+        // (PlayerErrorFilter.IsBoundFiniteNonNegative), never for a 1-based
+        // move ordinal.
         new FilterConfig { ErrorMin = 0.0, ErrorMax = 0.0, MoveNumberMin = 0 }
             .GetInvalidFields().Should().Equal(FilterField.MoveNumberMin);
     }

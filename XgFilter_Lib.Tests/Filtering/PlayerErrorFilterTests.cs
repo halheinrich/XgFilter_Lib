@@ -637,9 +637,8 @@ public class PlayerErrorFilterTests
     [Fact]
     public void Constructor_NegativeMax_Throws()
     {
-        // A negative upper bound is the sharper case: a scored error is a
-        // magnitude, so this admits nothing at all rather than merely being
-        // redundant.
+        // An upper bound must be a finite number of zero or greater too (the
+        // policy on IsBoundFiniteNonNegative): a negative one is refused.
         var act = () => new PlayerErrorFilter([], min: null, max: -0.05);
 
         act.Should().Throw<ArgumentOutOfRangeException>()

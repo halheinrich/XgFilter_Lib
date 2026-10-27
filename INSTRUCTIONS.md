@@ -351,8 +351,9 @@ surface, and are reachable from the test project via
   effect, and that consequence must not red the field the user got right. The
   two range facets differ only in what each bound must satisfy on its own, and
   each bound rule is stated by the filter that owns it: a finite number of
-  zero or greater for an error magnitude — NaN and both infinities
-  inadmissible, no upper cap (halheinrich/backgammon#374) — and one or greater
+  zero or greater for an error bound — NaN and both infinities
+  inadmissible, no upper cap (halheinrich/backgammon#374); a policy about
+  bounds, stated on `PlayerErrorFilter.IsBoundFiniteNonNegative` — and one or greater
   for a 1-based move ordinal. Like `GetActiveFacets()` it never
   throws and is computed fresh from mutable state, and it is deliberately
   **not** a gate on assignment: setters accept anything, so a saved document
@@ -528,10 +529,12 @@ surface, and are reachable from the test project via
   listed: every half's maker, doubler or taker, is one of the two. With
   bounds alone it never votes to skip. The error facet's bound rule lives
   here (`IsBoundFiniteNonNegative`, `AreBoundsOrdered`), enforced by the
-  constructor: a bound must be a finite number of zero or greater —
-  negative, infinite and `NaN` bounds admit nothing or restate the open
-  end (halheinrich/backgammon#39, halheinrich/backgammon#374) — and
-  `min ≤ max`.
+  constructor: a bound must be a finite number of zero or greater, a null
+  end stays open, and `min ≤ max` (halheinrich/backgammon#39,
+  halheinrich/backgammon#374). That is a policy about bounds, not a claim
+  that every error is non-negative: a scored error never is negative, but
+  an unstated error is the analyser's figure as recorded and may be signed
+  (`IsBoundFiniteNonNegative` states it).
 * `DecisionTypeFilter` — checker play, cube, or both. Dispatches on
   `data.Kind`.
 * `MatchScoreFilter` — implements both interfaces. Score tokens are

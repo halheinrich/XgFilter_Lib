@@ -68,19 +68,15 @@ namespace XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
-/// Bounds are constrained, because the quantity filtered is a finite
-/// magnitude — a scored error is never negative
-/// (<see cref="PlayerResult.Scored"/> refuses one) — so a negative lower bound
-/// is a no-op dressed as a filter and a negative upper bound admits nothing at
-/// all; an infinite lower bound admits nothing either, an infinite upper bound
-/// is a second spelling of the open end that null already spells, and a
-/// <see cref="double.NaN"/> bound admits nothing; while <c>min &gt; max</c> is
-/// empty by construction. None of these is a filter a user could mean, so
-/// each is a construction error rather than a range that silently never
-/// matches — the same posture <see cref="Patterns.CheckerRange"/> takes towards
-/// a wrong-signed borne-off bound. <see cref="IsBoundFiniteNonNegative"/> and
-/// <see cref="AreBoundsOrdered"/> state that rule once for the whole library;
-/// this constructor enforces it and
+/// Bounds are constrained: each must be a finite number of zero or greater,
+/// a null end is open, and <c>min</c> must not exceed <c>max</c>. A bound
+/// breaking the rule is a construction error rather than a range that
+/// silently matches something other than what was set — the same posture
+/// <see cref="Patterns.CheckerRange"/> takes towards a wrong-signed borne-off
+/// bound. <see cref="IsBoundFiniteNonNegative"/> states the policy and why it
+/// is a policy about bounds, not a claim about errors (an unstated error may
+/// be signed); it and <see cref="AreBoundsOrdered"/> state the rule once for
+/// the whole library; this constructor enforces it and
 /// <see cref="FilterConfig.GetInvalidFields"/> reports it, so a consumer can
 /// ask before it builds and the two answers cannot disagree.
 /// </para>
@@ -103,8 +99,17 @@ internal sealed class PlayerErrorFilter : IDecisionFilter, IMatchFilter
     /// Half of the error facet's bound rule, and its single statement: an
     /// error bound must be a finite number of zero or greater. An absent bound
     /// (null) satisfies it vacuously — the rule constrains values, never
-    /// presence — and zero satisfies it outright, an exact-zero error filter
-    /// being meaningful.
+    /// presence, and a null end stays open — and zero satisfies it outright,
+    /// an exact-zero error filter being meaningful.
+    /// <para>
+    /// <b>A policy about bounds, not a fact about errors.</b> A scored error
+    /// is never negative (<see cref="PlayerResult.Scored"/> refuses one), but
+    /// an unstated error is the analyser's figure as the record states it,
+    /// and <see cref="PlayerResult.Unstated"/> holds no sign rule, so an
+    /// unstated error may be signed. The rule does not rest on errors being
+    /// non-negative: a bound below zero is refused because the accepted
+    /// policy says so, whatever errors the records hold.
+    /// </para>
     /// <para>
     /// <b>Finite</b> rules out all three non-finite values, and each is the
     /// intended verdict rather than an accident of the comparison.
@@ -196,7 +201,7 @@ internal sealed class PlayerErrorFilter : IDecisionFilter, IMatchFilter
     /// identically whichever end the user got wrong.
     /// </summary>
     private const string FiniteNonNegativeBoundMessage =
-        "Bound must be a finite number of zero or greater: a player's error is a magnitude.";
+        "Bound must be a finite number of zero or greater.";
 
     private bool NamesListed => _players.Count > 0;
 
