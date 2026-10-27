@@ -33,7 +33,7 @@ namespace XgFilter_Lib.Filtering;
 /// while <c>min &gt; max</c> is empty by construction. None of the three is a
 /// filter a user could mean, so each is a construction error rather than a
 /// range that silently never matches — the same posture
-/// <see cref="ErrorRangeFilter"/> takes towards its magnitude bounds.
+/// <see cref="PlayerErrorFilter"/> takes towards its error bounds.
 /// <see cref="IsBoundAtLeastOne"/> and <see cref="AreBoundsOrdered"/> state
 /// that rule once for the whole library; this constructor enforces it and
 /// <see cref="FilterConfig.GetInvalidFields"/> reports it, so a consumer can

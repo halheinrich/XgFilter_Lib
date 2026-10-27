@@ -14,8 +14,8 @@ namespace XgFilter_Lib.Filtering;
 /// Cube rows always fail: a cube is offered before the on-roll player rolls, so
 /// <see cref="IDecisionFilterData.Dice"/> is null and no roll exists to match.
 /// This is the same drop-don't-pass posture <see cref="PlayTypeFilter"/> applies
-/// to cube rows (where no play was made) and <see cref="ErrorRangeFilter"/>
-/// applies to a player's result with no error. An empty
+/// to cube rows (where no play was made) and <see cref="PlayerErrorFilter"/>'s
+/// error range applies to a result with no error. An empty
 /// include-set yields false for every row (empty OR, matching
 /// <see cref="PlayTypeFilter"/>); <see cref="FilterConfig.Build"/> keeps the
 /// facet inactive by skipping the add rather than ever materializing an

@@ -127,18 +127,18 @@ public class EarlyExitEquivalenceTests
     }
 
     // -----------------------------------------------------------------------
-    //  Match skip — the player filter
+    //  Match skip — the filter for the name and error facets
     // -----------------------------------------------------------------------
 
     [Theory]
     [MemberData(nameof(Shapes))]
-    public void MatchSkip_ThePlayerFilter(bool diagrams)
+    public void MatchSkip_ThePairsFilter_UnderNames(bool diagrams)
     {
         // Neither Carol nor Dave is listed, nor the position's P1 or P2: each
         // of those matches is skipped at its header. In Alice-Bob, Alice's
         // first decision is rejected and Bob's next one accepted: a rejection
         // never ends the game or the match.
-        var filters = Observe(new PlayerFilter(["Bob"]));
+        var filters = Observe(new PlayerErrorFilter(["Bob"]));
 
         var (evaluated, produced, kept) = AssertEquivalent(filters, diagrams,
             new Source("alice-bob.xg", SyntheticSources.TwoGameMatch("Alice", "Bob")),
@@ -149,6 +149,56 @@ public class EarlyExitEquivalenceTests
         player.MatchSkips.Should().BeGreaterThan(0, "the match-skip hint operated");
         kept.Should().BeGreaterThan(0, "Bob's decisions survive Alice's rejected ones");
         evaluated.Should().BeLessThan(produced, "the skipped matches were never iterated");
+    }
+
+    [Theory]
+    [MemberData(nameof(Shapes))]
+    public void MatchSkip_ThePairsFilter_BoundsAlone_SkipNoMatch(bool diagrams)
+    {
+        // With no names listed the doubler's half of every decision is
+        // judged, so no header rules a match out: "neither header name
+        // listed" over an empty list would skip every match, Carol-Dave's and
+        // the position's included. Every synthesized decision has an error
+        // (an analysed play's 0, the position's no-double 0.15), so the widest
+        // range keeps them all.
+        var filters = Observe(new PlayerErrorFilter([], min: 0.0));
+
+        var (evaluated, produced, kept) = AssertEquivalent(filters, diagrams,
+            new Source("alice-bob.xg", SyntheticSources.TwoGameMatch("Alice", "Bob")),
+            new Source("carol-dave.xg", SyntheticSources.TwoGameMatch("Carol", "Dave")),
+            new Source("position.xg", SyntheticSources.Position()));
+
+        filters.Filters[0].MatchSkips.Should().Be(0, "bounds alone never vote to skip a match");
+        evaluated.Should().Be(produced, "every match was iterated");
+        kept.Should().Be(produced);
+    }
+
+    [Theory]
+    [MemberData(nameof(Shapes))]
+    public void TheTakersCube_AdmittedThroughTheTaker_TheScoreFacetReadsTheDoublersSide(bool diagrams)
+    {
+        // Alice, 5-away to Bob's 4-away, doubles and Bob takes: Bob's take
+        // admits the cube, and the score facet reads it from Alice's side,
+        // 5a4a. Alice's plays are 5a4a but not Bob's decisions; Bob's are his,
+        // but 4a5a. So the cube is the one decision kept, and Carol-Dave is
+        // skipped at its header.
+        var builder = XgFileBuilder.ForMatch(5, "Alice", "Bob");
+        builder.AddGame(score1: 0, score2: 1)
+            .CubeDecision(XgPlayer.Player1, SyntheticSources.Equities,
+                doublerAction: CubeAction.Double, takerAction: CubeAction.Take)
+            .WithMoves(4);
+        var file = builder.Build();
+        var filters = Observe(new PlayerErrorFilter(["Bob"]), new MatchScoreFilter(["5a4a"]));
+
+        var (_, _, kept) = AssertEquivalent(filters, diagrams,
+            new Source("alice-bob.xg", file),
+            new Source("carol-dave.xg", SyntheticSources.TwoGameMatch("Carol", "Dave")));
+
+        kept.Should().Be(1, "the cube Bob took, alone");
+        filters.Filters[0].MatchSkips.Should().BeGreaterThan(0, "Carol-Dave was skipped at its header");
+        new FilteredDecisionIterator(filters.Unobserved(), Ranking, NullLogger<FilteredDecisionIterator>.Instance)
+            .IterateFileDiagrams(file, "alice-bob.xg")
+            .Should().ContainSingle().Which.Kind.Should().Be(DecisionKind.Cube);
     }
 
     // -----------------------------------------------------------------------
@@ -252,7 +302,7 @@ public class EarlyExitEquivalenceTests
         // A player filter combined with a hinting one: player 1's decisions
         // are rejected, player 2's accepted in the same game; the move-number
         // cutoff ends each game where it should and nowhere earlier.
-        var filters = Observe(new PlayerFilter(["P2"]), new MoveNumberFilter(max: 4));
+        var filters = Observe(new PlayerErrorFilter(["P2"]), new MoveNumberFilter(max: 4));
 
         var (evaluated, produced, kept) = AssertEquivalent(filters, diagrams,
             new Source("match.xg", SyntheticSources.TwoGameMatch(moves: SyntheticSources.MaxMoves)),
@@ -310,7 +360,7 @@ public class EarlyExitEquivalenceTests
         standard.AddGame(score1: 1, score2: 0).WithMoves(SyntheticSources.MaxMoves);
         standard.AddGame(score1: 1, score2: 1, initialPosition: SyntheticSources.NonStandardStart).WithMoves(4);
         var filters = Observe(
-            new PlayerFilter(["Alice", "P1"]),
+            new PlayerErrorFilter(["Alice", "P1"]),
             new MatchScoreFilter(["5a5a", "4a5a"]),
             new MoveNumberFilter(max: 3));
 

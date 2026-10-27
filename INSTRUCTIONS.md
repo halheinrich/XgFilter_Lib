@@ -66,7 +66,7 @@ chain builds from this solution rather than from packages.
   reject numeric ordinals under *any* consumer's serializer.
 - **`Filtering/`** — the intent surface and the machinery behind it.
   `FilterConfig` is the serializable DTO a consumer fills; its `Build()`
-  materializes a `DecisionFilterSet` from the eleven `internal` filter classes,
+  materializes a `DecisionFilterSet` from the ten `internal` filter classes,
   which implement the `IDecisionFilter` / `IMatchFilter` seams.
   `NamedFilterCollection` is the versioned saved-filters document a consumer
   persists — a `NamedCollection` specialization owning only its identity, with
@@ -125,8 +125,8 @@ and its after-board — is a ranking's (SPEC-scoring §2a). A view or a row is
 built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
 
 * **A filter holds no ranking.** It reads the ranking of the data it is
-  handed: "erred by more than x" under a ranking is `ErrorRangeFilter` over
-  views, or rows, built for that ranking.
+  handed: "erred by more than x" under a ranking is the error facet's
+  filter (`PlayerErrorFilter`) over views, or rows, built for that ranking.
 * **`FilterConfig` holds no ranking.** A saved filter is the user's
   selection; the ranking is the application's one setting (§2a), so the
   persisted form does not carry it and did not change with it.
@@ -167,7 +167,9 @@ built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
   per add/skip gate `Build()` recognizes (Players, DecisionType,
   MatchScores, ErrorRange, MoveNumberRange, ContactTypes,
   PositionTypes, PlayTypes, AnalysisDepth, DiceRolls,
-  PositionPattern), declared in `Build()`'s add order. The depth
+  PositionPattern), declared in `Build()`'s add order. Players and
+  ErrorRange are two facets that materialize as one filter, added at
+  Players' place (see `PlayerErrorFilter` below). The depth
   facet's three per-mode toggle+levels pairs are ONE facet. The UI-shelved
   `PositionTypes` / `PlayTypes` stay in the vocabulary because they
   remain `Build()`-reachable (old saved configs can carry them); each
@@ -207,7 +209,7 @@ built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
 
 ### Filtering
 
-The eleven concrete filter classes (`PlayerFilter` … `DiceRollFilter`)
+The ten concrete filter classes (`PlayerErrorFilter` … `DiceRollFilter`)
 and `IMatchFilter` are `internal`. `FilterConfig.Build()` is the intent
 surface — consumers state *what* to filter and the library materializes
 the `DecisionFilterSet`; only `IDecisionFilter` stays public, as the
@@ -245,7 +247,14 @@ surface, and are reachable from the test project via
   votes to any filter: one member's vote is sound for the set, since the
   set is an AND. Duplicates of the
   same concrete filter type are allowed and compose with AND (e.g. two
-  `ErrorRangeFilter`s intersect their ranges).
+  `MoveNumberFilter`s intersect their ranges) — except the filter for the
+  name and error facets (`PlayerErrorFilter`): a set holds at most one,
+  and `Add` refuses a second with an `ArgumentException`, since it states
+  which error the set reads. `ErrorRead(data)` is that reading: the pair
+  filter's qualifying error, or, in a set without one, the rule with no
+  facet active — the doubler's error. It is defined for every decision,
+  passing or not; callers read it for the decisions the set passes (the
+  by-error order).
 * `FilterConfig` — serializable, default-constructible, mutable DTO that
   bundles every filter's input. Owned by this lib; consumers fill it
   directly (no string-list parsing on the consumer side) and call
@@ -258,8 +267,10 @@ surface, and are reachable from the test project via
   (`IncludeEvaluations`+`EvaluationLevels`, `IncludeRollouts`+`RolloutLevels`,
   `IncludeBookRollouts`+`BookRolloutLevels`); it is inactive (skipped) iff
   all three toggles are off (see **Depth facet semantics** below).
-  Likewise `DecisionType = Both` is a no-op and is skipped. Range filters
-  (`ErrorRange`, `MoveNumber`) are added if either bound is set.
+  Likewise `DecisionType = Both` is a no-op and is skipped. The range
+  facets (`ErrorRange`, `MoveNumber`) are active if either bound is set.
+  `Players` and the error bounds are one filter: `Build()` adds exactly one
+  `PlayerErrorFilter` when either facet is active.
   Canonical JSON is single-sourced on the type via `ToJson()` /
   `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over the
   source-generated `XgFilterJsonContext.Default.FilterConfig` metadata, which
@@ -296,10 +307,13 @@ surface, and are reachable from the test project via
   reset to an inactive depth facet — accepted, the Contact/Race precedent.
 
   Internally the per-facet add/skip gates live in a single private
-  `FacetRules` table — `(FilterFacet, activation predicate, filter
-  factory)` triples in add order — that both `Build()` and
-  `GetActiveFacets()` iterate, so materialization and the activity
-  query share one predicate per facet and cannot drift.
+  `FacetRules` table — one rule per filter, in add order, each owning its
+  facets' gates (`(FilterFacet, activation predicate)` pairs) and one
+  filter factory — that both `Build()` and `GetActiveFacets()` iterate, so
+  materialization and the activity query share one predicate per facet and
+  cannot drift. Every rule owns one facet but the pair's, which owns
+  `Players` and `ErrorRange`: `Build()` adds a rule's filter once when any
+  of its gates holds, and `GetActiveFacets()` reports each gate by itself.
   `GetActiveFacets()` returns the facets `Build()` would materialize
   as an `IReadOnlySet<FilterFacet>` (backed by a `SortedSet`, so it
   enumerates in declaration = add order); it judges **presence, not
@@ -319,7 +333,7 @@ surface, and are reachable from the test project via
   facets a user fills in by hand are the ones with rows — the match-score
   tokens (via `MatchScoreToken.GetFault`, halheinrich/backgammon#121, the "one
   enum member, one row" join halheinrich/backgammon#39 booked for this facet),
-  the error bounds (via `ErrorRangeFilter.IsBoundFiniteNonNegative` /
+  the error bounds (via `PlayerErrorFilter.IsBoundFiniteNonNegative` /
   `.AreBoundsOrdered`, halheinrich/backgammon#39, finiteness
   halheinrich/backgammon#374), the move-number bounds
   (via `MoveNumberFilter.IsBoundAtLeastOne` / `.AreBoundsOrdered`,
@@ -470,11 +484,54 @@ surface, and are reachable from the test project via
     book-rollout level checked (or `Unknown` explicitly in that list).
   * `Unknown` mode (legacy/unstamped rows) is never selectable — no clause
     can name it — so those rows pass only when the facet is inactive.
-* `PlayerFilter` — implements both interfaces. `Matches` admits rows where
-  the on-roll player is in the include list; `ShouldSkipMatch` drops the
-  whole file when neither player is in the list. A decision whose source
-  recorded no name (`Player` `null`) never passes: there is no name to
-  match.
+* `PlayerErrorFilter` — the name facet and the error facet, **one filter for
+  the pair** (SPEC-filtering §8, halheinrich/backgammon#440). A cube record
+  holds two decisions, the doubler's and, where a double was offered, the
+  taker's; a checker play holds the player's one. Two filters ANDed cannot
+  say "some listed player's half has an error in range", so one filter,
+  built from the listed names and the bounds, states which half each facet
+  reads. Its one rule:
+  * **The selected halves.** With no names listed, the doubler's half:
+    `PlayerResult`, which for a checker play is the player's. With names
+    listed, each half whose maker is listed, compared case-insensitively:
+    `Player` selects `PlayerResult`, and `Taker` selects `TakerResult` where
+    that is not `null` (it is `null` unless a double was offered). A record
+    with no recorded name selects nothing.
+  * **A half qualifies** when it is selected and, with bounds set, its result
+    has an error (`PlayerResult.TryGetError`) within `[min, max]`. With no
+    bounds, every selected half qualifies.
+  * **`Matches`** is true when some half qualifies; **`QualifyingError`** is
+    the largest error among the qualifying halves, or `null` when none has
+    one — the number `DecisionFilterSet.ErrorRead` hands the by-error order.
+
+  So the name facet admits a listed taker's take or pass and never the
+  opponent's no-double; adding a name never removes a decision (a take error
+  of 0.2 beside a doubling error of 0, under 0.1, passes for the taker alone
+  and for both players); an error range judges the listed player's half, not
+  the unlisted doubler's; and with no names the doubler's half alone is
+  judged, as before. Where one listed half qualifies and the other does not,
+  the reading is the qualifying half's, even if the other's error is larger.
+  A double offered and never answered (the opponent resigned; `TakerResult`
+  `NotRecorded`) passes the name facet for the listed taker and, having no
+  error, never satisfies a range through that half. Only a result with an
+  error satisfies a range — a scored move with its error, a move the record
+  does not state with the analyser's, read through the producer's
+  `TryGetError`, never restated here; a move the ranking does not score
+  (under depth first) and a decision with no move recorded have none,
+  however the bounds are set. Every other facet still reads a cube record in
+  the doubler's frame, whichever listed half admitted it. A default
+  instance, no names and no bounds, is the rule with no facet active: every
+  decision passes, and the reading is the doubler's error.
+
+  Implements both interfaces. `ShouldSkipMatch` applies **only while names
+  are listed**, and then drops the whole file when neither header player is
+  listed: every half's maker, doubler or taker, is one of the two. With
+  bounds alone it never votes to skip. The error facet's bound rule lives
+  here (`IsBoundFiniteNonNegative`, `AreBoundsOrdered`), enforced by the
+  constructor: a bound must be a finite number of zero or greater —
+  negative, infinite and `NaN` bounds admit nothing or restate the open
+  end (halheinrich/backgammon#39, halheinrich/backgammon#374) — and
+  `min ≤ max`.
 * `DecisionTypeFilter` — checker play, cube, or both. Dispatches on
   `data.Kind`.
 * `MatchScoreFilter` — implements both interfaces. Score tokens are
@@ -604,14 +661,6 @@ surface, and are reachable from the test project via
     Nothing writes it any more: every money session states its rule, so
     `DecisionRow.MatchScore` spells every money row with one of the two
     rule-bearing tokens.
-* `ErrorRangeFilter` — "erred by more than x": `double?` min / max on the
-  error of the player's result (`IDecisionFilterData.PlayerResult`) under
-  the ranking the view was built for. Only a result with an error passes —
-  a scored move with its error, a move the record does not state with the
-  analyser's — read through the producer's `PlayerResult.TryGetError`,
-  never restated here. A move the ranking does not score (under depth
-  first) and a decision with no move recorded have no error and never
-  pass, however the bounds are set.
 * `MoveNumberFilter` — implements both interfaces. `int?` min / max on
   `MoveNumber`, gated by `IsStandardStart`. Non-standard-start games
   (custom problem positions, Bg960, etc.) have no canonical move
@@ -633,9 +682,9 @@ surface, and are reachable from the test project via
   admits nothing at all, and `min > max` is empty by construction. None is a
   filter a user could mean, so each is a construction error — `Build()` throws
   where it once handed back a filter that silently matched nothing. Same
-  posture as `ErrorRangeFilter`'s magnitude bounds, differing only in the
+  posture as `PlayerErrorFilter`'s error bounds, differing only in the
   bound rule: one or greater here, a finite number of zero or greater there
-  (`ErrorRangeFilter.IsBoundFiniteNonNegative`).
+  (`PlayerErrorFilter.IsBoundFiniteNonNegative`).
 * `ContactTypeFilter` — include list of `ContactType`. Same
   read-`data.Board` + private-registry dispatch pattern as
   `PositionTypeFilter`, over the `Contact` / `Race` classifiers. OR
@@ -712,8 +761,8 @@ surface, and are reachable from the test project via
   and the filter does **no** normalization of its own; the include-set and the
   row's roll may each be spelled in either dice order. Cube rows always fail —
   `Dice` is null (no roll exists before the cube is offered), the same
-  drop-don't-pass posture `PlayTypeFilter`/`ErrorRangeFilter` apply to their
-  null cases. Empty set → always false (empty OR), which `FilterConfig.Build`
+  drop-don't-pass posture `PlayTypeFilter` and `PlayerErrorFilter`'s error
+  range apply to their null cases. Empty set → always false (empty OR), which `FilterConfig.Build`
   keeps out of the set by skipping the add. Unlike the enum facets there is no
   unknown-value guard: `DiceRoll` is validated by construction, so an ill-formed
   roll cannot reach the set. Deliberately `Matches`-only — no `IMatchFilter`,
@@ -1299,7 +1348,7 @@ public enum PlayType           { Make20Pt }
 public enum ContactType        { Contact, Race }
 public enum PositionType       { InnerBoard631, InnerBoard54321, VsTwoPlusUp, Holding1386Vs20 }
 public enum DecisionTypeOption { CheckerPlaysOnly, CubeOnly, Both }
-public enum FilterFacet          // declaration order == FilterConfig.Build()'s add order
+public enum FilterFacet          // declaration order == FilterConfig.Build()'s add order (Players + ErrorRange: one filter)
 {
     Players, DecisionType, MatchScores, ErrorRange, MoveNumberRange,
     ContactTypes, PositionTypes, PlayTypes, AnalysisDepth, DiceRolls,
@@ -1350,9 +1399,10 @@ public static class MatchScoreToken
 
 public sealed class DecisionFilterSet
 {
-    public DecisionFilterSet Add(IDecisionFilter filter);
+    public DecisionFilterSet Add(IDecisionFilter filter);   // refuses a second name/error filter
     public bool IsEmpty { get; }
     public bool Matches          (IDecisionFilterData data);
+    public double? ErrorRead     (IDecisionFilterData data);   // the error the name/error facets read
     public bool ShouldSkipMatch  (IMatchInfo match);
     public bool ShouldSkipGame   (IGameInfo  game);
     public bool ShouldAdvanceGame (IDecisionFilterData data);
@@ -1617,11 +1667,19 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   is already a `BoardPosition` in the player on roll's frame; parsing the
   XGID would re-derive it and risk perspective bugs. Classifiers take
   `BoardPosition`.
-* **`ErrorRangeFilter` drops results with no error.** A decision with no
-  move recorded, and a move the view's ranking does not score, have no
-  error (`PlayerResult.TryGetError` is false) and fail an active error
-  range — never admitted as "zero error". Reading such a result as 0
-  silently changes what "erred by more than x" means under depth first.
+* **An active error range drops results with no error.** A decision with no
+  move recorded, a move the view's ranking does not score, and a double
+  never answered (the taker's half) have no error
+  (`PlayerResult.TryGetError` is false) and fail an active error range
+  through that half — never admitted as "zero error". Reading such a result
+  as 0 silently changes what "erred by more than x" means under depth first.
+* **The name and error facets are one filter; never split them.** Two
+  filters ANDed — "a listed player" and "the doubler's error in range", or
+  even the error filter handed the names — either drop a listed taker's
+  error or make the AND agree with "some listed half in range" only by a
+  coincidence a reader must prove. `PlayerErrorFilter` states the rule once,
+  and `DecisionFilterSet.ErrorRead` reads the error from the same rule, so
+  the facets and the by-error order cannot disagree.
 * **A filter never chooses a ranking.** It reads the one the view or row
   was built for. Building a view inside a filter, or giving `FilterConfig`
   a ranking, would let one run judge "best" and "error" two ways; the
@@ -1667,7 +1725,7 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   construction), so any active depth facet excludes legacy/unstamped rows
   (`AnalysisMode.Unknown`) — they pass only when the facet is inactive and
   `AnalysisDepthFilter` is absent from the set. This is the same
-  drop-don't-pass posture `ErrorRangeFilter` applies to a result with no
+  drop-don't-pass posture an active error range applies to a result with no
   error. Separately, a clause's level axis is unconstrained when its
   list is empty (any level, including `Unknown`), so an unenriched book hit
   rides through on the Book-rollouts toggle alone; checking any concrete
@@ -1696,7 +1754,7 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   unchecked.
 * **Adding a validity rule means adding it in one place, not two.** A
   facet's rule belongs on the facet that owns the semantic
-  (`ErrorRangeFilter.IsBoundFiniteNonNegative`,
+  (`PlayerErrorFilter.IsBoundFiniteNonNegative`,
   `MoveNumberFilter.IsBoundAtLeastOne`, `MatchScoreToken.GetFault`);
   `FilterConfig`'s `FieldRules` row only *routes* to it. Writing the
   predicate inline in the table would let `GetInvalidFields()` and

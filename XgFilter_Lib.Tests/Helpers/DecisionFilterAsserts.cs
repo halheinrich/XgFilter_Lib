@@ -62,6 +62,31 @@ internal static class DecisionFilterAsserts
               .Should().Be(expected, "the record's row under {0}", ranking);
     }
 
+    /// <summary>
+    /// Asserts <see cref="PlayerErrorFilter.QualifyingError"/> returns
+    /// <paramref name="expected"/> on both substrates of
+    /// <paramref name="record"/> under <paramref name="ranking"/>: null as
+    /// null, a number to within rounding, since a cube's errors are derived
+    /// from its equities.
+    /// </summary>
+    public static void AssertQualifyingErrorBoth(
+        PlayerErrorFilter filter, BgDecisionData record, double? expected, PlayRanking ranking = PlayRanking.Equity)
+    {
+        AssertError(filter.QualifyingError(record.ViewFor(ranking)), expected, "the record's view under {0}", ranking);
+        AssertError(filter.QualifyingError(DecisionRow.From(record, ranking)), expected, "the record's row under {0}", ranking);
+    }
+
+    private static void AssertError(double? actual, double? expected, string because, PlayRanking ranking)
+    {
+        if (expected is null)
+            actual.Should().BeNull(because, ranking);
+        else
+            actual.Should().BeApproximately(expected.Value, ErrorPrecision, because, ranking);
+    }
+
+    /// <summary>Rounding slack for an error derived from equities: far below any error a test distinguishes.</summary>
+    private const double ErrorPrecision = 1e-12;
+
     // -----------------------------------------------------------------------
     //  Set-level mirrors of the row-level asserts above.
     //  Catch DecisionFilterSet aggregation regressions that would otherwise
@@ -80,6 +105,19 @@ internal static class DecisionFilterAsserts
            .Should().Be(expected, "the record's view under {0}", ranking);
         set.Matches(DecisionRow.From(record, ranking))
            .Should().Be(expected, "the record's row under {0}", ranking);
+    }
+
+    /// <summary>
+    /// Asserts <see cref="DecisionFilterSet.ErrorRead"/> returns
+    /// <paramref name="expected"/> on both substrates of
+    /// <paramref name="record"/> under <paramref name="ranking"/>, as
+    /// <see cref="AssertQualifyingErrorBoth"/> compares.
+    /// </summary>
+    public static void AssertSetErrorReadBoth(
+        DecisionFilterSet set, BgDecisionData record, double? expected, PlayRanking ranking = PlayRanking.Equity)
+    {
+        AssertError(set.ErrorRead(record.ViewFor(ranking)), expected, "the record's view under {0}", ranking);
+        AssertError(set.ErrorRead(DecisionRow.From(record, ranking)), expected, "the record's row under {0}", ranking);
     }
 
     /// <summary>

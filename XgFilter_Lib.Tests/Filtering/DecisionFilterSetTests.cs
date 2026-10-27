@@ -2,7 +2,9 @@ using BgDataTypes_Lib;
 using BgDataTypes_Lib.TestSupport;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
+using XgFilter_Lib.Patterns;
 using XgFilter_Lib.Tests.Helpers;
+using static XgFilter_Lib.Tests.Helpers.CubeHalves;
 
 namespace XgFilter_Lib.Tests.Filtering;
 
@@ -40,9 +42,13 @@ public class DecisionFilterSetTests
 
     private static DescriptiveData By(string player) => TestRecords.Descriptive(onRollName: player);
 
-    /// <summary>The opening 3-1 by <paramref name="player"/>, who erred by exactly <paramref name="error"/>.</summary>
-    private static CheckerPlayDecision Erred(string player, double error) =>
+    /// <summary>
+    /// The opening 3-1 by <paramref name="player"/>, who erred by exactly
+    /// <paramref name="error"/>, at <paramref name="moveNumber"/> of game 1.
+    /// </summary>
+    private static CheckerPlayDecision Erred(string player, double error, int moveNumber = 1) =>
         TestRecords.CheckerPlay(
+            id: new XgDecisionId("match.xg", Game: 1, MoveNumber: moveNumber, IsCube: false),
             decision: TestRecords.CheckerPlayData(
                 plays:
                 [
@@ -75,7 +81,7 @@ public class DecisionFilterSetTests
     [Fact]
     public void Matches_SingleFilter_PassesMatchingRows_BothSubstrates()
     {
-        var set = new DecisionFilterSet().Add(new PlayerFilter(["Alice"]));
+        var set = new DecisionFilterSet().Add(new PlayerErrorFilter(["Alice"]));
 
         AssertSetMatchesBoth(set, TestRecords.CheckerPlay(descriptive: By("Alice")), expected: true);
         AssertSetMatchesBoth(set, TestRecords.CheckerPlay(descriptive: By("Bob")), expected: false);
@@ -84,20 +90,24 @@ public class DecisionFilterSetTests
     [Fact]
     public void Matches_MultipleFilters_AndSemantics_BothSubstrates()
     {
+        // The name and error facets are one filter now (a checker play reads
+        // as both ANDed); the AND is across filters: the pair's and the move
+        // number's.
         var set = new DecisionFilterSet()
-            .Add(new PlayerFilter(["Alice"]))
-            .Add(new ErrorRangeFilter(min: 0.05, max: null));
+            .Add(new PlayerErrorFilter(["Alice"], min: 0.05))
+            .Add(new MoveNumberFilter(max: 1));
 
         AssertSetMatchesBoth(set, Erred("Alice", 0.10), expected: true);
         AssertSetMatchesBoth(set, Erred("Alice", 0.02), expected: false);
         AssertSetMatchesBoth(set, Erred("Bob",   0.10), expected: false);
+        AssertSetMatchesBoth(set, Erred("Alice", 0.10, moveNumber: 2), expected: false);
     }
 
     [Fact]
     public void Matches_DecisionTypeAndPlayer_ComposeCorrectly_BothSubstrates()
     {
         var set = new DecisionFilterSet()
-            .Add(new PlayerFilter(["Alice"]))
+            .Add(new PlayerErrorFilter(["Alice"]))
             .Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly));
 
         AssertSetMatchesBoth(set, TestRecords.CheckerPlay(descriptive: By("Alice")), expected: true);
@@ -113,7 +123,7 @@ public class DecisionFilterSetTests
         // Alice passes; the same depth by Bob, and a rollout by Alice, are each
         // rejected by the AND.
         var set = new DecisionFilterSet()
-            .Add(new PlayerFilter(["Alice"]))
+            .Add(new PlayerErrorFilter(["Alice"]))
             .Add(new AnalysisDepthFilter(
                 [new AnalysisDepthFilter.Clause(AnalysisMode.Evaluation, [AnalysisLevel.Ply3])]));
 
@@ -129,7 +139,154 @@ public class DecisionFilterSetTests
     public void Add_IsFluentAndReturnsSameInstance()
     {
         var set = new DecisionFilterSet();
-        set.Add(new PlayerFilter(["Alice"])).Should().BeSameAs(set);
+        set.Add(new PlayerErrorFilter(["Alice"])).Should().BeSameAs(set);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The filter for the name and error facets: at most one per set
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Add_ASecondFilterForThePair_IsRefused_AndLeavesTheSetAsItWas()
+    {
+        var set = new DecisionFilterSet().Add(new PlayerErrorFilter(["Alice"]));
+
+        var act = () => set.Add(new PlayerErrorFilter([], min: 0.1));
+
+        act.Should().Throw<ArgumentException>().Which.ParamName.Should().Be("filter");
+        AssertSetMatchesBoth(set, Erred("Alice", 0.0), expected: true);
+        AssertSetErrorReadBoth(set, Erred("Alice", 0.05), expected: 0.05);
+    }
+
+    [Fact]
+    public void Add_OtherFilters_BesideThePairs_AreAccepted()
+    {
+        var act = () => new DecisionFilterSet()
+            .Add(new MoveNumberFilter(max: 3))
+            .Add(new PlayerErrorFilter(["Alice"]))
+            .Add(new MoveNumberFilter(min: 1));
+
+        act.Should().NotThrow();
+    }
+
+    // -----------------------------------------------------------------------
+    //  ErrorRead — the error the set read on a decision; both substrates
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ErrorRead_EmptySet_IsTheDoublersError()
+    {
+        var set = new DecisionFilterSet();
+
+        AssertSetErrorReadBoth(set, DoubledAndPassed(doublerError: 0.05, takerError: 0.2), expected: 0.05);
+        AssertSetErrorReadBoth(set, NotDoubled(), expected: 0.122);
+        AssertSetErrorReadBoth(set, Erred("Alice", 0.1), expected: 0.1);
+        AssertSetErrorReadBoth(set, TestRecords.CheckerPlay(
+            decision: TestRecords.CheckerPlayData(userPlayIndex: null)), expected: null);
+    }
+
+    [Fact]
+    public void ErrorRead_SetWithoutThePairsFilter_IsTheDoublersError()
+    {
+        // Another facet does not change the half read, on a record the set
+        // passes or one it rejects.
+        var set = new DecisionFilterSet().Add(new DecisionTypeFilter(DecisionTypeOption.CubeOnly));
+
+        AssertSetErrorReadBoth(set, DoubledAndPassed(doublerError: 0.05, takerError: 0.2), expected: 0.05);
+        AssertSetErrorReadBoth(set, Erred("Alice", 0.1), expected: 0.1);
+    }
+
+    [Fact]
+    public void ErrorRead_IsThePairsQualifyingError()
+    {
+        var record = DoubledAndPassed(doublerError: 0.05, takerError: 0.2);
+
+        AssertSetErrorReadBoth(new DecisionFilterSet().Add(new PlayerErrorFilter(["Bob"])), record, expected: 0.2);
+        AssertSetErrorReadBoth(
+            new DecisionFilterSet().Add(new PlayerErrorFilter(["Alice", "Bob"])), record, expected: 0.2);
+        AssertSetErrorReadBoth(
+            new DecisionFilterSet().Add(new PlayerErrorFilter(["Alice", "Bob"], min: 0.0, max: 0.1)),
+            record, expected: 0.05);
+    }
+
+    [Fact]
+    public void ErrorRead_OnARecordAnotherFacetRejects_IsStillTheQualifyingError()
+    {
+        // Bob's pass qualifies, at 0.2; the decision-type facet rejects the
+        // cube. ErrorRead is defined for every record, and is not gated on
+        // Matches: the pair's reading stands.
+        var set = new DecisionFilterSet()
+            .Add(new PlayerErrorFilter(["Bob"], min: 0.1))
+            .Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly));
+        var record = DoubledAndPassed(doublerError: 0.0, takerError: 0.2);
+
+        AssertSetMatchesBoth(set, record, expected: false);
+        AssertSetErrorReadBoth(set, record, expected: 0.2);
+    }
+
+    [Fact]
+    public void ErrorRead_WhereNoSelectedHalfQualifies_IsNull()
+    {
+        // Never an error from an unselected half (the unlisted doubler's 0.6,
+        // in range) or an out-of-range one (the listed taker's 0.2).
+        var record = DoubledAndPassed(doublerError: 0.6, takerError: 0.2);
+
+        foreach (var set in new[]
+        {
+            new DecisionFilterSet().Add(new PlayerErrorFilter(["Bob"], min: 0.5)),
+            new DecisionFilterSet().Add(new PlayerErrorFilter(["Carol"])),
+        })
+        {
+            AssertSetMatchesBoth(set, record, expected: false);
+            AssertSetErrorReadBoth(set, record, expected: null);
+        }
+    }
+
+    [Fact]
+    public void ErrorRead_NullData_Throws()
+    {
+        var act = () => new DecisionFilterSet().ErrorRead(null!);
+
+        act.Should().Throw<ArgumentNullException>().Which.ParamName.Should().Be("data");
+    }
+
+    // -----------------------------------------------------------------------
+    //  A record admitted through the taker: every other facet still reads it
+    //  from the player on roll's side (SPEC-filtering §8)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ARecordAdmittedThroughTheTaker_ThePositionPatternAndMatchScoreFacetsEvaluateIdentically()
+    {
+        // Alice, on roll 3-away to Bob's 5-away, holds two checkers on her
+        // 6-point; Bob holds three on Alice's 22-point, his 3-point. Admitted
+        // through Bob's pass, each other facet passes or fails the decision
+        // exactly as it does alone and as it does admitted through Alice: in
+        // the doubler's frame, "3a5a" and Alice's 6-point.
+        var position = TestRecords.Position(
+            mop: BoardBuilder.Build((6, 2), (5, 1), (22, -3)),
+            session: TestRecords.MatchSession(onRollNeeds: 3, opponentNeeds: 5));
+        var record = DoubledAndPassed(doublerError: 0.0, takerError: 0.2, position: position);
+
+        IDecisionFilter[] facets =
+        [
+            new MatchScoreFilter(["3a5a"]),
+            new MatchScoreFilter(["5a3a"]),
+            new PositionPatternFilter(BoardPattern.Parse("[6,2,2]")),
+            new PositionPatternFilter(BoardPattern.Parse("[3,3,3]")),
+        ];
+        bool[] alone = [true, false, true, false];
+
+        for (int i = 0; i < facets.Length; i++)
+        {
+            AssertMatchesBoth(facets[i], record, alone[i]);
+            AssertSetMatchesBoth(
+                new DecisionFilterSet().Add(new PlayerErrorFilter(["Bob"], min: 0.1)).Add(facets[i]),
+                record, alone[i]);
+            AssertSetMatchesBoth(
+                new DecisionFilterSet().Add(new PlayerErrorFilter(["Alice"])).Add(facets[i]),
+                record, alone[i]);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -148,7 +305,7 @@ public class DecisionFilterSetTests
     [Fact]
     public void IsEmpty_AfterAdd_ReturnsFalse()
     {
-        var set = new DecisionFilterSet().Add(new PlayerFilter(["Alice"]));
+        var set = new DecisionFilterSet().Add(new PlayerErrorFilter(["Alice"]));
         set.IsEmpty.Should().BeFalse();
     }
 
@@ -289,7 +446,7 @@ public class DecisionFilterSetTests
     [Fact]
     public void ShouldSkipMatch_DecidesFromPlainIMatchInfo_NoParserType()
     {
-        var set = new DecisionFilterSet().Add(new PlayerFilter(["Alice"]));
+        var set = new DecisionFilterSet().Add(new PlayerErrorFilter(["Alice"]));
 
         IMatchInfo present = FakeMatchInfo.Match(7) with { Player1 = "Alice", Player2 = "Bob" };
         IMatchInfo absent = FakeMatchInfo.Match(7) with { Player1 = "Bob", Player2 = "Charlie" };

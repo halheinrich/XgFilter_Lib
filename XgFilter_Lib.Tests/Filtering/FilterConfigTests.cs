@@ -103,7 +103,7 @@ public class FilterConfigTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Build_PlayersNonEmpty_AddsPlayerFilter()
+    public void Build_PlayersNonEmpty_AddsThePairsFilter()
     {
         var set = new FilterConfig { Players = { "Alice" } }.Build();
 
@@ -112,7 +112,7 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void Build_PlayersEmpty_SkipsPlayerFilter()
+    public void Build_PlayersEmpty_AddsNoNameFacet()
     {
         var set = new FilterConfig().Build();
         set.Matches(PlayBy("anyone")).Should().BeTrue();
@@ -140,7 +140,7 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void Build_ErrorBoundsSet_AddsErrorRangeFilter()
+    public void Build_ErrorBoundsSet_AddsThePairsFilter()
     {
         var set = new FilterConfig { ErrorMin = 0.05 }.Build();
 
@@ -149,7 +149,7 @@ public class FilterConfigTests
     }
 
     [Fact]
-    public void Build_ErrorBoundsBothNull_SkipsErrorRangeFilter()
+    public void Build_ErrorBoundsBothNull_AddsNoErrorFacet()
     {
         // Skipping matters because the filter drops every result with no
         // error. The default config must not silently drop a decision with no
@@ -162,6 +162,52 @@ public class FilterConfigTests
 
         set.Matches(nothingRecorded.ViewFor(PlayRanking.Equity)).Should().BeTrue();
         set.Matches(notScored.ViewFor(PlayRanking.DepthFirst)).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(true, false)]   // names only
+    [InlineData(false, true)]   // bounds only
+    [InlineData(true, true)]    // both
+    public void Build_EitherFacetOfThePair_AddsExactlyOneFilterForThePair(bool names, bool bounds)
+    {
+        // At most one: the set refuses a second, so a Build that added one per
+        // facet would throw here. At least one: the built set refuses another.
+        var config = new FilterConfig();
+        if (names)
+            config.Players.Add("Bob");
+        if (bounds)
+            config.ErrorMin = 0.1;
+
+        var set = config.Build();
+
+        var second = () => set.Add(PlayerErrorFilter.Default);
+        second.Should().Throw<ArgumentException>("the built set holds the pair's filter");
+    }
+
+    [Fact]
+    public void Build_ConfigWithoutThePairsFacets_AddsNoFilterForThePair()
+    {
+        var set = new FilterConfig { MoveNumberMax = 3 }.Build();
+
+        var pair = () => set.Add(PlayerErrorFilter.Default);
+        pair.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Build_NamesAndBounds_AreOneFilter_SomeListedHalfInRange()
+    {
+        // ChatGPT's counterexample through Build: Bob's take error 0.2 and
+        // Alice's doubling error 0, under 0.1. Two filters ANDed — Bob's name,
+        // and the doubler's error — would reject it; the one filter passes it
+        // on Bob's half, for Bob alone or both players listed.
+        var record = CubeHalves.DoubledAndPassed(doublerError: 0.0, takerError: 0.2);
+
+        AssertSetMatchesBoth(new FilterConfig { Players = { "Bob" }, ErrorMin = 0.1 }.Build(), record, expected: true);
+        AssertSetMatchesBoth(
+            new FilterConfig { Players = { "Alice", "Bob" }, ErrorMin = 0.1 }.Build(), record, expected: true);
+        AssertSetMatchesBoth(new FilterConfig { Players = { "Alice" }, ErrorMin = 0.1 }.Build(), record, expected: false);
+        AssertSetMatchesBoth(new FilterConfig { ErrorMin = 0.1 }.Build(), record, expected: false);
+        AssertSetErrorReadBoth(new FilterConfig { Players = { "Bob" }, ErrorMin = 0.1 }.Build(), record, expected: 0.2);
     }
 
     [Fact]
@@ -787,7 +833,7 @@ public class FilterConfigTests
     // -----------------------------------------------------------------------
     //  GetInvalidFields — the validity counterpart to GetActiveFacets, and the
     //  query a panel gates its commit action on. The rules live on the filters
-    //  (ErrorRangeFilterTests pins them); these tests pin the reporting: which
+    //  (PlayerErrorFilterTests pins them); these tests pin the reporting: which
     //  field gets blamed, that it never throws, and that it agrees with Build.
     // -----------------------------------------------------------------------
 
@@ -954,7 +1000,7 @@ public class FilterConfigTests
     [Fact]
     public void GetInvalidFields_AgreesWithBuild_OnEveryErrorBoundCombination()
     {
-        // The two surfaces consult the same predicates on ErrorRangeFilter, so
+        // The two surfaces consult the same predicates on PlayerErrorFilter, so
         // "named here" and "rejected by Build" must coincide for this facet.
         // Swept rather than enumerated so a future bound rule cannot quietly
         // hold on one surface only.

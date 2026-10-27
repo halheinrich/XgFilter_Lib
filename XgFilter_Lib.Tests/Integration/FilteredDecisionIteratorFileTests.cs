@@ -43,7 +43,7 @@ public class FilteredDecisionIteratorFileTests
     public void IterateFile_YieldsTheRowsOfTheSourceThatPassTheFilters_InTheProducersOrder()
     {
         var file = SyntheticSources.TwoGameMatch();
-        var filters = new DecisionFilterSet().Add(new PlayerFilter(["P2"]));
+        var filters = new DecisionFilterSet().Add(new PlayerErrorFilter(["P2"]));
 
         var rows = NewIterator(filters).IterateFile(file, "match.xg").ToList();
 
@@ -60,7 +60,7 @@ public class FilteredDecisionIteratorFileTests
     public void IterateFileDiagrams_YieldsTheRecordsOfTheSourceThatPassTheFilters_InTheProducersOrder()
     {
         var file = SyntheticSources.TwoGameMatch();
-        var filters = new DecisionFilterSet().Add(new PlayerFilter(["P2"]));
+        var filters = new DecisionFilterSet().Add(new PlayerErrorFilter(["P2"]));
 
         var records = NewIterator(filters).IterateFileDiagrams(file, "match.xg").ToList();
 
@@ -71,6 +71,25 @@ public class FilteredDecisionIteratorFileTests
         expected.Should().NotBeEmpty();
         records.Select(d => d.Id).Should().Equal(expected);
         records.Should().OnlyContain(d => d.Player == "P2");
+    }
+
+    [Fact]
+    public void ErrorBoundsAlone_SkipNoMatch_ThroughTheProducersMatchSkip()
+    {
+        // A configuration with an error range and no names: the producer's
+        // match skip (SkipMatchAt) is asked about a match neither of whose
+        // players anyone listed, and must not skip it — the doubler's half of
+        // every decision is judged. Every synthesized play is the analysed
+        // played move, an error of 0, so the widest range keeps them all.
+        var file = SyntheticSources.TwoGameMatch("Carol", "Dave");
+        var filters = new FilterConfig { ErrorMin = 0.0 }.Build();
+
+        var rows = NewIterator(filters).IterateFile(file, "match.xg").Select(WireForm).ToList();
+        var records = NewIterator(filters).IterateFileDiagrams(file, "match.xg").Select(d => d.Id).ToList();
+
+        rows.Should().NotBeEmpty()
+            .And.Equal(XgDecisionIterator.Iterate(file, "match.xg").Select(WireForm));
+        records.Should().Equal(SyntheticSources.ProducerIds(file, "match.xg"));
     }
 
     // -----------------------------------------------------------------------
@@ -95,7 +114,7 @@ public class FilteredDecisionIteratorFileTests
         // filtering operation yields for the parsed file under the same name.
         var file = SyntheticSources.TwoGameMatch(moves: 6);
         var filters = new DecisionFilterSet()
-            .Add(new PlayerFilter(["P1"]))
+            .Add(new PlayerErrorFilter(["P1"]))
             .Add(new MoveNumberFilter(max: 3));
         var iterator = NewIterator(filters);
         bool json = walk == nameof(FilteredDecisionIterator.IterateJsonDirectory);

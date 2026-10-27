@@ -35,9 +35,13 @@ namespace XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
-/// Range filters (<see cref="ErrorRangeFilter"/>,
-/// <see cref="MoveNumberFilter"/>) are added if either bound is set;
-/// both-null pairs are skipped.
+/// The range facets — the error bounds and the move-number bounds — are
+/// active if either bound is set; both-null pairs are skipped. The error
+/// facet shares one filter with the name facet
+/// (<see cref="PlayerErrorFilter"/>, SPEC-filtering §8), added once when
+/// either is active: it reads the listed players' halves of a decision, so
+/// with <see cref="Players"/> listed an error range judges a listed taker's
+/// take or pass as well as a listed doubler's action.
 /// </para>
 ///
 /// <para>
@@ -96,7 +100,11 @@ namespace XgFilter_Lib.Filtering;
 /// </summary>
 public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<FilterConfig>
 {
-    /// <summary>Player names whose decisions should pass; empty = no player filter.</summary>
+    /// <summary>
+    /// Player names whose decisions should pass — for a cube decision the
+    /// doubler's and, where a double was offered, the taker's
+    /// (SPEC-filtering §8); empty = no name facet. Compared case-insensitively.
+    /// </summary>
     public IList<string> Players { get; set; } = new List<string>();
 
     /// <summary>Which decision types to admit. Defaults to <see cref="DecisionTypeOption.Both"/>.</summary>
@@ -259,29 +267,64 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// One facet's rule pair: the activation predicate and the filter factory.
-    /// <paramref name="CreateFilter"/> is invoked only when
-    /// <paramref name="IsActive"/> holds, so a factory may rely on the
-    /// predicate's guarantees (e.g. a non-null pattern).
+    /// One facet's activation gate: the facet and the predicate that activates
+    /// it, judged by the facet's own inputs alone.
     /// </summary>
-    private sealed record FacetRule(
-        FilterFacet Facet,
-        Func<FilterConfig, bool> IsActive,
-        Func<FilterConfig, IDecisionFilter> CreateFilter);
+    private sealed record FacetGate(FilterFacet Facet, Func<FilterConfig, bool> IsActive);
 
     /// <summary>
-    /// The per-facet activation rules, in <see cref="Build"/>'s add order. This
-    /// table is the single source of truth for "which facets does this config
-    /// activate": <see cref="Build"/> materializes a filter for each active
-    /// facet and <see cref="GetActiveFacets"/> reports the same predicates'
-    /// verdicts, so the two surfaces cannot drift. Any new facet gate belongs
-    /// here — never as an ad-hoc check in either consumer.
+    /// One filter's rule: the facets it owns, each with its own gate, and the
+    /// factory that materializes the filter once for all of them. The rule is
+    /// active when any of its gates is, and <paramref name="CreateFilter"/> is
+    /// invoked only then, so a factory may rely on that guarantee (e.g. a
+    /// non-null pattern, for a rule owning one facet). Every rule owns one
+    /// facet but the name and error facets' rule, which owns both.
+    /// </summary>
+    private sealed record FacetRule(
+        FacetGate[] Gates,
+        Func<FilterConfig, IDecisionFilter> CreateFilter)
+    {
+        /// <summary>A rule owning the one facet <paramref name="facet"/>.</summary>
+        public FacetRule(
+            FilterFacet facet,
+            Func<FilterConfig, bool> isActive,
+            Func<FilterConfig, IDecisionFilter> createFilter)
+            : this([new FacetGate(facet, isActive)], createFilter)
+        {
+        }
+
+        /// <summary>Whether any facet the rule owns is active in <paramref name="config"/>.</summary>
+        public bool IsActive(FilterConfig config) => Gates.Any(gate => gate.IsActive(config));
+    }
+
+    /// <summary>
+    /// The activation rules, in <see cref="Build"/>'s add order: one rule per
+    /// filter, each owning the facets that filter serves, a rule's facets in
+    /// <see cref="FilterFacet"/> declaration order and each rule at its first
+    /// facet's place. This table is the single source of truth for "which
+    /// facets does this config activate": <see cref="Build"/> materializes one
+    /// filter for each active rule and <see cref="GetActiveFacets"/> reports
+    /// each gate's verdict, so the two surfaces cannot drift. Any new facet
+    /// gate belongs here — never as an ad-hoc check in either consumer.
     /// </summary>
     private static readonly FacetRule[] FacetRules =
     [
-        new(FilterFacet.Players,
-            static c => c.Players.Count > 0,
-            static c => new PlayerFilter(c.Players)),
+        // The name and error facets are one filter for the pair
+        // (SPEC-filtering §8, halheinrich/backgammon#440): the rule that says
+        // which half of a cube decision each reads cannot be two filters
+        // ANDed, so either facet active materializes the one filter, built
+        // from both facets' inputs. Each gate stays the facet's own presence,
+        // so GetActiveFacets reports each facet as before. Like every other
+        // rule, a bound that violates its rule still activates the facet (it
+        // is a filter the user set, however broken); the factory is where
+        // that rule bites — see GetInvalidFields for asking before building.
+        // The move-number facet below works the same way.
+        new(
+            [
+                new(FilterFacet.Players, static c => c.Players.Count > 0),
+                new(FilterFacet.ErrorRange, static c => c.ErrorMin.HasValue || c.ErrorMax.HasValue),
+            ],
+            static c => new PlayerErrorFilter(c.Players, c.ErrorMin, c.ErrorMax)),
 
         // The Both default is a no-op in DecisionTypeFilter; skipping the add
         // keeps the set's filter list lean.
@@ -296,12 +339,7 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
         // Presence-based like every other row: a bound that violates its
         // facet's floor/ordered rule still activates the facet (it is a filter
         // the user set, however broken). The factory is where that rule bites
-        // — see GetInvalidFields for asking before building. Both range facets
-        // below work this way.
-        new(FilterFacet.ErrorRange,
-            static c => c.ErrorMin.HasValue || c.ErrorMax.HasValue,
-            static c => new ErrorRangeFilter(c.ErrorMin, c.ErrorMax)),
-
+        // — see GetInvalidFields for asking before building.
         new(FilterFacet.MoveNumberRange,
             static c => c.MoveNumberMin.HasValue || c.MoveNumberMax.HasValue,
             static c => new MoveNumberFilter(c.MoveNumberMin, c.MoveNumberMax)),
@@ -367,10 +405,15 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
 
     /// <summary>
     /// Materializes this configuration as a <see cref="DecisionFilterSet"/>.
-    /// Each filter is added only when its corresponding configuration is
-    /// non-empty / non-default — the per-facet gates live in the shared
+    /// Each filter is added only when a facet it serves is non-empty /
+    /// non-default — the per-facet gates live in the shared
     /// <see cref="FacetRules"/> table, which <see cref="GetActiveFacets"/>
     /// consults too; see the type-level remarks for the empty-list semantics.
+    /// A filter is added once however many of its facets are active: the
+    /// name facet (<see cref="Players"/>) and the error facet
+    /// (<see cref="ErrorMin"/> / <see cref="ErrorMax"/>) materialize as one
+    /// filter for the pair whenever either is active, so the set holds at
+    /// most one (see <see cref="DecisionFilterSet.ErrorRead"/>).
     /// <para>
     /// Build is the point that rejects an invalid configuration, rather than
     /// materializing a filter nobody could have meant. A consumer that wants to
@@ -386,7 +429,7 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <see cref="MatchScoreToken.RetiredMoney"/> token; see
     /// <see cref="MatchScoreToken.GetFault"/>; or <see cref="ErrorMin"/> exceeds
     /// <see cref="ErrorMax"/> with both present — see
-    /// <see cref="ErrorRangeFilter.AreBoundsOrdered"/>; or
+    /// <see cref="PlayerErrorFilter.AreBoundsOrdered"/>; or
     /// <see cref="MoveNumberMin"/> exceeds <see cref="MoveNumberMax"/> with
     /// both present — see <see cref="MoveNumberFilter.AreBoundsOrdered"/>; or
     /// <see cref="PositionPattern"/> holds a token with <c>min &gt; max</c>, a
@@ -401,7 +444,7 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// is on (an inert level list is never validated). Also when
     /// <see cref="ErrorMin"/> or <see cref="ErrorMax"/> is not a finite number
     /// of zero or greater (negative, infinite, or <see cref="double.NaN"/>) —
-    /// see <see cref="ErrorRangeFilter.IsBoundFiniteNonNegative"/> — when
+    /// see <see cref="PlayerErrorFilter.IsBoundFiniteNonNegative"/> — when
     /// <see cref="MoveNumberMin"/> or <see cref="MoveNumberMax"/> is below one
     /// — see <see cref="MoveNumberFilter.IsBoundAtLeastOne"/> — and when a
     /// <see cref="PositionPattern"/> token's index or bound is out of range,
@@ -428,11 +471,14 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
 
     /// <summary>
     /// The facets this configuration would activate — exactly those for which
-    /// <see cref="Build"/> would add a filter, judged by the same predicates
-    /// (the shared <see cref="FacetRules"/> table), so the two cannot drift.
-    /// Computed fresh from the current mutable state on each call; enumerates
-    /// in <see cref="FilterFacet"/> declaration order, which is
-    /// <see cref="Build"/>'s add order.
+    /// <see cref="Build"/> would add a filter serving them, judged by the same
+    /// predicates (the shared <see cref="FacetRules"/> table), so the two
+    /// cannot drift. Each facet is reported by its own presence, including
+    /// the name and error facets, which share one filter. Computed fresh from
+    /// the current mutable state on each call; enumerates in
+    /// <see cref="FilterFacet"/> declaration order, which is
+    /// <see cref="Build"/>'s add order (a filter serving two facets is added
+    /// at its first's place).
     /// </summary>
     /// <remarks>
     /// Activity is presence, not validity: the predicates count entries and
@@ -456,8 +502,11 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
 
         foreach (var rule in FacetRules)
         {
-            if (rule.IsActive(this))
-                active.Add(rule.Facet);
+            foreach (var gate in rule.Gates)
+            {
+                if (gate.IsActive(this))
+                    active.Add(gate.Facet);
+            }
         }
 
         return active;
@@ -523,11 +572,11 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
                             static t => MatchScoreToken.GetFault(t) != MatchScoreTokenFault.None)),
 
         new(FilterField.ErrorMin,
-            static c => !ErrorRangeFilter.IsBoundFiniteNonNegative(c.ErrorMin)
+            static c => !PlayerErrorFilter.IsBoundFiniteNonNegative(c.ErrorMin)
                      || ErrorBoundsMisordered(c)),
 
         new(FilterField.ErrorMax,
-            static c => !ErrorRangeFilter.IsBoundFiniteNonNegative(c.ErrorMax)
+            static c => !PlayerErrorFilter.IsBoundFiniteNonNegative(c.ErrorMax)
                      || ErrorBoundsMisordered(c)),
 
         new(FilterField.MoveNumberMin,
@@ -561,9 +610,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// by its own rule, so nothing goes unreported.
     /// </summary>
     private static bool ErrorBoundsMisordered(FilterConfig config) =>
-        ErrorRangeFilter.IsBoundFiniteNonNegative(config.ErrorMin)
-        && ErrorRangeFilter.IsBoundFiniteNonNegative(config.ErrorMax)
-        && !ErrorRangeFilter.AreBoundsOrdered(config.ErrorMin, config.ErrorMax);
+        PlayerErrorFilter.IsBoundFiniteNonNegative(config.ErrorMin)
+        && PlayerErrorFilter.IsBoundFiniteNonNegative(config.ErrorMax)
+        && !PlayerErrorFilter.AreBoundsOrdered(config.ErrorMin, config.ErrorMax);
 
     /// <summary>
     /// The move-number facet's counterpart to <see cref="ErrorBoundsMisordered"/>,

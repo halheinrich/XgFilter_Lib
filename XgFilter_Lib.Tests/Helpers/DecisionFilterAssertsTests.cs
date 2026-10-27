@@ -196,4 +196,37 @@ public class DecisionFilterAssertsTests
             new ShouldAdvanceGameFilter(true), TestRecords.CheckerPlay(), expected: false);
         act.Should().Throw<Exception>();
     }
+
+    // -----------------------------------------------------------------------
+    //  AssertSetErrorReadBoth / AssertQualifyingErrorBoth — a number to
+    //  within rounding, null as null
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void AssertSetErrorReadBoth_TheReading_DoesNotThrow()
+    {
+        // The default 3-1's player plays the best move: an error of 0.
+        var act = () => DecisionFilterAsserts.AssertSetErrorReadBoth(
+            new DecisionFilterSet(), TestRecords.CheckerPlay(), expected: 0.0);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(0.01)]
+    [InlineData(null)]
+    public void AssertSetErrorReadBoth_ExpectationWrong_Throws(double? expected)
+    {
+        var act = () => DecisionFilterAsserts.AssertSetErrorReadBoth(
+            new DecisionFilterSet(), TestRecords.CheckerPlay(), expected);
+        act.Should().Throw<Exception>();
+    }
+
+    [Fact]
+    public void AssertQualifyingErrorBoth_NoErrorRead_ExpectingANumber_Throws()
+    {
+        var nothingRecorded = TestRecords.CheckerPlay(decision: TestRecords.CheckerPlayData(userPlayIndex: null));
+        var act = () => DecisionFilterAsserts.AssertQualifyingErrorBoth(
+            PlayerErrorFilter.Default, nothingRecorded, expected: 0.0);
+        act.Should().Throw<Exception>();
+    }
 }

@@ -106,7 +106,7 @@ public class FilteredDecisionIteratorRankingTests
     }
 
     private static DecisionFilterSet ErredBetween(double? min, double? max) =>
-        new DecisionFilterSet().Add(new ErrorRangeFilter(min, max));
+        new DecisionFilterSet().Add(new PlayerErrorFilter([], min, max));
 
     // -----------------------------------------------------------------------
     //  "Erred by more than x" under the caller's ranking

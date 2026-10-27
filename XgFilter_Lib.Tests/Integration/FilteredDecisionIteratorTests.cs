@@ -44,13 +44,26 @@ public class FilteredDecisionIteratorTests
     public void IterateXgDirectory_FilterByPlayer_ReturnsOnlyMatchingRows()
     {
         var iterator = NewIterator(
-            new DecisionFilterSet().Add(new PlayerFilter(["halheinrich"])));
+            new DecisionFilterSet().Add(new PlayerErrorFilter(["halheinrich"])));
 
         var rows = iterator.IterateXgDirectory(FixtureDir).ToList();
 
         rows.Should().NotBeEmpty("expected at least one decision by halheinrich in the test files");
-        rows.Should().OnlyContain(r => string.Equals(r.Player, "halheinrich", StringComparison.OrdinalIgnoreCase));
+        rows.Should().OnlyContain(r => MadeBy(r, "halheinrich"));
+        rows.Should().Contain(r => IsNamed(r.Taker, "halheinrich"),
+            "the corpus holds doubles halheinrich answered, which his name admits (SPEC-filtering §8)");
     }
+
+    /// <summary>
+    /// Whether <paramref name="player"/> made a decision on <paramref name="data"/>
+    /// — on roll, or as the taker of a double offered (SPEC-filtering §8) —
+    /// which is what a name filter admits.
+    /// </summary>
+    private static bool MadeBy(IDecisionFilterData data, string player) =>
+        IsNamed(data.Player, player) || IsNamed(data.Taker, player);
+
+    private static bool IsNamed(string? name, string player) =>
+        string.Equals(name, player, StringComparison.OrdinalIgnoreCase);
 
     [Fact]
     public void IterateXgDirectory_FilterByRace_ListsDecisions()
@@ -100,7 +113,7 @@ public class FilteredDecisionIteratorTests
         try
         {
             var iterator = NewIterator(
-                new DecisionFilterSet().Add(new PlayerFilter(["halheinrich"])));
+                new DecisionFilterSet().Add(new PlayerErrorFilter(["halheinrich"])));
 
             var rows = iterator.IterateXgDirectory(emptyDir).ToList();
 
@@ -120,14 +133,13 @@ public class FilteredDecisionIteratorTests
     public void IterateXgDirectoryDiagrams_FilterByPlayer_ReturnsOnlyMatchingDiagrams()
     {
         var iterator = NewIterator(
-            new DecisionFilterSet().Add(new PlayerFilter(["halheinrich"])));
+            new DecisionFilterSet().Add(new PlayerErrorFilter(["halheinrich"])));
 
         var diagrams = iterator.IterateXgDirectoryDiagrams(FixtureDir).ToList();
 
         diagrams.Should().NotBeEmpty(
             "expected at least one decision by halheinrich in the test files");
-        diagrams.Should().OnlyContain(d =>
-            string.Equals(d.Player, "halheinrich", StringComparison.OrdinalIgnoreCase));
+        diagrams.Should().OnlyContain(d => MadeBy(d.ViewFor(PlayRanking.Equity), "halheinrich"));
     }
 
     [Fact]
@@ -154,7 +166,7 @@ public class FilteredDecisionIteratorTests
         // identical decision-for-decision. Compare on the identifier both
         // shapes carry.
         var iterator = NewIterator(
-            new DecisionFilterSet().Add(new PlayerFilter(["halheinrich"])));
+            new DecisionFilterSet().Add(new PlayerErrorFilter(["halheinrich"])));
 
         var rowKeys = iterator.IterateXgDirectory(FixtureDir)
             .Select(r => r.Id)
@@ -336,14 +348,13 @@ public class FilteredDecisionIteratorTests
     {
         // The filter pipeline must engage identically on the stream path.
         var iterator = NewIterator(
-            new DecisionFilterSet().Add(new PlayerFilter(["halheinrich"])));
+            new DecisionFilterSet().Add(new PlayerErrorFilter(["halheinrich"])));
 
         var rows = iterator.IterateXgStreams(LoadStreams(FixtureDir)).ToList();
 
         rows.Should().NotBeEmpty(
             "expected at least one decision by halheinrich in the fixture corpus");
-        rows.Should().OnlyContain(
-            r => string.Equals(r.Player, "halheinrich", StringComparison.OrdinalIgnoreCase));
+        rows.Should().OnlyContain(r => MadeBy(r, "halheinrich"));
     }
 
     [Fact]

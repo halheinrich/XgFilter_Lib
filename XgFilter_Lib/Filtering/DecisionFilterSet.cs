@@ -14,16 +14,38 @@ public sealed class DecisionFilterSet
     private readonly List<IDecisionFilter> _filters = [];
 
     /// <summary>
+    /// The set's one filter for the name and error facets, or null when it
+    /// holds none: the half <see cref="ErrorRead"/> reads is that filter's.
+    /// </summary>
+    private PlayerErrorFilter? _playerError;
+
+    /// <summary>
     /// Adds <paramref name="filter"/> to the set and returns this set for
     /// fluent chaining. Duplicates of the same concrete filter type are
     /// allowed and compose with AND: a row passes only if every entry's
-    /// <see cref="IDecisionFilter.Matches"/> returns true. Two
-    /// <see cref="ErrorRangeFilter"/> instances, for example, intersect
-    /// their ranges; two disjoint <see cref="PlayerFilter"/> instances
-    /// will reject every row (the include lists are AND-intersected).
+    /// <see cref="IDecisionFilter.Matches"/> returns true (two
+    /// <see cref="MoveNumberFilter"/> instances intersect their ranges). The
+    /// one exception is the filter for the name and error facets
+    /// (<see cref="PlayerErrorFilter"/>): it states which half of a decision
+    /// both facets read and which error <see cref="ErrorRead"/> answers, so a
+    /// set holds at most one, and a second is refused rather than ANDed —
+    /// two would leave the reading with two answers.
     /// </summary>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="filter"/> is the filter for the name and error facets
+    /// and the set already holds one.
+    /// </exception>
     public DecisionFilterSet Add(IDecisionFilter filter)
     {
+        if (filter is PlayerErrorFilter playerError)
+        {
+            if (_playerError is not null)
+                throw new ArgumentException(
+                    "The set already holds the filter for the name and error facets; it holds at most one.",
+                    nameof(filter));
+            _playerError = playerError;
+        }
+
         _filters.Add(filter);
         return this;
     }
@@ -47,6 +69,23 @@ public sealed class DecisionFilterSet
     /// ranking in force (<see cref="BgDecisionData.ViewFor"/>).
     /// </summary>
     public bool Matches(IDecisionFilterData data) => _filters.All(f => f.Matches(data));
+
+    /// <summary>
+    /// The error this set reads on <paramref name="data"/>, judged under the
+    /// ranking it was built for as <see cref="Matches"/> judges: the largest
+    /// error among the halves of the decision that qualify under the set's
+    /// name and error facets — the listed players' halves within the error
+    /// range (SPEC-filtering §8) — or <see langword="null"/> where none has
+    /// one. With neither facet active it is the doubler's error, which for a
+    /// checker play is the player's. Defined for every decision; callers read
+    /// it for the decisions the set passes, as the by-error order does.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="data"/> is null.</exception>
+    public double? ErrorRead(IDecisionFilterData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        return (_playerError ?? PlayerErrorFilter.Default).QualifyingError(data);
+    }
 
     /// <summary>
     /// Pre-stream: true if any <see cref="IMatchFilter"/> in the set votes to

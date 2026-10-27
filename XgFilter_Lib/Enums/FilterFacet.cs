@@ -5,12 +5,16 @@ namespace XgFilter_Lib.Enums;
 
 /// <summary>
 /// The facet vocabulary of <see cref="FilterConfig"/>: one member per add/skip
-/// gate <see cref="FilterConfig.Build"/> recognizes, so a facet is exactly one
-/// potential filter in the materialized <see cref="DecisionFilterSet"/>. The
-/// analysis-depth inputs (three mode toggles, each qualified by its own level
-/// list) are ONE facet — they materialize as a single filter. Members are
-/// declared in <see cref="FilterConfig.Build"/>'s add order, which is also the
-/// enumeration order of <see cref="FilterConfig.GetActiveFacets"/>. Each member
+/// gate <see cref="FilterConfig.Build"/> recognizes, so a facet is one
+/// potential filter in the materialized <see cref="DecisionFilterSet"/> —
+/// except <see cref="Players"/> and <see cref="ErrorRange"/>, two facets that
+/// materialize as one filter for the pair when either is active
+/// (SPEC-filtering §8). The analysis-depth inputs (three mode toggles, each
+/// qualified by its own level list) are ONE facet — they materialize as a
+/// single filter. Members are declared in <see cref="FilterConfig.Build"/>'s
+/// add order (the pair's filter added at <see cref="Players"/>' place), which
+/// is also the enumeration order of
+/// <see cref="FilterConfig.GetActiveFacets"/>. Each member
 /// carries a UI-facing label via <see cref="DescriptionAttribute"/> — matching
 /// the FilterPanel's visible section headings, so an "N hidden filters active"
 /// signal names the sections the user will find on expanding; read it with
