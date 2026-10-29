@@ -1,8 +1,10 @@
 using BgDataTypes_Lib;
 using BgDataTypes_Lib.TestSupport;
+using ConvertXgToJson_Lib.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Filtering;
+using XgFilter_Lib.Tests.Helpers;
 
 namespace XgFilter_Lib.Tests.Integration;
 
@@ -10,33 +12,36 @@ namespace XgFilter_Lib.Tests.Integration;
 /// The structured rejected-source result (halheinrich/backgammon#368): a
 /// <see cref="SourceReport"/> the caller hands to any entry point records
 /// which sources the walk attempted and rejected, and whether it finished.
-/// Every walk here runs over the fixture corpus plus synthesized bad sources,
-/// so the report is read off the real read path, never a stub.
+/// Every walk here runs over sources synthesized through XG's writer
+/// (<see cref="SyntheticSources"/>) plus malformed ones, so the report is
+/// read off the real read path, never a stub; these tests read nothing from
+/// <c>TestData</c> and gate.
 /// </summary>
 public class SourceReportTests
 {
-    private static readonly string FixtureDir = Path.Combine(
-        AppContext.BaseDirectory, "TestData", "FixtureFiles");
-
     private static readonly ILogger<FilteredDecisionIterator> NullLogger =
         NullLogger<FilteredDecisionIterator>.Instance;
 
     private static FilteredDecisionIterator NewIterator(DecisionFilterSet? filters = null) =>
         new(filters ?? new DecisionFilterSet(), PlayRanking.Equity, NullLogger);
 
+    /// <summary>Two matches and a position: more than one source, both XG formats.</summary>
+    private static readonly (string Name, XgFile File)[] ReadableFiles =
+    [
+        ("first.xg", SyntheticSources.TwoGameMatch()),
+        ("second.xg", SyntheticSources.TwoGameMatch("P3", "P4")),
+        ("position.xgp", SyntheticSources.Position()),
+    ];
+
     /// <summary>
-    /// Every XG-format fixture as a buffered stream, so the streams outlive
-    /// the lazy enumeration. Fixture-agnostic.
+    /// <see cref="ReadableFiles"/> as fresh buffered streams, so the streams
+    /// outlive the lazy enumeration and each walk reads its own.
     /// </summary>
-    private static List<XgFileStream> Fixtures() =>
-        Directory.GetFiles(FixtureDir, "*.xg")
-            .Concat(Directory.GetFiles(FixtureDir, "*.xgp"))
-            .Select(p => new XgFileStream(
-                Path.GetFileName(p), new MemoryStream(File.ReadAllBytes(p))))
-            .ToList();
+    private static List<XgFileStream> Readable() =>
+        [.. ReadableFiles.Select(s => SyntheticSources.XgEntry(s.Name, s.File))];
 
     /// <summary>A named stream the producer refuses: zero bytes, no header.</summary>
-    private static XgFileStream Malformed(string name) => new(name, new MemoryStream([]));
+    private static XgFileStream Malformed(string name) => SyntheticSources.MalformedEntry(name);
 
     // -----------------------------------------------------------------------
     //  The four verdicts a consumer must be able to tell apart
@@ -45,13 +50,13 @@ public class SourceReportTests
     [Fact]
     public void OneMalformedAmongReadable_YieldsTheReadable_AndNamesTheRejected()
     {
-        var streams = Fixtures();
+        var streams = Readable();
         streams.Add(Malformed("malformed.xg"));
         var report = new SourceReport();
 
         var rows = NewIterator().IterateXgStreams(streams, report).ToList();
 
-        rows.Should().NotBeEmpty("the readable fixtures still yield their decisions");
+        rows.Should().NotBeEmpty("the readable sources still yield their decisions");
         rows.Should().OnlyContain(r => r.SourceFile != "malformed.xg");
 
         var rejection = report.Rejected.Should().ContainSingle().Which;
@@ -70,7 +75,7 @@ public class SourceReportTests
         // A successfully read source counts as readable however the filters
         // judge its decisions: zero matches is the filter's verdict, not the
         // file's.
-        var streams = Fixtures();
+        var streams = Readable();
         var report = new SourceReport();
 
         var rows = NewIterator(new DecisionFilterSet().Add(new MatchNothing()))
@@ -124,7 +129,7 @@ public class SourceReportTests
         // is yielded it has been rejected; the consumer then stops. What was
         // reached is reported; nothing is concluded about the rest.
         var streams = new List<XgFileStream> { Malformed("malformed.xg") };
-        streams.AddRange(Fixtures());
+        streams.AddRange(Readable());
         var report = new SourceReport();
 
         _ = NewIterator().IterateXgStreams(streams, report).First();
@@ -138,7 +143,7 @@ public class SourceReportTests
     [Fact]
     public void AReportPassedToASecondEnumeration_IsRefused_AndKeepsItsRecord()
     {
-        var streams = Fixtures();
+        var streams = Readable();
         streams.Add(Malformed("malformed.xg"));
         var report = new SourceReport();
         var iterator = NewIterator();
@@ -146,7 +151,7 @@ public class SourceReportTests
         _ = iterator.IterateXgStreams(streams, report).ToList();
         var attempted = report.AttemptedCount;
 
-        var second = () => iterator.IterateXgStreams(Fixtures(), report).ToList();
+        var second = () => iterator.IterateXgStreams(Readable(), report).ToList();
         second.Should().Throw<InvalidOperationException>();
 
         report.AttemptedCount.Should().Be(attempted, "the completed report is a record of its walk");
@@ -158,7 +163,7 @@ public class SourceReportTests
     public void ReEnumeratingTheSameEnumerable_IsRefusedToo()
     {
         var report = new SourceReport();
-        var enumerable = NewIterator().IterateXgStreams(Fixtures(), report);
+        var enumerable = NewIterator().IterateXgStreams(Readable(), report);
 
         _ = enumerable.ToList();
 
@@ -176,8 +181,8 @@ public class SourceReportTests
         var report = new SourceReport();
         var iterator = NewIterator();
 
-        var first = iterator.IterateXgStreams(Fixtures(), report);
-        var second = iterator.IterateXgStreams(Fixtures(), report);
+        var first = iterator.IterateXgStreams(Readable(), report);
+        var second = iterator.IterateXgStreams(Readable(), report);
 
         report.AttemptedCount.Should().Be(0);
         report.IsComplete.Should().BeFalse();
@@ -197,10 +202,10 @@ public class SourceReportTests
         var first = new SourceReport();
         var second = new SourceReport();
 
-        var withBad = Fixtures();
+        var withBad = Readable();
         withBad.Add(Malformed("malformed.xg"));
         _ = iterator.IterateXgStreamDiagrams(withBad, first).ToList();
-        _ = iterator.IterateXgStreamDiagrams(Fixtures(), second).ToList();
+        _ = iterator.IterateXgStreamDiagrams(Readable(), second).ToList();
 
         first.Rejected.Should().ContainSingle();
         first.AttemptedCount.Should().Be(withBad.Count);
@@ -223,8 +228,8 @@ public class SourceReportTests
 
         try
         {
-            foreach (var src in Directory.GetFiles(FixtureDir, "*.xg"))
-                File.Copy(src, Path.Combine(tempDir, Path.GetFileName(src)));
+            foreach (var (name, file) in ReadableFiles)
+                File.WriteAllBytes(Path.Combine(tempDir, name), SyntheticSources.XgBytes(file));
             File.WriteAllBytes(Path.Combine(tempDir, "malformed.xg"), []);
             int fileCount = Directory.GetFiles(tempDir).Length;
 
@@ -281,9 +286,9 @@ public class SourceReportTests
     public void IgnoringTheReport_YieldsExactlyWhatPassingOneDoes()
     {
         var iterator = NewIterator();
-        var withBad = Fixtures();
+        var withBad = Readable();
         withBad.Add(Malformed("malformed.xg"));
-        var withBadAgain = Fixtures();
+        var withBadAgain = Readable();
         withBadAgain.Add(Malformed("malformed.xg"));
 
         var ignoring = iterator.IterateXgStreamDiagrams(withBad).Select(d => d.Id).ToList();
@@ -338,7 +343,7 @@ public class SourceReportTests
     [Fact]
     public void AnInvalidSourceName_IsAUsageError_NotARejection()
     {
-        var streams = Fixtures().Take(1).ToList();
+        var streams = Readable().Take(1).ToList();
         streams.Add(new XgFileStream("noextension", new MemoryStream([1, 2, 3])));
         var report = new SourceReport();
 
@@ -368,7 +373,7 @@ public class SourceReportTests
     {
         var report = new SourceReport();
 
-        var act = () => NewIterator().IterateXgStreams(OneFixtureThenThrow(), report).ToList();
+        var act = () => NewIterator().IterateXgStreams(OneReadableThenThrow(), report).ToList();
         act.Should().Throw<IOException>().WithMessage("*source enumeration*");
 
         report.AttemptedCount.Should().Be(1);
@@ -382,7 +387,7 @@ public class SourceReportTests
         var report = new SourceReport();
         var iterator = NewIterator(new DecisionFilterSet().Add(new ThrowingFilter()));
 
-        var act = () => iterator.IterateXgStreams(Fixtures(), report).ToList();
+        var act = () => iterator.IterateXgStreams(Readable(), report).ToList();
         act.Should().Throw<InvalidOperationException>().WithMessage("*filter failure*");
 
         report.Rejected.Should().BeEmpty();
@@ -396,7 +401,7 @@ public class SourceReportTests
 
         var act = () =>
         {
-            foreach (var _ in NewIterator().IterateXgStreams(Fixtures(), report))
+            foreach (var _ in NewIterator().IterateXgStreams(Readable(), report))
                 throw new InvalidOperationException("consumer failure");
         };
         act.Should().Throw<InvalidOperationException>().WithMessage("*consumer failure*");
@@ -426,14 +431,14 @@ public class SourceReportTests
         // list a consumer holds is a snapshot, and the report's own grows.
         var report = new SourceReport();
         var streams = new List<XgFileStream> { Malformed("one.xg") };
-        streams.AddRange(Fixtures());
+        streams.AddRange(Readable());
         streams.Add(Malformed("two.xg"));
         IReadOnlyList<SourceRejection>? midWalk = null;
 
         foreach (var _ in NewIterator().IterateXgStreams(streams, report))
             midWalk ??= report.Rejected;
 
-        midWalk.Should().NotBeNull("the fixtures yield at least one decision");
+        midWalk.Should().NotBeNull("the readable sources yield at least one decision");
         midWalk!.Select(r => r.SourceName).Should().Equal("one.xg");
         report.Rejected.Select(r => r.SourceName).Should().Equal("one.xg", "two.xg");
         midWalk.Should().NotBeAssignableTo<List<SourceRejection>>();
@@ -444,9 +449,9 @@ public class SourceReportTests
     //  Doubles
     // -----------------------------------------------------------------------
 
-    private static IEnumerable<XgFileStream> OneFixtureThenThrow()
+    private static IEnumerable<XgFileStream> OneReadableThenThrow()
     {
-        yield return Fixtures()[0];
+        yield return Readable()[0];
         throw new IOException("source enumeration failed");
     }
 

@@ -100,8 +100,8 @@ the records themselves, and the `RecordingLogger<T>` / `ThrowingLogger<T>`
 test loggers, come from `BgDataTypes_Lib.TestSupport`) and
 `Integration/` (end-to-end iterator runs, synthesized or over the corpus, and
 the corpus oracles). Reaches the library's `internal` surface via
-`InternalsVisibleTo` and the umbrella corpus at `..\..\TestData` via a `Link`
-item — see the TestData pitfall.
+`InternalsVisibleTo`, and reads the umbrella corpus in place through
+`TestPaths` — see the TestData pitfall.
 
 ## Architecture
 
@@ -1896,9 +1896,15 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   members are mutable by design (the DTO a UI binds to) and are not behind
   a read-only interface; `GetActiveFacets` / `GetInvalidFields` build a
   fresh set per call, which nothing else holds.
-* **Shared `TestData` at `backgammon\TestData`.** Referenced via
-  `..\..\TestData` with `Link` in the Tests csproj. Moving TestData or
-  changing csproj output depth breaks every file-touching test.
+* **Shared `TestData` at `backgammon\TestData`, read in place.**
+  `TestPaths` resolves `xg/` and `FixtureFiles/` five levels above the test
+  output directory; nothing copies the corpus into `bin/`
+  (halheinrich/backgammon#447). Moving TestData or changing the output depth
+  breaks every corpus test. A test that needs only some readable source
+  synthesizes it (`SyntheticSources`) and gates; a `FixtureFiles` test
+  carries `RequiresFixtureFiles` and asserts it read something, so an empty
+  folder fails it; an `xg/` test may pass on an empty folder. A test that
+  modifies input stages its own files under `Path.GetTempPath()`.
 * **`XgFileStream` ownership + lazy-read hazard.** The stream entries
   (`IterateXgStreams` / `IterateXgStreamDiagrams`) are `yield`-based, so
   each `XgFileStream.Data` is read *during enumeration*, not at the call

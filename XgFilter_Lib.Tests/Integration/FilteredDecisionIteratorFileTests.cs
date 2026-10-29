@@ -198,7 +198,7 @@ public class FilteredDecisionIteratorFileTests
 
     private static string Fixture(string name)
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "TestData", "FixtureFiles", name);
+        var path = Path.Combine(TestPaths.FixtureFilesDir, name);
         if (!File.Exists(path))
             throw new Xunit.Sdk.XunitException(
                 $"Expected fixture not present: {path}. OpeningBookV2.ob is copied from the eXtreme " +

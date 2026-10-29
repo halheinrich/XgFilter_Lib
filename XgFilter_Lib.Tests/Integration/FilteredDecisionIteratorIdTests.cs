@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
+using XgFilter_Lib.Tests.Helpers;
 
 namespace XgFilter_Lib.Tests.Integration;
 
@@ -25,11 +26,28 @@ namespace XgFilter_Lib.Tests.Integration;
 /// <c>.xgp</c> → <see cref="XgpDecisionId"/>), plus a drop variant per
 /// shape with an explicit non-vacuousness gate.
 /// </para>
+///
+/// <para>
+/// Every source is synthesized (<see cref="SyntheticSources"/>), written to a
+/// per-test temp directory and read back through XG's reader on both sides,
+/// so these tests read nothing from <c>TestData</c> and gate.
+/// </para>
 /// </summary>
 public class FilteredDecisionIteratorIdTests
 {
-    private static readonly string FixtureDir = Path.Combine(
-        AppContext.BaseDirectory, "TestData", "FixtureFiles");
+    /// <summary>A match of checker plays, and a position read as a match: its cube decision and its play.</summary>
+    private static readonly (string Name, XgFile File)[] XgSources =
+    [
+        ("match.xg", SyntheticSources.TwoGameMatch()),
+        ("cube-and-play.xg", SyntheticSources.Position()),
+    ];
+
+    /// <summary>Two positions, each yielding its play alone.</summary>
+    private static readonly (string Name, XgFile File)[] XgpSources =
+    [
+        ("first.xgp", SyntheticSources.Position()),
+        ("second.xgp", SyntheticSources.Position()),
+    ];
 
     private static readonly ILogger<FilteredDecisionIterator> NullLogger =
         NullLogger<FilteredDecisionIterator>.Instance;
@@ -45,10 +63,10 @@ public class FilteredDecisionIteratorIdTests
     [Fact]
     public void IterateXgDirectory_PassthroughOnXgFixtures_IdsSurvive()
     {
-        // Stage a temp dir containing only the .xg fixtures so the consumer's
+        // Stage a temp dir containing only .xg sources so the consumer's
         // EnumerateXgFormatFiles walk and the raw-producer walk run over the
         // same path set, exercising the XgDecisionId carrier exclusively.
-        var tempDir = StageFixturesByExtension("*.xg");
+        var tempDir = Stage(XgSources);
         try
         {
             var producerIds = RawIterate(tempDir,
@@ -59,7 +77,7 @@ public class FilteredDecisionIteratorIdTests
                 .IterateXgDirectory(tempDir).Select(r => r.Id).ToList();
 
             producerIds.Should().NotBeEmpty(
-                "the .xg fixture corpus must yield at least one row to make this test meaningful");
+                "the .xg sources must yield at least one row to make this test meaningful");
             consumerIds.Should().AllBeOfType<XgDecisionId>(
                 ".xg files must stamp XgDecisionId, not the .xgp shape");
             consumerIds.Should().Equal(producerIds,
@@ -71,7 +89,7 @@ public class FilteredDecisionIteratorIdTests
     [Fact]
     public void IterateXgDirectoryDiagrams_PassthroughOnXgFixtures_IdsSurvive()
     {
-        var tempDir = StageFixturesByExtension("*.xg");
+        var tempDir = Stage(XgSources);
         try
         {
             var producerIds = RawIterate(tempDir,
@@ -92,7 +110,7 @@ public class FilteredDecisionIteratorIdTests
     [Fact]
     public void IterateXgDirectory_PassthroughOnXgpFixtures_IdsSurvive()
     {
-        var tempDir = StageFixturesByExtension("*.xgp");
+        var tempDir = Stage(XgpSources);
         try
         {
             var producerIds = RawIterate(tempDir,
@@ -114,7 +132,7 @@ public class FilteredDecisionIteratorIdTests
     [Fact]
     public void IterateXgDirectoryDiagrams_PassthroughOnXgpFixtures_IdsSurvive()
     {
-        var tempDir = StageFixturesByExtension("*.xgp");
+        var tempDir = Stage(XgpSources);
         try
         {
             var producerIds = RawIterate(tempDir,
@@ -144,26 +162,31 @@ public class FilteredDecisionIteratorIdTests
         // contract is "surviving rows are intact and ordered as the producer
         // would have ordered them"; pin via Id-equality on the post-filter
         // list against the producer's hand-filtered checker-play subset.
-        // Non-vacuousness is asserted explicitly on the raw corpus so a
-        // future fixture rotation that eliminates cube rows surfaces loudly
-        // rather than turning this test into a tautology.
-        var producerAll = RawIterate(FixtureDir,
-            (file, sf, state, callbacks) => XgDecisionIterator.Iterate(file, sf, state, callbacks)).ToList();
-        var producerKept = producerAll.Where(r => r.Kind == DecisionKind.CheckerPlay).ToList();
-        var producerDropped = producerAll.Where(r => r.Kind == DecisionKind.Cube).ToList();
+        // Non-vacuousness is asserted explicitly on the raw sources so a
+        // change that eliminates cube rows surfaces loudly rather than
+        // turning this test into a tautology.
+        var tempDir = Stage([.. XgSources, .. XgpSources]);
+        try
+        {
+            var producerAll = RawIterate(tempDir,
+                (file, sf, state, callbacks) => XgDecisionIterator.Iterate(file, sf, state, callbacks)).ToList();
+            var producerKept = producerAll.Where(r => r.Kind == DecisionKind.CheckerPlay).ToList();
+            var producerDropped = producerAll.Where(r => r.Kind == DecisionKind.Cube).ToList();
 
-        producerKept.Should().NotBeEmpty(
-            "non-vacuousness gate: the corpus must yield at least one checker-play row");
-        producerDropped.Should().NotBeEmpty(
-            "non-vacuousness gate: the corpus must yield at least one cube row, " +
-            "otherwise CheckerPlaysOnly is a no-op and this test pins nothing");
+            producerKept.Should().NotBeEmpty(
+                "non-vacuousness gate: the sources must yield at least one checker-play row");
+            producerDropped.Should().NotBeEmpty(
+                "non-vacuousness gate: the sources must yield at least one cube row, " +
+                "otherwise CheckerPlaysOnly is a no-op and this test pins nothing");
 
-        var consumerKept = NewIterator(
-            new DecisionFilterSet().Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly)))
-            .IterateXgDirectory(FixtureDir).ToList();
+            var consumerKept = NewIterator(
+                new DecisionFilterSet().Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly)))
+                .IterateXgDirectory(tempDir).ToList();
 
-        consumerKept.Select(r => r.Id).Should().Equal(producerKept.Select(r => r.Id),
-            "surviving Ids must equal the producer's checker-play subset, in order");
+            consumerKept.Select(r => r.Id).Should().Equal(producerKept.Select(r => r.Id),
+                "surviving Ids must equal the producer's checker-play subset, in order");
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
     }
 
     [Fact]
@@ -173,22 +196,27 @@ public class FilteredDecisionIteratorIdTests
         // entry point. Pinning each public entry point independently — even
         // though they share an internal helper today, the public contract
         // is per-entry-point.
-        var producerAll = RawIterate(FixtureDir,
-            (file, sf, state, callbacks) => XgDecisionIterator.IterateDiagramRequests(file, sf, state, callbacks)).ToList();
-        var producerKept = producerAll.Where(d => d.Kind == DecisionKind.CheckerPlay).ToList();
-        var producerDropped = producerAll.Where(d => d.Kind == DecisionKind.Cube).ToList();
+        var tempDir = Stage([.. XgSources, .. XgpSources]);
+        try
+        {
+            var producerAll = RawIterate(tempDir,
+                (file, sf, state, callbacks) => XgDecisionIterator.IterateDiagramRequests(file, sf, state, callbacks)).ToList();
+            var producerKept = producerAll.Where(d => d.Kind == DecisionKind.CheckerPlay).ToList();
+            var producerDropped = producerAll.Where(d => d.Kind == DecisionKind.Cube).ToList();
 
-        producerKept.Should().NotBeEmpty(
-            "non-vacuousness gate: the corpus must yield at least one checker-play diagram");
-        producerDropped.Should().NotBeEmpty(
-            "non-vacuousness gate: the corpus must yield at least one cube diagram");
+            producerKept.Should().NotBeEmpty(
+                "non-vacuousness gate: the sources must yield at least one checker-play diagram");
+            producerDropped.Should().NotBeEmpty(
+                "non-vacuousness gate: the sources must yield at least one cube diagram");
 
-        var consumerKept = NewIterator(
-            new DecisionFilterSet().Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly)))
-            .IterateXgDirectoryDiagrams(FixtureDir).ToList();
+            var consumerKept = NewIterator(
+                new DecisionFilterSet().Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly)))
+                .IterateXgDirectoryDiagrams(tempDir).ToList();
 
-        consumerKept.Select(d => d.Id).Should().Equal(producerKept.Select(d => d.Id),
-            "surviving Ids must equal the producer's checker-play subset, in order");
+            consumerKept.Select(d => d.Id).Should().Equal(producerKept.Select(d => d.Id),
+                "surviving Ids must equal the producer's checker-play subset, in order");
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
     }
 
     // -----------------------------------------------------------------------
@@ -196,18 +224,17 @@ public class FilteredDecisionIteratorIdTests
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Stages every fixture matching <paramref name="pattern"/> from
-    /// <see cref="FixtureDir"/> into a fresh temp directory and returns the
-    /// path. Used to isolate a single file extension so the consumer's
+    /// Writes <paramref name="sources"/> as XG's binary container into a
+    /// fresh temp directory and returns the path, so the consumer's
     /// <c>EnumerateXgFormatFiles</c> walk and the raw-producer walk align
     /// on the same path set.
     /// </summary>
-    private static string StageFixturesByExtension(string pattern)
+    private static string Stage((string Name, XgFile File)[] sources)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(tempDir);
-        foreach (var src in Directory.GetFiles(FixtureDir, pattern))
-            File.Copy(src, Path.Combine(tempDir, Path.GetFileName(src)));
+        foreach (var (name, file) in sources)
+            File.WriteAllBytes(Path.Combine(tempDir, name), SyntheticSources.XgBytes(file));
         return tempDir;
     }
 

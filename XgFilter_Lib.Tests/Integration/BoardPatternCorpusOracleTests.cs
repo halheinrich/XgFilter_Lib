@@ -18,41 +18,46 @@ namespace XgFilter_Lib.Tests.Integration;
 /// hand-made <em>and</em> real positions.
 ///
 /// <para>
-/// Two layers, with different corpus dependencies:
+/// Every test reads the local <c>TestData\FixtureFiles</c> corpus in place
+/// (<see cref="TestPaths"/>), which is gitignored and lives only on the
+/// developer's machine, so the class carries <c>RequiresFixtureFiles</c>.
+/// Every run asserts that it read at least one source, so neither layer can
+/// pass on an empty folder. Two layers:
 /// </para>
 /// <list type="bullet">
 ///   <item><description>
 ///     <b>Layer 1 — file-level equivalence.</b> Fixture-agnostic: the named
 ///     filter and its pattern equivalent must yield the same decision-key
-///     sequence. Vacuously passes on an empty corpus, so it is safe to run
-///     anywhere (CI included) even though the corpus itself is gitignored.
+///     sequence, whatever the corpus holds.
 ///   </description></item>
 ///   <item><description>
-///     <b>Layer 2 — non-zero discrimination.</b> Corpus-requiring: each named
-///     filter must admit at least one decision. This needs the local
-///     <c>TestData\FixtureFiles</c> corpus, which is gitignored (like the
-///     existing <c>halheinrich</c> player tests) and lives only on the
-///     developer's machine. It is a forcing function — a zero count means the
-///     oracle is <em>vacuous</em> for that filter (Layer 1 would pass on an
-///     empty match set), so a fixture exercising that pattern should be
+///     <b>Layer 2 — non-zero discrimination.</b> Each named filter must admit
+///     at least one decision. It is a forcing function — a zero count means
+///     the oracle is <em>vacuous</em> for that filter (Layer 1 would pass on
+///     an empty match set), so a fixture exercising that pattern should be
 ///     appended to the local corpus (append-only).
 ///   </description></item>
 /// </list>
 /// </summary>
+[Trait("Category", "RequiresFixtureFiles")]
 public class BoardPatternCorpusOracleTests
 {
-    private static readonly string FixtureDir = Path.Combine(
-        AppContext.BaseDirectory, "TestData", "FixtureFiles");
-
     private static readonly ILogger<FilteredDecisionIterator> NullLogger =
         NullLogger<FilteredDecisionIterator>.Instance;
 
     /// <summary>Each decision's identity across both filter runs: its identifier.</summary>
-    private static List<DecisionId> Run(DecisionFilterSet filters) =>
-        new FilteredDecisionIterator(filters, PlayRanking.Equity, NullLogger)
-            .IterateXgDirectory(FixtureDir)
+    private static List<DecisionId> Run(DecisionFilterSet filters)
+    {
+        var report = new SourceReport();
+        var ids = new FilteredDecisionIterator(filters, PlayRanking.Equity, NullLogger)
+            .IterateXgDirectory(TestPaths.FixtureFilesDir, report)
             .Select(r => r.Id)
             .ToList();
+
+        report.ReadableCount.Should().BePositive(
+            "the oracle compares decisions read from the corpus; an empty corpus compares nothing");
+        return ids;
+    }
 
     private static DecisionFilterSet Named(PositionType type) =>
         new DecisionFilterSet().Add(new PositionTypeFilter([type]));
@@ -61,7 +66,7 @@ public class BoardPatternCorpusOracleTests
         new DecisionFilterSet().Add(new PositionPatternFilter(BoardPattern.Parse(bracketList)));
 
     // -----------------------------------------------------------------------
-    //  Layer 1 — file-level equivalence (fixture-agnostic; vacuous on empty)
+    //  Layer 1 — file-level equivalence (fixture-agnostic)
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -102,9 +107,9 @@ public class BoardPatternCorpusOracleTests
     }
 
     // -----------------------------------------------------------------------
-    //  Layer 2 — non-zero discrimination (requires the local FixtureFiles
-    //  corpus; gitignored). A zero here is the forcing function firing: the
-    //  oracle is vacuous for that filter, so append a fixture that exercises it.
+    //  Layer 2 — non-zero discrimination. A zero here is the forcing function
+    //  firing: the oracle is vacuous for that filter, so append a fixture
+    //  that exercises it.
     // -----------------------------------------------------------------------
 
     [Theory]
