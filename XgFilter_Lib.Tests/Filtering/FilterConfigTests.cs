@@ -437,9 +437,10 @@ public class FilterConfigTests
     [Fact]
     public void Build_AcceptanceCase_AddingSelections_StrictlyGrowsTheMatchedSet()
     {
-        // Union semantics: every further toggle or level can only admit MORE
-        // rows. Pinned on a mixed sample containing a row each addition newly
-        // admits, starting from the acceptance-case config.
+        // Union semantics: a further toggle, or a further level on a list that
+        // holds some, can only admit MORE rows. Pinned on a mixed sample
+        // containing a row each addition newly admits, starting from the
+        // acceptance-case config.
         var sample = new[]
         {
             Analysed(AnalysisMode.Rollout, AnalysisLevel.Ply3),

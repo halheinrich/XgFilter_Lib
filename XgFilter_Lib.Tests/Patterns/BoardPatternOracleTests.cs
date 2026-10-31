@@ -6,8 +6,8 @@ using XgFilter_Lib.Tests.Helpers;
 namespace XgFilter_Lib.Tests.Patterns;
 
 /// <summary>
-/// The reason the named <c>PositionType</c> classifiers stay in the codebase
-/// through pattern-v1: they are the oracle. Each test pins a hand-written
+/// One reason the named <c>PositionType</c> classifiers stay in the codebase:
+/// they are the oracle. Each test pins a hand-written
 /// <see cref="BoardPattern"/> against the classifier it is meant to reproduce
 /// and asserts they agree across a broad board sample.
 ///

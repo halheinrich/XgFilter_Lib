@@ -3,15 +3,112 @@
 > Collaboration contract: [`../AGENTS.md`](../AGENTS.md)
 > Umbrella status & dependency graph: [`../INSTRUCTIONS.md`](../INSTRUCTIONS.md)
 > Mission & principles: [`../VISION.md`](../VISION.md)
+> Open work: the [tracker](https://github.com/halheinrich/backgammon/issues), label `XgFilter_Lib`.
+
+## What it is for
+
+The ecosystem's one implementation of filters on backgammon decisions. A
+consumer says what it wants in a `FilterConfig`, a plain document it can bind
+to a UI, save and POST; the library judges that document, materializes it as a
+`DecisionFilterSet`, and evaluates the set over decisions, streamed from XG
+files and JSON documents or already held as records. Beside the filters it
+owns what a filter is written in: the score-token grammar (`MatchScoreToken`),
+the board-pattern grammar (`BoardPattern`) and the saved-filters document
+(`NamedFilterCollection`).
+
+A source flows one way through it: `FilteredDecisionIterator` reads it through
+ConvertXgToJson_Lib's `XgSourceReader`, walks its decisions with the producer,
+and yields those the set passes under the ranking the caller stated. The
+library chooses no ranking, persists nothing (a consumer loads and writes the
+bytes), derives no fact a record states, and words no message: a verdict is
+typed, and the consumer says it in its own voice.
+
+## Which surface for which task
+
+Each public type's XML doc, built on every build, is its contract and its
+signatures; this table says where to start.
+
+| To… | Use |
+|---|---|
+| state a filter, from a UI or a stored document | `FilterConfig` |
+| ask before applying it, and mark what is wrong | `GetInvalidFields()`; `MatchScoreToken.GetFault` per token; `BoardPattern.Parse`'s exception for why |
+| show which facets are set | `GetActiveFacets()`, labelled through `EnumLabel.ToLabel` |
+| tell "changed" from "back where it started" | `FilterConfig.Equals` (see "Value equality") |
+| filter a directory of files | `FilteredDecisionIterator`: `IterateXgDirectory`, `IterateXgDirectoryDiagrams`, `IterateJsonDirectory` |
+| filter bytes held in memory | `IterateXgStreams`, `IterateXgStreamDiagrams`, over `XgFileStream` entries |
+| filter a file already decoded | `IterateFile`, `IterateFileDiagrams` |
+| filter records already held | `set.Matches(record.ViewFor(ranking))` |
+| learn what a walk could not read | pass a fresh `SourceReport` |
+| read the error the facets judged, for an order by error | `DecisionFilterSet.ErrorRead` |
+| save filters by name | `NamedFilterCollection` |
+| write a position predicate | `BoardPattern`; the token table is under "Patterns" |
+
+The usual walk, from a filter the user filled in to the decisions it passes:
+
+```csharp
+var config = new FilterConfig
+{
+    Players = { "Alice" },
+    MatchScores = { "3a5a", "5a3a" },      // on-roll anchored: both orientations
+    ErrorMin = 0.05,
+    PositionPattern = "[20,2,] [13-18,,-2]",
+};
+if (config.GetInvalidFields().Count > 0)
+    return;                                // mark those fields; Build would throw
+
+var filters = config.Build();
+var iterator = new FilteredDecisionIterator(filters, PlayRanking.Equity, logger);
+var report = new SourceReport();
+foreach (BgDecisionData decision in iterator.IterateXgDirectoryDiagrams(folder, report))
+    Show(decision, filters.ErrorRead(decision.ViewFor(PlayRanking.Equity)));
+
+if (report.AllRejected)
+    Tell(report.Rejected);                 // every file refused, each with its reason
+```
 
 ## Stack
 
-C# / .NET 10 / Class Library / xUnit. Filtering and classification for
-backgammon decision records produced by `ConvertXgToJson_Lib`.
+C# / .NET 10 / Class Library / xUnit.
 
 ## Solution
 
 `D:\Users\Hal\Documents\Visual Studio 2026\Projects\backgammon\XgFilter_Lib\XgFilter_Lib.slnx`
+
+From this directory:
+
+```bash
+dotnet build XgFilter_Lib.slnx
+```
+
+```bash
+dotnet test XgFilter_Lib.slnx
+```
+
+Without the fixtures only one developer's machine holds:
+
+```bash
+dotnet test XgFilter_Lib.slnx --filter "Category!=RequiresFixtureFiles"
+```
+
+**What the tests read.** `TestData` is the umbrella's, shared at
+`backgammon\TestData` and gitignored ([AGENTS § Tests](../AGENTS.md#tests)
+owns its rules). `TestPaths` reaches it in place, five levels above the test
+output directory; nothing copies it into `bin/` (halheinrich/backgammon#447),
+so moving it or changing the output depth breaks every test that reads it. The
+suite took about 30 seconds against the local corpus on 2026-10-30. Three
+kinds of test read differently:
+
+* Gating tests synthesize their sources through the producer's builder and
+  writers (`SyntheticSources`) and need nothing. This is most of the suite. A
+  test that needs only some readable source does this; one that modifies input
+  stages its own files under `Path.GetTempPath()`.
+* `TestData/FixtureFiles` tests carry the `RequiresFixtureFiles` trait and
+  fail on an empty folder, each asserting it read something:
+  `BoardPatternCorpusOracleTests`, two methods of
+  `FilteredDecisionIteratorTests`, one of `FilteredDecisionIteratorFileTests`.
+* `TestData/xg` tests sweep whatever it holds, carry no trait, and pass
+  vacuously when it is empty: the three methods of
+  `FilteredDecisionIteratorTests` on race and contact, which check invariants.
 
 ## Repo
 
@@ -21,811 +118,523 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
 
 * **BgDataTypes_Lib** — `IDecisionFilterData` (the substrate filters operate
   on: a `DecisionRow`, or a `BgDecisionData`'s view built for a
-  `PlayRanking`), the two decision kinds, `BoardPosition`, `PlayerResult`,
-  the session kinds with their terms and standings, the header contracts
+  `PlayRanking`), the two decision kinds, `BoardPosition`, `PlayerResult`, the
+  session kinds with their terms and standings, the header contracts
   `IMatchInfo` / `IGameInfo`, `DiceRoll`, the depth taxonomy, and the
   named-document machinery (`IJsonDocument`, `NamedCollection`). Tests build
   every record through its test-support project
   (`BgDataTypes_Lib.TestSupport`'s `TestRecords`).
-* **ConvertXgToJson_Lib** — `XgSourceReader` (the one read of one source,
-  with its outcome pair `XgSourceDecoded` / `XgSourceFailed` and the
-  `XgSourceFormat` the caller states), `XgDecisionIterator`,
-  `XgIteratorCallbacks`, `XgIteratorOptions` (the ranking the producer
-  builds rows for, and the opening book), `OpeningBook` (the loaded book a
-  caller hands the iterator), `XgMatchInfo`, `XgGameInfo`, `XgFileReader`
-  (XG-format discovery), `Models.XgFile`. Used by `FilteredDecisionIterator` to read
-  each source, walk its decisions and drive early-exit via callback
-  registration on the producer. Tests additionally use
-  `XgFileBuilder` / `XgGameBuilder` — the producer's one public path to an
-  in-memory `XgFile` — and `XgFileWriter` to synthesize integration
-  fixtures; the XG record model behind them is internal to the producer and
-  cannot be hand-built.
+* **ConvertXgToJson_Lib** — `XgSourceReader` (the one read of one source, with
+  its outcome pair `XgSourceDecoded` / `XgSourceFailed` and the
+  `XgSourceFormat` the caller states), `XgDecisionIterator` and its
+  `XgIteratorCallbacks` / `XgIteratorOptions`, `OpeningBook`, `XgFileReader`
+  (XG-format discovery) and the opaque `Models.XgFile`. Tests additionally use
+  `XgFileBuilder` / `XgGameBuilder`, the producer's one public path to an
+  in-memory `XgFile`, and `XgFileWriter` to synthesize fixtures; the XG record
+  model behind them is internal to the producer and cannot be hand-built.
 
 ## Layout
 
 Two projects of its own, governed by repo-root `Directory.Build.props` (TFM,
 nullable, `TreatWarningsAsErrors`, XML doc generation) and
 `Directory.Packages.props` (Central Package Management — no inline `Version=`
-anywhere). What is repo-wide policy versus a per-project decision is settled by
-the boundary comment in `Directory.Build.props` itself; `LangVersion`,
-`InternalsVisibleTo`, and the test project's doc-file opt-out are csproj-local
-under that rule. `XgFilter_Lib.slnx` additionally carries the
-`BgDataTypes_Lib` and `ConvertXgToJson_Lib` project files, so the dependency
-chain builds from this solution rather than from packages.
+anywhere). What is repo-wide policy versus a per-project decision is settled
+by the boundary comment in `Directory.Build.props` itself. `XgFilter_Lib.slnx`
+also carries the `BgDataTypes_Lib`, `BgDataTypes_Lib.TestSupport` and
+`ConvertXgToJson_Lib` project files, so the dependency chain builds from this
+solution rather than from packages.
 
-**`XgFilter_Lib/`** — the library. Four areas plus two top-level types:
+**`XgFilter_Lib/`** — the library. Four areas plus the top level:
 
 - **`Enums/`** — the vocabulary consumers name. The filterable categories
-  (`ContactType`, `PositionType`, `PlayType`), `DecisionTypeOption`, and two reflection vocabularies over
-  `FilterConfig`: `FilterFacet` (complete — one member per add/skip gate) and
-  `FilterField` (deliberately partial — one member per individually-blameable
-  field). `EnumLabel` reads the `[Description]` labels, keeping display text
-  owned by the library that defines the enum rather than by a UI layer.
-  BgDataTypes_Lib's `StrictJsonStringEnumConverter<T>` is bundled by type-level
-  attribute onto the four enums that cross a wire, so they serialize as declaration names and
-  reject numeric ordinals under *any* consumer's serializer.
+  (`ContactType`, `PositionType`, `PlayType`), `DecisionTypeOption`, and two
+  reflection vocabularies over `FilterConfig`: `FilterFacet` (complete, one
+  member per add/skip gate) and `FilterField` (deliberately partial, one
+  member per individually-blameable field). `EnumLabel` reads the
+  `[Description]` labels, keeping display text owned by the library that
+  defines the enum rather than by a UI layer.
 - **`Filtering/`** — the intent surface and the machinery behind it.
   `FilterConfig` is the serializable DTO a consumer fills; its `Build()`
   materializes a `DecisionFilterSet` from the ten `internal` filter classes,
   which implement the `IDecisionFilter` / `IMatchFilter` seams.
-  `NamedFilterCollection` is the versioned saved-filters document a consumer
-  persists — a `NamedCollection` specialization owning only its identity, with
-  its type-bundled closed converter. `MatchScoreToken` is
-  the one public *grammar* here — the score-token vocabulary and its wordless
-  verdict — standing to `MatchScoreFilter` as `BoardPattern` stands to
+  `NamedFilterCollection` is the versioned saved-filters document, with its
+  closed converter. `MatchScoreToken` is the one public *grammar* here,
+  standing to `MatchScoreFilter` as `BoardPattern` stands to
   `PositionPatternFilter`.
 - **`Classification/`** — the `internal` predicates the category filters
   dispatch to: `IPositionClassifier` / `IPlayTypeClassifier` plus one
   hand-written implementation per enum member. Board-reading only, never
   XGID-parsing.
 - **`Patterns/`** — the declarative counterpart to those named classifiers:
-  `BoardPattern` over its two `IPatternConstraint` kinds — `CheckerRange` over
-  `CheckerLocation`, and `CheckerSpanRange` over `CheckerSpan` — plus the
+  `BoardPattern` over its two `IPatternConstraint` kinds, `CheckerRange` over
+  `CheckerLocation` and `CheckerSpanRange` over `CheckerSpan`, plus the
   converter that carries the bracket-list text form onto the wire.
-- **Top level** — `FilteredDecisionIterator`, the integration point that
-  filters one parsed source through a filter set and walks XG and JSON
-  sources through the same operation; `XgFileStream`, the named
-  stream its directory-free entries take; and `SourceReport` with its
-  `SourceRejection` entries, the caller-supplied record of what one walk
-  attempted and rejected.
+- **Top level** — `FilteredDecisionIterator`, the integration point;
+  `XgFileStream`, the named stream its directory-free entries take;
+  `SourceReport` with its `SourceRejection` entries, the caller-supplied
+  record of what one walk attempted and rejected; and `XgFilterJsonContext`,
+  the source-generated metadata of the wire surface.
 
-**`XgFilter_Lib.Tests/`** — xUnit, mirroring the library's folders with one
-test class per type (and `BoardPatternCompatibilityTests`, the pre-span
-grammar written out as an oracle), plus two folders the library has no
-counterpart for:
-`Helpers/` (`BoardBuilder`, the shared `DecisionFilterAsserts` over one
-record's view and row under one ranking, `RankingSplit` — a record whose best
-play differs by ranking — and the `FakeGameInfo` / `FakeMatchInfo` headers;
-the records themselves, and the `RecordingLogger<T>` / `ThrowingLogger<T>`
-test loggers, come from `BgDataTypes_Lib.TestSupport`) and
-`Integration/` (end-to-end iterator runs, synthesized or over the corpus, and
-the corpus oracles). Reaches the library's `internal` surface via
-`InternalsVisibleTo`, and reads the umbrella corpus in place through
-`TestPaths` — see the TestData pitfall.
+**`XgFilter_Lib.Tests/`** — xUnit, mirroring the library's folders, plus
+`XgFilterJsonContextTests` and `PublicCollectionsTests` at its root. Reaches
+the library's `internal` surface via `InternalsVisibleTo`.
+`Patterns/BoardPatternCompatibilityTests` writes the pre-span grammar out as
+an independent oracle; `Patterns/BoardPatternOracleTests` and
+`Integration/BoardPatternCorpusOracleTests` are the classifier oracles (see
+"Classification"). Two folders have no counterpart in the library: `Helpers/`
+(`BoardBuilder`, `CubeHalves`, the shared `DecisionFilterAsserts` over one
+record's view and row under one ranking, `RankingSplit` for a record whose
+best play differs by ranking, `SyntheticSources`, and the `FakeGameInfo` /
+`FakeMatchInfo` headers; the records and the test loggers come from
+`BgDataTypes_Lib.TestSupport`) and `Integration/` (end-to-end iterator runs,
+synthesized or over the corpus).
 
 ## Architecture
 
 ### Substrate
 
 All row-level filters operate on `IDecisionFilterData`, defined in
-`BgDataTypes_Lib`: a `DecisionRow` (CSV-shaped) is one, and a
-`BgDecisionData` (diagram-shaped) gives one through `ViewFor(ranking)`. A
-single filter instance applies to either — no parallel hierarchies, no
-conversion at the filter boundary. Every fact is read where the producer
-states it — the decision's `Kind`, its `Session` (a `MoneySession` or a
-`MatchSession`, matched exhaustively), `Board` and the after-boards as
-`BoardPosition`s, the player's result — and nothing the producer derives is
-derived again here. A fact that does not apply is `null` on the view, and
-each filter's doc says whether such a decision passes.
+`BgDataTypes_Lib`: a `DecisionRow` (CSV-shaped) is one, and a `BgDecisionData`
+(diagram-shaped) gives one through `ViewFor(ranking)`. A single filter
+instance applies to either — no parallel hierarchies, no conversion at the
+filter boundary. Every fact is read where the producer states it — the
+decision's `Kind`, its `Session` (a `MoneySession` or a `MatchSession`,
+matched exhaustively), `Board` and the after-boards as `BoardPosition`s, the
+player's result — and nothing the producer derives is derived again here. A
+fact that does not apply is `null` on the view, and each filter's doc says
+whether such a decision passes.
 
 ### The ranking in force
 
-Which play is best — and so a checker play's error, the best play's depth
-and its after-board — is a ranking's (SPEC-scoring §2a). A view or a row is
-built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
+Which play is best — and so a checker play's error, the best play's depth and
+its after-board — is a ranking's (SPEC-scoring §2a). A view or a row is built
+for one ranking and states it (`IDecisionFilterData.Ranking`), so:
 
 * **A filter holds no ranking.** It reads the ranking of the data it is
-  handed: "erred by more than x" under a ranking is the error facet's
-  filter (`PlayerErrorFilter`) over views, or rows, built for that ranking.
-* **`FilterConfig` holds no ranking.** A saved filter is the user's
-  selection; the ranking is the application's one setting (§2a), so the
-  persisted form does not carry it and did not change with it.
+  handed: "erred by more than x" under a ranking is the error facet's filter
+  (`PlayerErrorFilter`) over views, or rows, built for that ranking.
+* **`FilterConfig` holds no ranking.** A saved filter is the user's selection;
+  the ranking is the application's one setting (§2a), so the persisted form
+  does not carry it and did not change with it.
 * **The caller states it where records are filtered.** Where this library
-  builds views and rows itself — `FilteredDecisionIterator`, its walks and
-  its filtering operation alike — the ranking is a required constructor
-  argument beside the filters, and the only one: the producer's opening
-  book, the other producer configuration a caller supplies, is taken as
-  the book alone, so no caller can state a second ranking. A caller filtering
-  records it holds builds the views itself (`set.Matches(record.ViewFor(ranking))`).
-  An application without a ranking setting passes `PlayRanking.Equity`, the
-  default; the argument is required rather than defaulted, as the
-  producer's `ViewFor` and `DecisionRow.From` are, so an application with
-  the setting cannot silently fall back to the default.
+  builds views and rows itself — `FilteredDecisionIterator`, its walks and its
+  filtering operation alike — the ranking is a required constructor argument
+  beside the filters, and the only one: the producer's opening book, the other
+  producer configuration a caller supplies, is taken as the book alone, so no
+  caller can state a second ranking. A caller filtering records it holds
+  builds the views itself. An application without a ranking setting passes
+  `PlayRanking.Equity`, the default; the argument is required rather than
+  defaulted, as the producer's `ViewFor` and `DecisionRow.From` are, so an
+  application with the setting cannot silently fall back to the default.
 
 ### Enums
 
-`ContactType`, `DecisionTypeOption`, `PlayType` and `PositionType` carry
-BgDataTypes_Lib's `StrictJsonStringEnumConverter<TEnum>` by type-level
-attribute. This library's own copy was retired
-(halheinrich/backgammon#424, 2026-10-19: common code moves to one shared
-owner).
+`ContactType`, `DecisionTypeOption`, `PlayType` and `PositionType` cross a
+wire, and each carries BgDataTypes_Lib's
+`StrictJsonStringEnumConverter<TEnum>` by type-level attribute. That
+converter's doc owns the rule: tokens are the declared names, numeric ordinals
+are refused, name matching on read is case-insensitive. This library's own
+copy was retired (halheinrich/backgammon#424, 2026-10-19: common code moves to
+one shared owner).
 
-* `PositionType` — structural board patterns a position can carry.
-  Members: InnerBoard631, InnerBoard54321, VsTwoPlusUp,
-  Holding1386Vs20. **Not** mutually exclusive: a single position may
-  satisfy several at once (e.g. InnerBoard631 + VsTwoPlusUp). Each is
-  determinable from the on-roll-relative board array alone — no XGID
-  parsing.
-* `ContactType` — Contact, Race. Whether a position still carries
-  contact or has raced. These two **partition** every position: it is
-  exactly one, never both and never neither. Contact-vs-race is an axis
-  **orthogonal** to `PositionType`, so the two facets compose via AND
-  (e.g. Contact ∧ InnerBoard631) rather than collapsing into
-  OR-within-a-single-facet. Also board-derived — no XGID parsing.
-  Contact/Race were extracted out of `PositionType` into this dedicated
-  enum precisely to make that orthogonality explicit at the type level.
-* `PlayType` — Make20Pt. The enum has one member per
-  `IPlayTypeClassifier` implementation, and grows as new
-  play-shape classifiers land alongside their matching values.
-* `DecisionTypeOption` — which decision types `DecisionTypeFilter`
-  admits. Members: CheckerPlaysOnly, CubeOnly, Both.
-* `FilterFacet` — the facet vocabulary of `FilterConfig`: one member
-  per add/skip gate `Build()` recognizes (Players, DecisionType,
-  MatchScores, ErrorRange, MoveNumberRange, ContactTypes,
-  PositionTypes, PlayTypes, AnalysisDepth, DiceRolls,
-  PositionPattern), declared in `Build()`'s add order. Players and
-  ErrorRange are two facets that materialize as one filter, added at
-  Players' place (see `PlayerErrorFilter` below). The depth
-  facet's three per-mode toggle+levels pairs are ONE facet. The UI-shelved
-  `PositionTypes` / `PlayTypes` stay in the vocabulary because they
-  remain `Build()`-reachable (old saved configs can carry them); each
-  member retires together with its facet. Labels match the
-  FilterPanel's visible section headings, so an "N hidden filters
-  active" signal names the sections the user finds on expanding.
-* `FilterField` — the companion vocabulary to `FilterFacet`, and the
-  currency of `FilterConfig.GetInvalidFields()`: one member per
-  individually-blameable *field* a validity rule can name (MatchScores,
-  ErrorMin, ErrorMax, MoveNumberMin, MoveNumberMax, PositionPattern),
-  declared in that order.
-  Deliberately **partial**, and it grows with the rules — a member exists iff
-  some `FieldRules` row can name it, so a facet with no rule to state (a
-  checkbox list, whose only failure mode is an undefined enum value no UI can
-  produce) is absent rather than permanently valid. Read it as the blameable
-  set, never as an inventory of the config's members; `FilterFacet` is the
-  complete vocabulary. Fields rather than facets because a consumer marks
-  inputs: a range facet contributes one member per bound, so a misordered pair
-  can blame both ends.
-* `MatchScoreTokenFault` — the typed verdict `MatchScoreToken.GetFault`
-  returns on one `MatchScores` entry: `None`, `Malformed`, `Retired`. Two
-  faults, not one per parse rule, because the only distinction that changes
-  what a consumer *says* is retired-vocabulary versus wrong-shape: a retired
-  token gets its replacements named, everything else gets retyped. Carries no
-  text — see **The score-token grammar** below.
-* Every member of every enum in this namespace carries a UI-facing
-  `[Description]` label — `FilterField` and `MatchScoreTokenFault` excepted,
-  deliberately. `FilterField`'s members name a consumer's own input, whose
-  caption this library never renders, and `MatchScoreTokenFault`'s name a
-  verdict the consumer words in its own voice (the reasoning is on each
-  enum). Consumers read it via
-  `EnumLabel.ToLabel<TEnum>(value)`. Display text is owned by this
-  library, not the UI layer. The helper throws `ArgumentException`
-  on undeclared values and on declared members without a
-  `[Description]` — missed annotations surface loudly rather than
-  degrading to the raw identifier. It reflects on every call, with no
-  cache, which matters only on a hot UI render path.
+* `PositionType` — structural board patterns, **not** mutually exclusive: a
+  position may satisfy several at once, and the filter takes the union.
+* `ContactType` — these two **partition** every position. Contact-vs-race was
+  extracted out of `PositionType` to make it an orthogonal axis at the type
+  level, so it composes with a structural selection by AND across the set,
+  never by OR within one filter.
+* `PlayType` — one member per `IPlayTypeClassifier` implementation; it grows
+  as play-shape classifiers land.
+* `FilterFacet` — the facet vocabulary of `FilterConfig`, one member per
+  add/skip gate, declared in `Build()`'s add order. `Players` and `ErrorRange`
+  are two facets materializing as one filter, added at `Players`' place. The
+  depth facet's three per-mode pairs are one facet. The UI-shelved
+  `PositionTypes` / `PlayTypes` stay in the vocabulary because an old saved
+  config can carry them; each member retires with its facet. Labels match the
+  FilterPanel's visible section headings, so an "N hidden filters active"
+  signal names the sections the user finds on expanding.
+* `FilterField` — the companion vocabulary and the currency of
+  `GetInvalidFields()`. Deliberately **partial**: a member exists iff some
+  `FieldRules` row can name it, so a facet with no rule to state is absent
+  rather than permanently valid. Read it as the blameable set, never as an
+  inventory of the config's members. Fields rather than facets because a
+  consumer marks inputs: a range facet contributes one member per bound, so a
+  misordered pair can blame both ends.
+* `MatchScoreTokenFault` — two faults, not one per parse rule, because the
+  only distinction that changes what a consumer *says* is retired-vocabulary
+  versus wrong-shape: a retired token gets its replacements named, everything
+  else gets retyped.
+* **Labels.** Every member of every enum here carries a UI-facing
+  `[Description]`, read through `EnumLabel.ToLabel`, except `FilterField` and
+  `MatchScoreTokenFault`: their members name a consumer's own input and a
+  verdict the consumer words itself (the reasoning is on each enum). `ToLabel`
+  throws on an undeclared value and on a member without a label, so a missed
+  annotation surfaces loudly rather than degrading to the raw identifier. It
+  reflects on every call, with no cache, which matters only on a hot UI render
+  path.
 
 ### Filtering
 
-The ten concrete filter classes (`PlayerErrorFilter` … `DiceRollFilter`)
-and `IMatchFilter` are `internal`. `FilterConfig.Build()` is the intent
-surface — consumers state *what* to filter and the library materializes
-the `DecisionFilterSet`; only `IDecisionFilter` stays public, as the
-`DecisionFilterSet.Add` seam. Like `Classification/`, the internal
-filters are documented here as substantive machinery, not public
-surface, and are reachable from the test project via
-`InternalsVisibleTo("XgFilter_Lib.Tests")`.
+The ten concrete filter classes and `IMatchFilter` are `internal`:
+`FilterConfig.Build()` is the intent surface, so consumers state *what* to
+filter and the library materializes the set. Only `IDecisionFilter` stays
+public, as the `DecisionFilterSet.Add` seam.
 
-* `IDecisionFilter` — `bool Matches(IDecisionFilterData data)`. Two virtual
-  defaults for game/match-level early-exit hints:
-  `ShouldAdvanceGame(data)` and `ShouldAdvanceMatch(data)`, both returning
-  `false` unless a filter opts in. **The hint contract**, stated on the
-  interface (halheinrich/backgammon#373, Hal's ruling of 2026-10-08): an
-  advance hint receives any just-yielded decision, whether or not it
-  matches, and is never gated on `Matches`; a true vote guarantees that no
-  later decision in the relevant game or match can pass that filter. It
-  says nothing about the decision voted on — `MoveNumberFilter`'s vote
-  comes from the first decision past the maximum, which it rejects. What
-  the contract buys is **Early exit only saves work** (under Iteration).
-  Until this leg the interface said the hints were called "after `data`
-  has matched", which the producer never did and `MoveNumberFilter`'s
-  cutoff could not have worked under.
-* `IMatchFilter` — optional extension for filters that can skip an entire
-  match or game before any rows are yielded:
-  `ShouldSkipMatch(IMatchInfo)` and `ShouldSkipGame(IGameInfo)`. Filters
-  implement both interfaces where applicable. The skip hints carry the same
-  guarantee from the header: a true vote means no decision in the match or
-  game can pass the filter; a false one promises nothing.
-* `DecisionFilterSet` — ordered list of `IDecisionFilter` combined with AND
-  semantics. Fluent `Add()`. `IsEmpty` is the SSOT for "no filters
-  active" — consumers consult it rather than re-inspecting whatever
-  config produced the set. `Matches()` passes when every filter passes (or
-  the set is empty). `ShouldSkipMatch` / `ShouldSkipGame` delegate to any
-  filter in the set that also implements `IMatchFilter`, and the advance
-  votes to any filter: one member's vote is sound for the set, since the
-  set is an AND. Duplicates of the
-  same concrete filter type are allowed and compose with AND (e.g. two
-  `MoveNumberFilter`s intersect their ranges) — except the filter for the
-  name and error facets (`PlayerErrorFilter`): a set holds at most one,
-  and `Add` refuses a second with an `ArgumentException`, since it states
-  which error the set reads. `ErrorRead(data)` is that reading: the pair
-  filter's qualifying error, or, in a set without one, the rule with no
-  facet active — the doubler's error. It is defined for every decision,
-  passing or not; callers read it for the decisions the set passes (the
-  by-error order). `Add` mutates the set and returns it, and
-  `FilterConfig.Build()` discards the return, so an `Add` changed to return
-  a new set would silently leave `Build` with an empty one.
-* `FilterConfig` — serializable, default-constructible, mutable DTO that
-  bundles every filter's input. Owned by this lib; consumers fill it
-  directly (no string-list parsing on the consumer side) and call
-  `Build()` to materialize a `DecisionFilterSet`. Empty-list semantics:
-  an empty `Players` / `MatchScores` / `ContactTypes` / `PositionTypes` /
-  `PlayTypes` / `DiceRolls`, and a null-or-blank `PositionPattern`, each
-  mean "no filter of this kind is active," not "reject everything";
-  `Build()` skips the corresponding `Add()` in that case. The depth facet is the
-  one exception to the single-member pattern — three per-mode pairs
-  (`IncludeEvaluations`+`EvaluationLevels`, `IncludeRollouts`+`RolloutLevels`,
-  `IncludeBookRollouts`+`BookRolloutLevels`); it is inactive (skipped) iff
-  all three toggles are off (see **Depth facet semantics** below).
-  Likewise `DecisionType = Both` is a no-op and is skipped. The range
-  facets (`ErrorRange`, `MoveNumber`) are active if either bound is set.
-  `Players` and the error bounds are one filter: `Build()` adds exactly one
-  `PlayerErrorFilter` when either facet is active.
-  Canonical JSON is single-sourced on the type via `ToJson()` /
-  `FromJson(string)` / `TryFromJson(string?, out FilterConfig)`, over the
-  source-generated `XgFilterJsonContext.Default.FilterConfig` metadata, which
-  carries **no converters and no policy at all** — every member that needs one
-  carries it on its own type. `DecisionType` /
-  `ContactTypes` / `PositionTypes` / `PlayTypes` carry
-  `BgDataTypes_Lib`'s `StrictJsonStringEnumConverter<T>` (the one converter all
-  five wire enums carry, `AnalysisLevel` included); and
-  `DiceRoll` carries its own. So every enum member round-trips
-  as an `["InnerBoard631", ...]` name-array and a numeric ordinal is rejected
-  (halheinrich/backgammon#164), `DiceRolls` rides as a `["31","66"]` token
-  array, the three mode toggles are plain booleans, and `PositionPattern`
-  is the bracket-list **text itself** — a plain string, written and read
-  as it is, no grammar consulted on the wire (see **Validity** below and
-  halheinrich/backgammon#269).
+* `IDecisionFilter` — `Matches`, and the two advance hints,
+  `ShouldAdvanceGame` and `ShouldAdvanceMatch`, which default to `false`.
+  **The hint contract**, stated on the interface (halheinrich/backgammon#373,
+  Hal's ruling of 2026-10-08): an advance hint receives any just-yielded
+  decision, whether or not it matches, and a true vote guarantees that no
+  later decision in the game or match can pass that filter. It says nothing
+  about the decision voted on: `MoveNumberFilter`'s vote comes from the first
+  decision past the maximum, which it rejects. What the contract buys is
+  **Early exit only saves work** (under Iteration).
+* `IMatchFilter` — the skip hints, `ShouldSkipMatch` and `ShouldSkipGame`,
+  with the same guarantee from a header: a true vote means no decision in the
+  match or game can pass the filter; a false one promises nothing.
+* `DecisionFilterSet` — filters ANDed in order. `IsEmpty` is the SSOT for "no
+  filters active": consumers consult it rather than re-inspecting whatever
+  config produced the set. One member's skip or advance vote is sound for the
+  set, since the set is an AND. Duplicates of a concrete filter type compose
+  with AND (two `MoveNumberFilter`s intersect their ranges), except the filter
+  for the name and error facets: a set holds at most one, and `Add` refuses a
+  second, since it states which error the set reads. `ErrorRead(data)` is that
+  reading: the pair filter's qualifying error or, in a set without one, the
+  doubler's error. `Add` mutates the set and returns it, and `Build()`
+  discards the return, so an `Add` changed to return a new set would silently
+  leave `Build` with an empty one.
 
-  Putting the strictness on the **types** rather than on these options is the
-  point, not an accident: a `FilterConfig` crosses wires this library does not
-  own — ExtractFromXgToCsv POSTs one to its local server under ASP.NET Core's
-  stock options — and only a type attribute reaches those
-  (halheinrich/backgammon#37, where those enums had been crossing as bare
-  ordinals). It matters because a saved filter is durable and `AnalysisLevel`'s
-  declaration order is contractual and interleaved: the 2026-08-28 `Ply3Red`
-  insertion renumbered the ladder, so an ordinal read back today would name a
-  different level than when it was written. The blanket options-level
-  registration that used to sit here became exactly redundant once the
-  attributes landed and was removed (halheinrich/backgammon#16) — while it
-  stood it *outranked* the attributes and masked the removal of any of them.
-  Note the same precedence cuts both ways: a consumer that registers a loose
-  converter on its own options can still lower the floor. `TryFromJson` restores a fresh default
-  config on a null argument, the literal `null` token, or malformed JSON;
-  separately, retired field names (`AnalysisDepthClasses`, the shared
-  `AnalysisLevels` list) are simply ignored on read, so old saved configs
-  reset to an inactive depth facet — accepted, the Contact/Race precedent.
+#### FilterConfig
 
-  Internally the per-facet add/skip gates live in a single private
-  `FacetRules` table — one rule per filter, in add order, each owning its
-  facets' gates (`(FilterFacet, activation predicate)` pairs) and one
-  filter factory — that both `Build()` and `GetActiveFacets()` iterate, so
-  materialization and the activity query share one predicate per facet and
-  cannot drift. Every rule owns one facet but the pair's, which owns
-  `Players` and `ErrorRange`: `Build()` adds a rule's filter once when any
-  of its gates holds, and `GetActiveFacets()` reports each gate by itself.
-  `GetActiveFacets()` returns the facets `Build()` would materialize
-  as an `IReadOnlySet<FilterFacet>` (backed by a `SortedSet`, so it
-  enumerates in declaration = add order); it judges **presence, not
-  validity** — a malformed `MatchScores` token or an undefined enum
-  value still reports its facet active, `Build()` stays the point
-  that throws, and `GetActiveFacets()` itself never throws. This is
-  the lib-side surface behind the FilterPanel's "N hidden filters
-  active" signal: the panel consults the config's own activation
-  verdicts rather than judging facet activity from its edit buffers
-  (the same consult-the-result ruling as `DecisionFilterSet.IsEmpty`).
+The DTO a consumer fills directly: serializable, default-constructible and
+mutable, with no string-list parsing on the consumer side.
 
-  **Validity** is the other axis, and the mirror of the above: a private
-  `FieldRules` table of `(FilterField, violation predicate)` pairs, each
-  predicate **delegating to the facet that owns the semantic**, feeds
-  `GetInvalidFields()` — an `IReadOnlySet<FilterField>` naming the fields
-  whose values `Build()` would throw on. The table is sparse by design; the
-  facets a user fills in by hand are the ones with rows — the match-score
-  tokens (via `MatchScoreToken.GetFault`, halheinrich/backgammon#121, the "one
-  enum member, one row" join halheinrich/backgammon#39 booked for this facet),
-  the error bounds (via `PlayerErrorFilter.IsBoundFiniteNonNegative` /
-  `.AreBoundsOrdered`, halheinrich/backgammon#39, finiteness
-  halheinrich/backgammon#374), the move-number bounds
-  (via `MoveNumberFilter.IsBoundAtLeastOne` / `.AreBoundsOrdered`,
-  halheinrich/backgammon#119), and the position-pattern text (via
-  `BoardPattern.TryParse`, halheinrich/backgammon#269). A checkbox list has
-  no rule to state, so it contributes none.
+**Empty means inactive.** `Build()` adds a filter only for an active facet. An
+empty list, a null-or-blank `PositionPattern`, `DecisionType = Both` and a
+range with neither bound set each mean "no filter of this kind", never "reject
+everything". `Players` and the error bounds add one `PlayerErrorFilter` when
+either is active. The depth facet spans three member pairs (see **Depth facet
+semantics**).
 
-  A range facet contributes **two** rows for one rule pair, because a consumer
-  marks inputs rather than facets. Each row composes its own bound's
-  admissibility with the pair's ordering rule, and the composition is what
-  keeps blame honest: a bound wrong on its own value is named alone, while a
-  misordered pair — both bounds individually admissible, still out of order —
-  blames both ends and leaves the user to choose which to move. A bound
-  already at fault for its own value drags the pair out of order as a side
-  effect, and that consequence must not red the field the user got right. The
-  two range facets differ only in what each bound must satisfy on its own, and
-  each bound rule is stated by the filter that owns it: a finite number of
-  zero or greater for an error bound — NaN and both infinities
-  inadmissible, no upper cap (halheinrich/backgammon#374); a policy about
-  bounds, stated on `PlayerErrorFilter.IsBoundFiniteNonNegative` — and one or greater
-  for a 1-based move ordinal. Like `GetActiveFacets()` it never
-  throws and is computed fresh from mutable state, and it is deliberately
-  **not** a gate on assignment: setters accept anything, so a saved document
-  written before a rule existed still loads and the offending value can be
-  shown back to the user rather than lost to a failed restore. Validity is
-  orthogonal to activity — a retired score token still reports its facet
-  active while being named here.
+**One table for activity.** The per-facet gates live in a single private
+`FacetRules` table, one rule per filter in add order, each owning its facets'
+gates and one filter factory. `Build()` and `GetActiveFacets()` both iterate
+it, so materialization and the activity query share one predicate per facet
+and cannot drift. `GetActiveFacets()` judges **presence, not validity**:
+garbage is still an active filter to surface, and the query never throws. It
+is the surface behind the FilterPanel's "N hidden filters active" signal: the
+panel consults the config's own verdict rather than judging activity from its
+edit buffers, the same consult-the-result ruling as
+`DecisionFilterSet.IsEmpty`.
 
-  **The position pattern is stored as text** (halheinrich/backgammon#269,
-  option (b)). `PositionPattern` is a `string?` — the bracket list the user
-  wrote — and the grammar is asked only when the text is judged
-  (`GetInvalidFields`, through `BoardPattern.TryParse`) or built (`Build`,
-  through `BoardPattern.Parse`, whose exceptions surface unchanged). That is
-  the same shape every other hand-filled facet has — a score token is a
-  string judged by `MatchScoreToken` — and it is what restores the posture
-  above to patterns: a stored pattern a newer grammar rule refuses
-  (halheinrich/backgammon#268's `[0,1,]`) loads with every other member
-  intact, is reported invalid and active at apply, and is written back
-  exactly. Until this leg the member was a typed `BoardPattern`, validated
-  as it was read, so one such pattern failed its whole document — the
-  remembered filter silently, the saved-filters file with every valid entry
-  in it. The alternative considered, a value type beside `BoardPattern`
-  carrying the text and a derived parse, was rejected as a second mechanism
-  for a posture the table already provides; nothing a consumer needs is
-  lost, since `BoardPattern.TryParse` is public and the text is the value.
-  Two guarantees hold by construction: a `BoardPattern` is never built from
-  text the grammar refuses (the grammar is the only path to one), and a
-  config holding such text cannot become an executable filter that drops
-  the constraint (`Build` throws before any filter is added). The text is
-  **never canonicalized** — not on set, not on write: the spelling is the
-  user's and the pattern is the meaning, the `DMP` rule for score tokens. A
-  consumer that holds a `BoardPattern` stores its `ToBracketList()`; one
-  that needs the pattern back asks `TryParse`.
+**One table for validity.** The private `FieldRules` table feeds
+`GetInvalidFields()`, the fields whose values `Build()` would throw on. Each
+row only *routes* to the facet that owns the semantic, and the table is sparse
+by design: the facets a user fills in by hand have rows (the match-score
+tokens, halheinrich/backgammon#121; the error bounds,
+halheinrich/backgammon#39 and halheinrich/backgammon#374; the move-number
+bounds, halheinrich/backgammon#119; the position-pattern text,
+halheinrich/backgammon#269), and a checkbox list has no rule to state. So an
+empty result does not promise that `Build()` succeeds: an undefined enum value
+in a checkbox list still throws there. An undefined `DecisionType` goes
+further: `GetInvalidFields()` does not name it and `Build()` constructs its
+filter, which throws on its first `Matches`. Only a cast can produce one,
+since the wire refuses it.
 
-  The verdict carries **no message**, for either facet. The lib rules on the
-  input and the consumer says so in its own voice (the same division as
-  `BoardPattern.TryParse`). Where a consumer needs more than "this field is
-  wrong" — which entry, and whether it is retired vocabulary rather than a
-  typo — it asks `MatchScoreToken.GetFault` per token and reads the typed
-  fault plus `RetiredMoneyReplacements`; facts and values cross the API,
-  never prose. Both surfaces read the same rule, so they cannot disagree.
+A range facet contributes **two** rows for one rule pair, because a consumer
+marks inputs rather than facets. Each row composes its own bound's
+admissibility with the pair's ordering rule, and the composition keeps blame
+honest: a bound wrong on its own value is named alone, while a misordered pair
+of admissible bounds blames both ends and leaves the user to choose. A bound
+at fault for its own value drags the pair out of order as a side effect, and
+that must not red the field the user got right.
 
-  **Value equality** (`IEquatable<FilterConfig>`, `Equals` +
-  `GetHashCode`): a config's identity is its content, so two configs
-  describing the same filtering are equal whoever built them. Structural
-  over every member — the nine list facets, the four range bounds,
-  `DecisionType`, the three depth toggles, and `PositionPattern`. The
-  list facets compare **order-insensitively** (as multisets, tallied by
-  occurrence; the hash aggregates with XOR so a permuted selection hashes
-  alike), strings compare ordinally, and `PositionPattern` compares by
-  **meaning where there is one**: two texts that both parse compare as
-  their `BoardPattern`s (so token order and name spelling do not count,
-  exactly as before the member became text), two that neither parse
-  compare ordinally as the text they are, and a parseable text never
-  equals a refused one — `null` and blank text staying distinct, as `null`
-  and `Empty` did. A null list member counts as empty, so
-  equality is total and never throws on a config an explicit JSON `null`
-  produced. Three accepted edges, each erring toward *reporting* a
-  difference: duplicate entries make `{A,A} ≠ {A}` though both build the
-  same filter (unreachable through a checkbox UI), comparison is of
-  intent, not of the materialized `DecisionFilterSet`, and two equal
-  configs may serialize different pattern text (the `ToBracketList`
-  edge `BoardPattern` already carries, extended to spelling). This is the
-  lib-side surface behind the FilterPanel's Apply gate
-  (halheinrich/backgammon#49): the panel compares its built config with
-  the last-committed one rather than re-materializing or serializing
-  anything — a `ToJson()` comparison was explicitly rejected. No `==` /
-  `!=` operators; see the pitfalls.
+Validity is deliberately **not** a gate on assignment. Setters accept
+anything, so a saved document written before a rule existed still loads and
+the offending value can be shown back to the user rather than lost to a failed
+restore. It is orthogonal to activity: a retired score token reports its facet
+active while being named here.
 
-* `NamedFilterCollection` — the versioned **saved-filters document**: an
-  immutable collection of named `FilterConfig` entries, the pick list a
-  consumer offers when the user saves and reloads configurations, persisted as
-  `xg-filters.json`. The library does no I/O — consumers load bytes, restore,
-  apply the withers (`With(name, config)` adds or replaces, `Without(name)`
-  removes and is idempotent; each returns a new collection and leaves the
-  receiver untouched), and write back.
+**The verdict carries no message.** The lib rules on the input and the
+consumer says so in its own voice. Where a consumer needs more than "this
+field is wrong" — which entry, and whether it is retired vocabulary rather
+than a typo — it asks `MatchScoreToken.GetFault` per token and reads
+`RetiredMoneyReplacements`; facts and values cross the API, never prose. Both
+surfaces read the same rule, so they cannot disagree.
 
-  * **It is a `NamedCollection` specialization, and owns only its identity.**
-    Everything structural is BgDataTypes_Lib's
-    `NamedCollection<FilterConfig, NamedFilterCollection>` and documented
-    there: the name rule (`OrdinalIgnoreCase` as the single definition of
-    "same name" for duplicate rejection, `Contains` / `Get` / `TryGet` lookup,
-    replace-on-`With`, `Without`, and the canonical sort), the one canonical
-    name-sorted order with re-canonicalizing reads, the snapshot contract, the
-    strict-envelope/tolerant-payload split at `CurrentSchemaVersion`, the
-    `IJsonDocument<TSelf>` trio, and reference equality. What lives here is
-    the private constructor, `Create`, `CanonicalTypeInfo` pointing at
-    `XgFilterJsonContext`, and the two wire names on the closed converter
-    (`halheinrich/backgammon#190` leg (B)). See the Pitfalls entry before
-    changing any part of it.
-  * **The payload is what makes the document worth having.** `FilterConfig` is
-    deliberately mutable (UI state binds to it), and its own trio is both the
-    base's snapshot mechanism and its entry-body seam — so the tolerance of
-    absent members is what keeps a retired config facet from bricking a user's
-    saved collection.
+**The position pattern is stored as text** (halheinrich/backgammon#269, option
+(b)). `PositionPattern` is the bracket list the user wrote, a `string?`, and
+the grammar is asked only when the text is judged (`GetInvalidFields`, through
+`BoardPattern.TryParse`) or built (`Build`, through `BoardPattern.Parse`,
+whose exceptions surface unchanged). That is the shape every other hand-filled
+facet has, and it extends the posture above to patterns: a stored pattern a
+newer grammar rule refuses (halheinrich/backgammon#268's `[0,1,]`) loads with
+every other member intact, is reported invalid and active at apply, and is
+written back exactly. The alternative considered, a value type beside
+`BoardPattern` carrying the text and a derived parse, was rejected as a second
+mechanism for a posture the table already provides. Two guarantees hold by
+construction: a `BoardPattern` is never built from text the grammar refuses,
+and a config holding such text cannot become an executable filter that drops
+the constraint (`Build` throws before any filter is added). The text is
+**never canonicalized**: the spelling is the user's and the pattern is the
+meaning, the `DMP` rule for score tokens.
 
-  Because a stored config is restored rather than re-entered, this is also
-  where `GetInvalidFields()` earns its posture: a document written before a
-  rule existed loads intact and reports invalid at apply, instead of failing
-  the restore and losing the value the user has to fix. Position patterns
-  included, since halheinrich/backgammon#269: an entry holding pattern text
-  the grammar now refuses loads with its text intact beside every other
-  entry (while the member was typed, one such entry failed the whole file
-  through the strict envelope). What the envelope still refuses is
-  corruption — a pattern member of the wrong JSON type, an unknown enum
-  name — never evolution.
+**Canonical JSON.** The trio (`ToJson`, `FromJson`, `TryFromJson`) is
+BgDataTypes_Lib's `IJsonDocument<TSelf>`, whose contract states the restore
+policy, over the source-generated metadata, which carries **no converters and
+no policy at all**: every member that needs one carries it on its own type. So
+every enum member rides as a name array (`["InnerBoard631", ...]`),
+`DiceRolls` as a token array (`["31","66"]`), the toggles as plain booleans,
+and `PositionPattern` as the text itself, no grammar consulted on the wire.
 
-* **Depth facet semantics.** User-facing selection state is three per-mode
-  pairs — a toggle plus its own level list (`IncludeEvaluations` +
-  `EvaluationLevels`, `IncludeRollouts` + `RolloutLevels`,
-  `IncludeBookRollouts` + `BookRolloutLevels`) — raw intent the config stores
-  verbatim. `Build()` is the **single source of truth** for deriving the
-  filter's clause union from that intent, and the derivation is:
-  * **Facet inactive** (whole facet passes everything, filter not added) iff
-    all three toggles are off. A level list whose toggle is off is **inert**:
-    it neither activates the facet nor constrains anything, and is never
-    validated.
-  * Otherwise the filter gets **one clause per enabled toggle**, carrying that
-    mode's level list verbatim (empty = *any level*). A row passes iff any
-    clause admits it: `clause.Mode == AnalysisMode && (clause levels empty ||
-    AnalysisLevel ∈ clause levels)` — a union of per-mode conjunctions, so a
-    level selection qualifies **only its own mode**.
-  * Canonical example (the beta report's, inexpressible under the old shared
-    level set): Rollouts on with no levels + Evaluations at XG Roller++ →
-    rollout rows pass at *any* inner level, and evaluation rows pass only at
-    Roller++. Adding any further toggle or level strictly grows the matched
-    set. A book hit with an `Unknown` level (unenriched, V1, or eval-baseline
-    book entry) passes only via the Book-rollouts toggle with no
-    book-rollout level checked (or `Unknown` explicitly in that list).
-  * `Unknown` mode (legacy/unstamped rows) is never selectable — no clause
-    can name it — so those rows pass only when the facet is inactive.
-* `PlayerErrorFilter` — the name facet and the error facet, **one filter for
-  the pair** (SPEC-filtering §8, halheinrich/backgammon#440). A cube record
-  holds two decisions, the doubler's and, where a double was offered, the
-  taker's; a checker play holds the player's one. Two filters ANDed cannot
-  say "some listed player's half has an error in range", so one filter,
-  built from the listed names and the bounds, states which half each facet
-  reads. Its one rule:
-  * **The selected halves.** With no names listed, the doubler's half:
-    `PlayerResult`, which for a checker play is the player's. With names
-    listed, each half whose maker is listed, compared case-insensitively:
-    `Player` selects `PlayerResult`, and `Taker` selects `TakerResult` where
-    that is not `null` (it is `null` unless a double was offered). A record
-    with no recorded name selects nothing.
-  * **A half qualifies** when it is selected and, with bounds set, its result
-    has an error (`PlayerResult.TryGetError`) within `[min, max]`. With no
-    bounds, every selected half qualifies.
-  * **`Matches`** is true when some half qualifies; **`QualifyingError`** is
-    the largest error among the qualifying halves, or `null` when none has
-    one — the number `DecisionFilterSet.ErrorRead` hands the by-error order.
+Putting the strictness on the **types** is the point: a `FilterConfig` crosses
+wires this library does not own, and only a type attribute reaches those
+(halheinrich/backgammon#37, where those enums had been crossing as bare
+ordinals). It matters because a saved filter is durable and `AnalysisLevel`'s
+declaration order is contractual and interleaved: the 2026-08-28 `Ply3Red`
+insertion renumbered the ladder, so an ordinal read back today would name a
+different level than when it was written (halheinrich/backgammon#164).
 
-  So the name facet admits a listed taker's take or pass and never the
-  opponent's no-double; adding a name never removes a decision (a take error
-  of 0.2 beside a doubling error of 0, under 0.1, passes for the taker alone
-  and for both players); an error range judges the listed player's half, not
-  the unlisted doubler's; and with no names the doubler's half alone is
-  judged, as before. Where one listed half qualifies and the other does not,
-  the reading is the qualifying half's, even if the other's error is larger.
-  A double offered and never answered (the opponent resigned; `TakerResult`
-  `NotRecorded`) passes the name facet for the listed taker and, having no
-  error, never satisfies a range through that half. Only a result with an
-  error satisfies a range — a scored move with its error, a move the record
-  does not state with the analyser's, read through the producer's
-  `TryGetError`, never restated here; a move the ranking does not score
-  (under depth first) and a decision with no move recorded have none,
-  however the bounds are set. Every other facet still reads a cube record in
-  the doubler's frame, whichever listed half admitted it. A default
-  instance, no names and no bounds, is the rule with no facet active: every
-  decision passes, and the reading is the doubler's error.
+A member the reader does not know is ignored, so a retired facet resets to its
+inactive default rather than failing the document. Old saved configs lost
+their depth selection this way, accepted, with no migration shim
+(`FromJson_MissingDepthMembers_RestoreToInactiveDefaults`).
 
-  Implements both interfaces. `ShouldSkipMatch` applies **only while names
-  are listed**, and then drops the whole file when neither header player is
-  listed: every half's maker, doubler or taker, is one of the two. With
-  bounds alone it never votes to skip. The error facet's bound rule lives
-  here (`IsBoundFiniteNonNegative`, `AreBoundsOrdered`), enforced by the
-  constructor: a bound must be a finite number of zero or greater, a null
-  end stays open, and `min ≤ max` (halheinrich/backgammon#39,
-  halheinrich/backgammon#374). That is a policy about bounds, not a claim
-  that every error is non-negative: a scored error never is negative, but
-  an unstated error is the analyser's figure as recorded and may be signed
-  (`IsBoundFiniteNonNegative` states it).
-* `DecisionTypeFilter` — checker play, cube, or both. Dispatches on
-  `data.Kind`.
-* `MatchScoreFilter` — implements both interfaces. Score tokens are
-  **on-roll anchored**: `MaNa` means the player on roll needs M points
-  and the opponent needs N, so `"4a5a"` and `"5a4a"` are distinct
-  targets (include both orientations to admit a score regardless of who
-  is on roll). Targets are stored as `(Away1, Away2, IsCrawford)`
-  tuples; the two money tokens are tracked separately as a bool each,
-  not as `(0, 0, false)` tuples, and bypass score parsing. Everything
-  else goes through `MatchScoreToken.ParseScore` — the grammar and its
-  fail-loud behaviour live there, not here (see **The score-token
-  grammar** below). Downstream gates rely on the resulting constructor
-  invariants instead of re-validating. Each gate is the exact
-  projection of `Matches` onto its information granularity:
-  `ShouldSkipMatch` reads the header's terms — money terms by their Jacoby
-  rule (below), a match's length against tuples no game of an L-point
-  match can carry — orientation-free `max ≤ L`,
-  tightened to `max ≤ L − 1` for non-Crawford 1-away tuples (a
-  post-Crawford `(1, m)` needs a preceding Crawford `(1, k)` with
-  `m < k ≤ L`), with `1a1a` exempt (valid at every L, including the
-  1-point match whose only game is `(1, 1, false)`).
-  `ShouldSkipGame` compares tuples against the player1/player2-anchored
-  game standing in **either orientation** (both players roll within a
-  game), Crawford flag exact; `Matches` stays the per-decision arbiter
-  of orientation. `ShouldAdvanceMatch` cuts the rest of the file only
-  when no tuple matches the *current* game (either orientation — the
-  producer's cut is immediate and would drop the game's remaining rows)
-  **and** no tuple is reachable in any strictly-future game —
-  reachability exploits monotonic away-score decrease and the
-  once-per-match Crawford rule, branching on (in/post-Crawford,
-  pre-Crawford). A Crawford tuple is unreachable once Crawford has
-  occurred, and a post-Crawford `(1, m)` requires `m < max(current)`.
-  `ShouldAdvanceGame` deliberately stays at the interface default
-  (false): a matching decision can be followed by mirror-orientation
-  decisions in the same game, so there is no sound game-level cut. Wired
-  beside the filter's own `ShouldSkipGame`, as the iterator wires them,
-  `ShouldAdvanceMatch` never votes true: every decision's session is built
-  from its game's standing (ConvertXgToJson_Lib `MatchContext.SessionFor`),
-  so a game no tuple matches in either orientation — the only game it could
-  cut from — was skipped at its header before it yielded a decision. The
-  hint is sound standing alone, which is all the contract asks; it is
-  inert, not wrong.
+**Value equality.** A config's identity is its content, so two configs
+describing the same filtering are equal whoever built them. This is the
+surface behind the FilterPanel's Apply gate (halheinrich/backgammon#49): the
+panel compares its built config with the last-committed one rather than
+re-materializing or serializing anything; a `ToJson()` comparison was
+explicitly rejected. `Equals(FilterConfig)` states the per-member rules. The
+list facets compare as multisets, since selection order is no part of a
+config's meaning, and `PositionPattern` compares by meaning where there is
+one: two texts that parse compare as `BoardPattern`s, two that do not compare
+ordinally, and one of each never match. Two edges err toward *reporting* a
+difference: duplicate entries make `{A,A} ≠ {A}` though both build the same
+filter, and comparison is of intent, not of the materialized set. A third goes
+the other way: two equal configs may serialize different pattern text.
 
-  **Money and match are the session's kind** (halheinrich/backgammon#273).
-  Every gate reads the kind the producer states — a decision's `Session`, a
-  match header's `Terms`, a game header's `Standing` — through its
-  exhaustive `Match`, so no match fact (away scores, Crawford) is read off
-  money, no money fact off a match, and no stand-in (a length of 0, away
-  scores of 0) is consulted anywhere.
+#### NamedFilterCollection
 
-  **Money sessions and the Jacoby rule** (halheinrich/backgammon#121).
-  The two money tokens are separate targets, each admitting money
-  sessions under one rule — `moneyJ` a money session whose terms state
-  the Jacoby rule, `moneyNJ` one whose terms do not. Wanting money under
-  either rule means **listing both**, exactly as admitting a score
-  regardless of who is on roll means listing both orientations. Every
-  money session states its rule (the producer's `MoneyTerms.IsJacoby`),
-  so there is no unknown rule to place. Match scores are untouched by the
-  money tokens and vice versa.
+The versioned **saved-filters document**: an immutable collection of named
+`FilterConfig` entries, the pick list a consumer offers when the user saves
+and reloads configurations, persisted as `xg-filters.json`. The library does
+no I/O: consumers load bytes, restore, apply the withers (`With`, `Without`)
+and write back.
 
-  A match header states the terms, the rule among them, so
-  `ShouldSkipMatch` judges a money session by its rule exactly as
-  `Matches` does — every decision's session carries its header's terms. A
-  game header's standing states no rule, so at game scope a money game is
-  admissible iff **either** money token is listed: still the exact
-  projection onto the information that header carries, the same shape as
-  the orientation projection above.
-* `MatchScoreToken` — **the score-token grammar**, and the one public
-  type in `Filtering/` besides `FilterConfig`, `DecisionFilterSet`,
-  `NamedFilterCollection`, and `IDecisionFilter`. It states once, for
-  the whole library, what a `MatchScores` entry may say: a `NaNa[C]`
-  match score (with `DMP` as an alias of `1a1a`), or one of the money
-  tokens. `MatchScoreFilter` parses
-  through it, `FilterConfig`'s field-rule table judges through it, and
-  a consumer asks it directly.
+It is a `NamedCollection<FilterConfig, NamedFilterCollection>` specialization
+and owns only its identity. Everything structural is BgDataTypes_Lib's and
+documented there: the name rule, the canonical order, the snapshot contract,
+the strict-envelope/tolerant-payload split, the `IJsonDocument<TSelf>` trio
+and reference equality. What lives here is the private constructor, `Create`,
+`CanonicalTypeInfo` pointing at `XgFilterJsonContext`, and the two wire names
+on the closed converter (halheinrich/backgammon#190 leg (B)).
 
-  * **Vocabulary as exported constants** — `MoneyWithJacoby`
-    (`"moneyJ"`), `MoneyWithoutJacoby` (`"moneyNJ"`),
-    `DoubleMatchPoint` (`"DMP"`), `RetiredMoney` (`"money"`), plus
-    `RetiredMoneyReplacements` (both rule-bearing tokens, in order).
-    `DoubleMatchPoint` is an **alias of `1a1a`**
-    (halheinrich/backgammon#259): it parses to `(1, 1, false)`, resolved
-    inside the private `Inspect` so `GetFault` and `ParseScore` learn the
-    word in one place, and nothing past the parse — the filter, the
-    config, the gates — can tell it from `1a1a`. It takes no Crawford
-    suffix (`DMPC` is `Malformed`, as `1a1aC` is impossible), and a
-    stored `DMP` round-trips unchanged: the spelling is the user's, the
-    tuple is the meaning. Spellings live here once; a consumer rendering
-    them in help text, a placeholder, or an explanation reads the
-    constants rather than repeating literals, the same export
-    discipline as `FilterHelp.StorageSectionAnchorId`.
-  * **Case and whitespace** — the whole grammar is case-insensitive and
-    trims incidental *surrounding* whitespace before judging anything:
-    the `a` separators, the `C` Crawford suffix, the `DMP` alias, and
-    the money tokens with their `J` / `NJ` suffixes alike, so `MONEYNJ`, `moneynj`, and
-    `moneyNJ` are one token. Embedded whitespace and repeated
-    separators are still rejected. (This regularised one inconsistency:
-    the old bare `money` check compared *untrimmed* while score tokens
-    trimmed.)
-  * **`GetFault(token)`** — the single statement of token validity,
-    returning a `MatchScoreTokenFault` and **never a sentence**. Null
-    is `Malformed` rather than an exception, so
-    `GetInvalidFields` keeps its never-throws contract on a config an
-    explicit JSON `null` produced.
-  * **`ParseScore`** (internal) fail-louds with `ArgumentException`
-    (offending token in the message) on malformed tokens, on impossible
-    scores — away scores below 1 (`0a5a`), Crawford tokens without
-    exactly one side 1-away and the other ≥ 2 (`3a5aC`, `1a1aC`, a
-    (1,1) game being always post-Crawford) — and on the retired token.
-    Both it and `GetFault` route through one private `Inspect`, so the
-    answer a consumer asks for and the answer `Build()` enforces cannot
-    drift.
-  * **The `money` retirement** (halheinrich/backgammon#121). `money` is
-    no longer a valid token: a pattern containing it is **invalid**,
-    named by `GetInvalidFields()` and rejected by `Build()`, carrying
-    the `Retired` fault so a consumer can distinguish it from a typo
-    and offer `RetiredMoneyReplacements`. The two alternatives were
-    both rejected as *silent semantic changes*: reinterpreting it as
-    "either rule" would quietly widen a saved filter's meaning, and
-    letting it match nothing would quietly narrow it — either way the
-    user gets a result they cannot explain from what they typed. The
-    verdict is loud instead, and messageless: the lib rules, the
-    consumer words it (the halheinrich/backgammon#39 posture, extended with a typed fault and
-    replacement data rather than prose). The token survives as a
-    constant because it is still recognized — a filter saved before the
-    split may hold it, and it is reported rather than reinterpreted.
-    Nothing writes it any more: every money session states its rule, so
-    `DecisionRow.MatchScore` spells every money row with one of the two
-    rule-bearing tokens.
-* `MoveNumberFilter` — implements both interfaces. `int?` min / max on
-  `MoveNumber`, gated by `IsStandardStart`. Non-standard-start games
-  (custom problem positions, Bg960, etc.) have no canonical move
-  numbering, so `ShouldSkipGame` drops them wholesale via
-  `IGameInfo.IsStandardStart` before any rows are yielded; `Matches`
-  rejects any row whose `IsStandardStart` is not true as a safety net. A
-  standalone position (an `.xgp` decision) belongs to no game, so its
-  move number and standard start are "not applicable" — `null`, never a
-  stamped value (halheinrich/backgammon#124) — and with no move to bound
-  it never passes an active move-number filter, nor votes to advance.
-  Overrides `ShouldAdvanceGame`: once a row past `max` is seen, no
-  later row in the same game can match, since move numbers increase
-  monotonically per game.
+The payload is what makes the document worth having. `FilterConfig` is
+deliberately mutable (UI state binds to it), and its own trio is both the
+base's snapshot mechanism and its entry-body seam, so its tolerance of absent
+members is what keeps a retired facet from bricking a user's saved collection.
+Because a stored config is restored rather than re-entered, this is also where
+`GetInvalidFields()` earns its posture: an entry holding pattern text the
+grammar now refuses loads with its text intact beside every other entry, and
+reports invalid at apply. What the envelope still refuses is corruption (a
+pattern member of the wrong JSON type, an unknown enum name), never evolution.
 
-  Bounds are **constrained, not merely stored** (halheinrich/backgammon#119).
-  `IsBoundAtLeastOne` and `AreBoundsOrdered` state the rule once for the whole
-  library and the constructor enforces it: move numbers are 1-based, so a
-  lower bound below 1 only restates the open end while an upper bound below 1
-  admits nothing at all, and `min > max` is empty by construction. None is a
-  filter a user could mean, so each is a construction error — `Build()` throws
-  where it once handed back a filter that silently matched nothing. Same
-  posture as `PlayerErrorFilter`'s error bounds, differing only in the
-  bound rule: one or greater here, a finite number of zero or greater there
-  (`PlayerErrorFilter.IsBoundFiniteNonNegative`).
-* `ContactTypeFilter` — include list of `ContactType`. Same
-  read-`data.Board` + private-registry dispatch pattern as
-  `PositionTypeFilter`, over the `Contact` / `Race` classifiers. OR
-  semantics within the list; because Contact and Race partition every
-  position, selecting both is equivalent to no filter and selecting
-  neither (an empty set) admits nothing. Contact-vs-race is a separate
-  axis from the structural `PositionTypeFilter` and composes with it via
-  AND across the set. Unknown enum values are rejected at construction.
-* `PositionTypeFilter` — include list of `PositionType`. Reads
-  `data.Board` and delegates to `IPositionClassifier` instances via a
-  private static `PositionType` → `IPositionClassifier` dictionary
-  registry — single source of truth for the enum→classifier
-  correspondence. Never parses the XGID. Unknown enum values are
-  rejected at construction, not at first dispatch (`Enum.IsDefined`
-  guard, `ArgumentOutOfRangeException`). Orthogonal to `ContactTypeFilter`;
-  the two compose via AND across the set.
-* `PositionPatternFilter` — the general, data-driven counterpart to the
-  named `PositionTypeFilter`. Holds a single immutable `BoardPattern`
-  (see **Patterns**) and passes rows whose `data.Board` satisfies every
-  constraint in it. Where `PositionTypeFilter` dispatches to
-  hand-written classifiers, this evaluates an arbitrary sparse
-  `[head,min,max]` constraint set — board indices, the derived borne-off
-  locations, and spans of board indices alike — so a caller can express a structural shape
-  without a dedicated `PositionType`. An empty pattern matches every
-  board.
-* `PlayTypeFilter` — include list of `PlayType`. Reads `data.Board`,
-  `data.AfterBestBoard` (the best play's under the view's ranking), and
-  `data.AfterPlayerBoard`, and dispatches each selected type to its
-  matching `IPlayTypeClassifier` via the same private-registry pattern as
-  `PositionTypeFilter`. OR semantics: a row passes when any selected type
-  matches. **A play needs both after-boards, and none is ever
-  substituted**: a cube decision has neither (`null` — no play is made),
-  and a checker play whose player's move is off the candidate list has no
-  after-board of its own (`null`, halheinrich/backgammon#15); both always
-  fail, since reading another board in the missing one's place would
-  classify a play that was not made. Empty type set → always false (empty
-  OR). The enum→classifier correspondence is owned by the filter, not the
-  caller. Unknown enum values are rejected at construction.
-* `AnalysisDepthFilter` — the depth facet as a **union of per-mode clauses**
-  over the two-axis analysis taxonomy (`AnalysisMode` × `AnalysisLevel`) that
-  replaced the retired flat `AnalysisDepthClass`. Unlike the board-reading
-  facets, depth is a scalar pair the producer already stamped on each decision
-  (`IDecisionFilterData.AnalysisMode` / `AnalysisLevel` — the cube analysis
-  for a cube decision, the best candidate under the view's ranking for a
-  checker play), so this is a direct membership test: no classifier
-  dispatch, no board reads.
-  Constructed with a non-empty set of `Clause`s (a nested validated record:
-  one `AnalysisMode` plus that mode's own level set); a row passes iff any
-  clause admits it — mode equality AND (clause levels empty || level ∈ clause
-  levels). Per-clause levels are the point: a level selection qualifies only
-  its own mode, so "(any rollout) OR (evaluation at Roller++)" is one filter,
-  and rollout rows are never constrained by evaluation levels (rollout rows'
-  levels are *inner* levels — checker rollouts never carry Roller-family
-  inner levels, which is why the old shared level set matched no rollouts).
-  An empty clause collection is rejected at construction (an inactive facet
-  is expressed by omitting the filter, never by an empty union); within a
-  clause the level set may be empty, meaning "any level" — how an unenriched
-  book hit (`BookRollout` + `Unknown` level) is admitted. `Clause` rejects
-  mode `Unknown` (no selection produces it), so legacy/unstamped
-  `Unknown`-mode rows pass only when the whole facet is inactive and this
-  filter is absent from the set — the same drop-don't-pass posture the old
-  designs had. Clauses on the same mode are legal and simply union.
-  Deliberately implements only `Matches` — no `IMatchFilter` and no
-  `ShouldAdvance*` overrides: depth is not knowable from a match/game header
-  and is not monotonic within a game (a single game mixes book, N-ply, and
-  rollout decisions), so there is no sound early-exit. Undefined
-  `AnalysisMode` / `AnalysisLevel` values are rejected at construction.
-* `DiceRollFilter` — include list of `DiceRoll`. Like the depth facet, the
-  roll is a scalar the producer already stamped on each decision
-  (`IDecisionFilterData.Dice`), so this is a direct set-membership test — no
-  classifier dispatch, no board reads. OR semantics: a row passes iff its
-  `Dice` value-equals a selected roll, over `DiceRoll`'s record-struct value
-  equality. `DiceRoll` is canonical-unordered by construction, so 3-1 ≡ 1-3
-  and the filter does **no** normalization of its own; the include-set and the
-  row's roll may each be spelled in either dice order. Cube rows always fail —
-  `Dice` is null (no roll exists before the cube is offered), the same
-  drop-don't-pass posture `PlayTypeFilter` and `PlayerErrorFilter`'s error
-  range apply to their null cases. Empty set → always false (empty OR), which `FilterConfig.Build`
-  keeps out of the set by skipping the add. Unlike the enum facets there is no
-  unknown-value guard: `DiceRoll` is validated by construction, so an ill-formed
-  roll cannot reach the set. Deliberately `Matches`-only — no `IMatchFilter`,
-  no `ShouldAdvance*`: dice are not knowable from a match/game header and are
-  not monotonic within a game, so there is no sound early-exit (the
-  `AnalysisDepthFilter` reasoning).
+#### The filters
+
+| Filter | Reads | Fails on | Early exit |
+|---|---|---|---|
+| `PlayerErrorFilter` | the selected halves' names and results | see below | `ShouldSkipMatch`, while names are listed |
+| `DecisionTypeFilter` | `Kind` | | none |
+| `MatchScoreFilter` | `Session` | | `ShouldSkipMatch`, `ShouldSkipGame`, `ShouldAdvanceMatch` |
+| `MoveNumberFilter` | `MoveNumber`, `IsStandardStart` | a standalone position; a non-standard start | `ShouldSkipGame`, `ShouldAdvanceGame` |
+| `ContactTypeFilter` | `Board` | | none |
+| `PositionTypeFilter` | `Board` | | none |
+| `PositionPatternFilter` | `Board` | | none |
+| `PlayTypeFilter` | `Board`, `AfterBestBoard`, `AfterPlayerBoard` | a cube decision; a play off the candidate list | none |
+| `AnalysisDepthFilter` | `AnalysisMode`, `AnalysisLevel` | `Unknown` mode, whenever active | none |
+| `DiceRollFilter` | `Dice` | a cube decision | none |
+
+The category and dice filters are OR within their lists, with an empty list
+admitting nothing; `Build()` keeps that state out of the set by skipping the
+add. `ContactTypeFilter`, `PositionTypeFilter` and `PlayTypeFilter` dispatch
+through a private registry, the single source of truth for the
+enum-to-classifier correspondence, and reject an undefined value at
+construction, not at first dispatch. `PositionPatternFilter` is the
+data-driven counterpart to `PositionTypeFilter`: an arbitrary sparse
+constraint set, so a caller can express a structural shape without a dedicated
+`PositionType`. Depth and dice are `Matches`-only because neither is knowable
+from a header nor monotonic within a game, so there is no sound early exit.
+
+**Depth facet semantics.** User-facing selection is three per-mode pairs, a
+toggle plus its own level list (`IncludeEvaluations` + `EvaluationLevels`,
+`IncludeRollouts` + `RolloutLevels`, `IncludeBookRollouts` +
+`BookRolloutLevels`), raw intent the config stores verbatim. `Build()` is the
+**single source of truth** for deriving the filter's clause union:
+
+* **Facet inactive** iff all three toggles are off. A level list whose toggle
+  is off is **inert**: it neither activates the facet nor constrains anything,
+  and is never validated.
+* Otherwise **one clause per enabled toggle**, carrying that mode's level list
+  verbatim (empty = *any level*). A row passes iff any clause admits it, so a
+  level selection qualifies **only its own mode**. A further toggle, or a
+  further level on a list that holds some, only widens the match; the first
+  level checked on an empty list narrows it from any level to that one.
+* Canonical example (the beta report's, inexpressible under the old shared
+  level set): Rollouts on with no levels + Evaluations at XG Roller++ passes
+  rollout rows at *any* inner level and evaluation rows only at Roller++.
+* A book hit with an `Unknown` level (`AnalysisMode.BookRollout` says when)
+  passes only via the Book-rollouts toggle with no book-rollout level checked,
+  or with `Unknown` itself listed. `Unknown` mode is never selectable: no
+  clause can name it.
+
+**`PlayerErrorFilter`** is the name facet and the error facet, **one filter
+for the pair** (SPEC-filtering §8, halheinrich/backgammon#440, which owns the
+rule; the type's remarks state it for this code). A cube record holds two
+decisions, the doubler's and, where a double was offered, the taker's; a
+checker play holds the player's one. Two filters ANDed cannot say "some listed
+player's half has an error in range", so one filter, built from the listed
+names and the bounds, says which half each facet reads:
+
+* With no names, the doubler's half, which for a checker play is the player's.
+  With names, each half whose maker is listed, compared case-insensitively. A
+  record with no recorded name selects nothing.
+* A selected half **qualifies** with no bounds set, or with an error
+  (`PlayerResult.TryGetError`) within `[min, max]`. `Matches` is true when
+  some half qualifies, and `QualifyingError`, the number
+  `DecisionFilterSet.ErrorRead` hands the by-error order, is the largest error
+  among the qualifying halves.
+
+So the name facet admits a listed taker's take or pass and never the
+opponent's no-double; adding a name never removes a decision (a take error of
+0.2 beside a doubling error of 0, under 0.1, passes for the taker alone and
+for both players); and an error range judges the listed player's half, not the
+unlisted doubler's. Where one listed half qualifies and the other does not,
+the reading is the qualifying half's, even if the other's error is larger. A
+double offered and never answered passes the name facet for the listed taker
+and never satisfies a range through that half. Every other facet still reads a
+cube record in the doubler's frame, whichever half admitted it.
+`ShouldSkipMatch` applies **only while names are listed**: every half's maker
+is one of the header's two players.
+
+The bound rule lives here, enforced by the constructor: a bound must be a
+finite number of zero or greater, a null end stays open, and `min ≤ max`
+(halheinrich/backgammon#39, halheinrich/backgammon#374). That is a policy
+about bounds, not a claim that every error is non-negative;
+`IsBoundFiniteNonNegative` says why.
+
+**`MatchScoreFilter`.** Score tokens are **on-roll anchored**: `MaNa` means
+the player on roll needs M and the opponent N, so including both orientations
+admits a score regardless of who is on roll. Money and match are the session's
+kind (halheinrich/backgammon#273): every gate reads the kind the producer
+states through its exhaustive `Match`, so no match fact is read off money, no
+money fact off a match, and no stand-in (a length of 0, away scores of 0) is
+consulted.
+
+Each gate is the exact projection of `Matches` onto the information it has,
+and the type's comments derive each one:
+
+* `ShouldSkipMatch` reads the header's terms: money by the Jacoby rule, and a
+  match's length against tuples no game of that length can carry, in either
+  orientation.
+* `ShouldSkipGame` reads a standing anchored to the file's players, so it
+  admits a tuple in **either orientation** and leaves the verdict to
+  `Matches`. A game header's standing states no Jacoby rule, so a money game
+  is admissible iff either money token is listed.
+* `ShouldAdvanceMatch` votes only when no tuple matches the current game in
+  either orientation (the producer's cut is immediate, and would drop the
+  game's remaining rows) and none is reachable in a later game. Wired beside
+  the filter's own `ShouldSkipGame`, as the iterator wires them, it never
+  votes true: a decision's session is built from its game's standing
+  (ConvertXgToJson_Lib `MatchContext.SessionFor`), so a game it could cut from
+  was skipped at its header. It is sound standing alone, which is all the
+  contract asks: inert, not wrong (halheinrich/backgammon#396).
+* `ShouldAdvanceGame` stays at the default on purpose: a matching decision can
+  be followed by mirror-orientation decisions in the same game, so there is no
+  sound game-level cut.
+
+The two money tokens are separate targets (halheinrich/backgammon#121).
+Wanting money under either rule means **listing both**, exactly as admitting a
+score regardless of who is on roll means listing both orientations. Every
+money session states its rule (`MoneyTerms.IsJacoby`), so there is no unknown
+rule to place.
+
+**`MatchScoreToken`** is **the score-token grammar**: it states once, for the
+whole library, what a `MatchScores` entry may say. `MatchScoreFilter` parses
+through it, the field-rule table judges through it, and a consumer asks it
+directly. Spellings are exported constants, so a consumer rendering one in
+help text or a placeholder reads the constant rather than repeating a literal.
+`GetFault` and the internal `ParseScore` route through one private `Inspect`,
+so the answer a consumer asks for and the answer `Build()` enforces cannot
+drift. `DMP` is an **alias of `1a1a`** (halheinrich/backgammon#259), resolved
+inside `Inspect`, so nothing past the parse can tell the two apart and a
+stored `DMP` round-trips unchanged: the spelling is the user's, the tuple is
+the meaning.
+
+**The `money` retirement** (halheinrich/backgammon#121). `money` is no longer
+a valid token: it is named by `GetInvalidFields()`, rejected by `Build()`, and
+carries the `Retired` fault so a consumer can tell it from a typo and offer
+`RetiredMoneyReplacements`. The two alternatives were both rejected as *silent
+semantic changes*: reinterpreting it as "either rule" would quietly widen a
+saved filter's meaning, and letting it match nothing would quietly narrow it.
+Either way the user gets a result they cannot explain from what they typed. It
+survives as a constant because a filter saved before the split may hold it,
+and it is reported rather than reinterpreted.
+
+**`MoveNumberFilter`** gates on `IsStandardStart` because a non-standard start
+(custom problem positions, Bg960) has no canonical numbering. A standalone
+position (an `.xgp` decision) belongs to no game, so its move number and
+standard start are `null`, never a stamped value (halheinrich/backgammon#124).
+`ShouldAdvanceGame` votes on the first decision past the maximum, since move
+numbers never decrease within a game. Bounds are constrained, not merely
+stored (halheinrich/backgammon#119): a lower bound below 1 only restates the
+open end, an upper bound below 1 admits nothing, and `min > max` is empty by
+construction. None is a filter a user could mean, so each is a construction
+error rather than a filter that silently matches nothing.
 
 ### Serialization
 
-`XgFilterJsonContext` (repo root namespace, `XgFilterJsonContext.cs`) is the
-source-generated `JsonSerializerContext` for this library's whole wire surface
-— compile-time `System.Text.Json` metadata instead of runtime reflection
-(halheinrich/backgammon#129 leg 4). The invariant of that arc: **source
-generation changes the mechanism, never the bytes.** Every pre-existing
-serialization test and golden passes unchanged, and
+`XgFilterJsonContext` is the source-generated `JsonSerializerContext` for this
+library's whole wire surface: compile-time `System.Text.Json` metadata instead
+of runtime reflection (halheinrich/backgammon#129 leg 4). The invariant:
+**source generation changes the mechanism, never the bytes.**
 `XgFilterJsonContextTests` pins byte identity between the reflection resolver,
-this context alone, and both orders of a chained consumer.
+this context alone, and both orders of a chained consumer. The context's own
+remarks give the full account; the decisions a reader needs:
 
-* **The wire surface.** Two documents own the canonical trio (`ToJson` /
-  `FromJson` / `TryFromJson`): `FilterConfig` and `NamedFilterCollection`.
-  That trio is no longer a convention the two of them restated for each other
-  — it is BgDataTypes_Lib's `IJsonDocument<TSelf>`, which `FilterConfig`
-  implements directly and `NamedFilterCollection` inherits from
-  `NamedCollection` (`halheinrich/backgammon#190` leg (B)). The contract's trim rule
-  is what binds it here — an implementer resolves its metadata from a
-  source-generated context, never from a reflection-bound `JsonSerializer`
-  overload — so every serializer entry point reached on this assembly's behalf
-  names a `JsonTypeInfo<T>` off this context rather than a
-  `JsonSerializerOptions`. Five more types are wire units by the other mark —
-  a bundled type-level `[JsonConverter]` that defines their own token:
-  `BoardPattern` and the four enums that carry BgDataTypes_Lib's `StrictJsonStringEnumConverter`. All seven
-  are declared roots.
-* **Public, deliberately.** XgFilter_Razor's `SavedFiltersStore` — and BgQuiz
-  behind it — round-trips through the trio and owns no `JsonSerializerOptions`,
-  so that consumer alone would have admitted an `internal` context (leg 2's
-  shape). ExtractFromXgToCsv would not: its `ProcessRequest` carries a
-  `public FilterConfig Filters`, the client POSTs it with `PostAsJsonAsync` and
-  the server binds it `[FromBody]` under a bare `AddControllers()`, so
-  `FilterConfig` is named to two serializers this library does not own.
-* **Every bundled converter must be public.** Not for this context — the
-  generator runs in this assembly, where `internal` resolves fine — but for a
-  consumer's, whose generator emits `new TheConverter()` into its own assembly.
-  With an internal converter it reports SYSLIB1220 then SYSLIB1030 and drops
-  the type. Warnings, not errors; `XgFilterJsonContextTests` is the gate.
+* **The wire surface.** Two documents own the trio, `FilterConfig` and
+  `NamedFilterCollection`. Five more types are wire units by the other mark, a
+  bundled type-level `[JsonConverter]` defining their own token:
+  `BoardPattern` and the four enums. All seven are declared roots, and the
+  suite derives that list from the assembly rather than trusting it. The
+  `IJsonDocument<TSelf>` trim rule binds it here: an implementer resolves its
+  metadata from a source-generated context, never from a reflection-bound
+  `JsonSerializer` overload.
+* **Public, deliberately.** XgFilter_Razor's `SavedFiltersStore`, and BgQuiz
+  behind it, round-trips through the trio and owns no `JsonSerializerOptions`,
+  so that consumer alone would have admitted an `internal` context.
+  ExtractFromXgToCsv would not: its `ProcessRequest` carries a `public
+  FilterConfig Filters`, the client POSTs it with `PostAsJsonAsync` and the
+  server binds it `[FromBody]` under a bare `AddControllers()`, so
+  `FilterConfig` is named to two serializers this library does not own. Public
+  is what lets a consumer in that position chain the context. None does today:
+  a search of every member's `.cs` and `.razor` on 2026-10-30 found no chain,
+  so those two serializers run on reflection and the type attributes.
+* **Every bundled converter must be public.** Not for this context, since the
+  generator runs in this assembly, but for a consumer's, whose generator emits
+  `new TheConverter()` into its own assembly. With an internal converter it
+  reports SYSLIB1220 then SYSLIB1030 and drops the type, recorded on the leg's
+  commit (`08aec48`, 2026-08-31, net10.0 / SDK 10.0.400) and not re-run since.
+  Both are warnings, so a consumer's build need not fail, which is why
+  `EveryBundledConverter_IsPubliclyConstructible` holds the rule here.
 * **Chains nothing, and shadows `BgDataTypes_Lib` on purpose.** A
   `FilterConfig` embeds three `IList<AnalysisLevel>` facets and an
-  `IList<DiceRoll>`, so the generator's walk reaches those types and emits its
-  own copy of their metadata here. Measured: this context resolves the entire
-  closure alone, so the shipped entry points need no resolver chain — and there
-  is no options object here for one to hang on. The cost is that a consumer
-  chaining most-derived-first gets *this* copy; the tests pin the two copies
+  `IList<DiceRoll>`, so the generator's walk emits its own copy of their
+  metadata here. This context resolves the entire closure alone
+  (`ThisReposContextAlone_ResolvesTheFullClosure`), so the shipped entry
+  points need no resolver chain. The cost is that a consumer chaining
+  most-derived-first gets *this* copy;
+  `TheContext_ShadowsBgDataTypes_ButIdentically` pins the two copies
   byte-identical rather than assuming it.
 * **`GenerationMode = Metadata`,** per the arc's binding rule: a default-mode
   fast-path handler binds nested resolution to the declaring context's private
@@ -834,477 +643,259 @@ this context alone, and both orders of a chained consumer.
 * **Trim posture.** The library csproj sets `IsTrimmable` and
   `EnableTrimAnalyzer`, so with repo-wide `TreatWarningsAsErrors` a
   reflection-serialization regression is a **build error here** rather than a
-  publish-time warning downstream. Mutation-checked: reverting either
-  `ToJson` to the default resolver fails the build with IL2026 before a test
-  runs.
+  publish-time warning downstream. The commit that set them records a mutation
+  check, not re-run since, in which two of eight mutations failed the build
+  with IL2026 (`08aec48`).
 
 ### Classification
 
-Everything in `Classification/` is `internal`. Consumers never touch a
-classifier directly — they pass `ContactType` / `PositionType` /
-`PlayType` enum values to the filters, which dispatch internally. These types are documented
-here because they're substantive internal machinery, not because they're
-on the public surface.
-`InternalsVisibleTo("XgFilter_Lib.Tests")` makes them reachable from
-the test project.
+Everything in `Classification/` is `internal`: consumers pass enum values to
+the filters, which dispatch here. `IPositionClassifier` takes the board in the
+frame the producer states on `IDecisionFilterData.Board`;
+`IPlayTypeClassifier` takes the view's `Board`, `AfterBestBoard` and
+`AfterPlayerBoard`, the after-boards in the next mover's frame (reached
+through `BoardPosition.Flipped`, never a rule of this library's), and is only
+asked about a play whose after-boards both exist.
 
-* `IPositionClassifier` — `bool Matches(BoardPosition board)`: the board at
-  the decision, in the frame the producer states on
-  `IDecisionFilterData.Board`.
-* `RaceClassifier` — true when no contact exists between the two checker
-  blocks. Backs `ContactType.Race`.
-* `ContactClassifier` — `!RaceClassifier`; backs `ContactType.Contact`.
-  These two partition positions — the invariant the `ContactType` enum
-  makes explicit — and `ContactTypeFilter` relies on it. Note this is a
-  property of the Race/Contact pair specifically, *not* a framework-wide
-  contract on `IPositionClassifier`; the `PositionType` classifiers below
-  overlap freely (see the multi-membership pitfall).
-* `InnerBoard631Classifier`, `InnerBoard54321Classifier` — inner-board
-  shape classifiers.
-* `VsTwoPlusUpClassifier` — true when the opponent has ≥ 2 checkers on
-  the bar (`board[0] <= -2`). No race guard needed; any checker on the
-  bar implies contact.
-* `Holding1386Vs20Classifier` — true when the on-roll player holds the
-  13-, 8-, and 6-points (each `>= 2`) while the opponent anchors on the
-  20 (the player's 5-point under the on-roll POV, `board[5] <= -2`) and
-  the player's structure is otherwise on or below the midpoint. The full
-  predicate — made points, opponent's 12-anchor, the empty 7/9/10/11
-  points, and the no-checkers-above-13 / no-opponent-in-home ranges — is
-  on the classifier's XML doc; it is ordered by selectivity (rarest
-  signal first) so a non-holding board is rejected in one comparison.
-  No race guard needed; the opponent anchor implies contact. Backs
-  `PositionType.Holding1386Vs20`.
-* `IPlayTypeClassifier` —
-  `bool Matches(BoardPosition priorBoard, BoardPosition afterBestBoard,
-  BoardPosition afterPlayerBoard)`: the view's `Board`, `AfterBestBoard`
-  and `AfterPlayerBoard`, each in the frame the producer states on that
-  member (the after-boards in the next mover's, reached through
-  `BoardPosition.Flipped`). A classifier is only asked about a play whose
-  after-boards both exist. Implementations classify one `PlayType` each.
-* `Make20PtClassifier` — `IPlayTypeClassifier` implementation. True
-  when the decision-maker's 20-point is not already made
-  (`priorBoard[20] < 2`) and exactly one of the two plays makes it —
-  under the flipped after-POV the decision-maker's 20-point is index 5
-  and their checkers are negative, so "makes" is `afterBoard[5] <= -2`:
-  `afterBestBoard[5] <= -2` XOR `afterPlayerBoard[5] <= -2`.
+| Classifier | Backs | True when |
+|---|---|---|
+| `RaceClassifier` | `ContactType.Race` | the two sides' checkers have passed each other |
+| `ContactClassifier` | `ContactType.Contact` | not a race |
+| `InnerBoard631Classifier` | `PositionType.InnerBoard631` | in contact, points 6, 3, 1 made and 5, 4, 2 not |
+| `InnerBoard54321Classifier` | `PositionType.InnerBoard54321` | in contact, points 5 to 1 made and 6 not |
+| `VsTwoPlusUpClassifier` | `PositionType.VsTwoPlusUp` | the opponent has two or more on the bar (`board[0] <= -2`) |
+| `Holding1386Vs20Classifier` | `PositionType.Holding1386Vs20` | the full predicate is on its XML doc |
+| `Make20PtClassifier` | `PlayType.Make20Pt` | the decision-maker's 20-point is not already made and exactly one of the two plays makes it |
+
+Race and Contact partition positions: that is a property of the pair, *not* a
+contract on `IPositionClassifier`, and the `PositionType` classifiers overlap
+freely. `Make20PtClassifier` reads the decision-maker's 20-point as index 20
+in the prior board and, in the flipped after-boards, as index 5 with their
+checkers negative.
+
+The classifiers are the oracle for their pattern equivalents.
+`BoardPatternOracleTests` holds the bracket list of each `PositionType` and
+asserts agreement on a sample of boards; `BoardPatternCorpusOracleTests`
+repeats it over `TestData/FixtureFiles` and requires each named filter to
+admit at least one decision there, so it cannot pass vacuously. A pattern
+cannot express the race guard, so the two inner-board patterns agree only on
+contact boards, or composed with `ContactType.Contact`.
 
 ### Patterns
 
-The data-driven position-matching machinery behind `PositionPatternFilter`
-and `FilterConfig.PositionPattern`. Where the named `PositionType`
-classifiers are hand-written predicates, a `BoardPattern` is a
-*declarative* predicate a caller (or the FilterPanel UI) can author at
-runtime, including via a compact text form. This is the public,
-reintroduction-ready alternative to the named `PositionType` machinery.
+The data-driven position matching behind `PositionPatternFilter` and
+`FilterConfig.PositionPattern`. Where the named `PositionType` classifiers are
+hand-written predicates, a `BoardPattern` is a *declarative* predicate a
+caller or the FilterPanel can author at runtime. **Parsing lives in this
+library**, not the UI.
 
-* `CheckerSides` (internal, `[Flags]`: `Player` / `Opponent` / `Both`) —
-  the **single owner of each side's value interval** (with N for
-  `BoardPosition.CheckersPerSide`, the producer's number of checkers a
-  side: on-roll player `[0, N]`, opponent `[-N, 0]`, the hull `[-N, N]`
-  for both) and of which board entries are whose (`CheckersOn` counts
-  one side over a run of indices, never netting the other; `Signed`
-  applies the sign rule). Locations and span constraints read their
-  intervals off it; nothing else spells `0` / `±N` as a side's limit,
-  and nothing in this library restates N.
-* `CheckerLocation` — a `readonly record struct`, the discriminated
-  place a `CheckerRange` addresses, and the **single source of truth for
-  location vocabulary**: a `Kind` (`CheckerLocationKind.Board` /
-  `PlayerOff` / `OpponentOff`), the board-index domain (one internal
-  check, `ThrowIfNotBoardIndex`, which `CheckerSpan` also calls), the
-  named tokens the grammar uses (`off` / `opp-off`), each location's
-  signed value interval, and how a location's value is read or derived
-  from a board (`ValueOn`, internal). The interval is the **hull of the
-  sides that can sit there** (internal `Sides`): a point (1–24) holds
-  either side, `[-N, N]`; the opponent's bar (0) and opponent-off hold
-  only the opponent, `[-N, 0]`; the on-roll player's bar (25) and
-  player-off hold only the player, `[0, N]`. Constructed only via
-  `Board(int index)` (validated 0–25, `ArgumentOutOfRangeException`) and
-  the `PlayerOff` / `OpponentOff` statics, so never invalid;
-  `BoardIndex` is `null` on the off locations (no throwing property).
-  `default(CheckerLocation)` is `Board(0)`. Carries the domain constant
-  `MaxBoardIndex` (25) — a location-domain fact, so it lives on the
-  location type. The number of checkers a side is not this library's:
-  the intervals read `BoardPosition.CheckersPerSide` (through
-  `CheckerSides`) and restate no copy of it. Value-equality is what
-  `BoardPattern` keys duplicate detection — and its own equality — on,
-  so a numeric and a named location never conflate. `ToString` renders
-  the canonical (lower-case) token head; name parsing is
-  case-insensitive.
-* `CheckerSpan` — a `readonly record struct`: a contiguous run of board
-  indices `First`..`Last`, **`First < Last`** (a single index is a
-  `CheckerLocation`, so each constraint has one spelling), bars
-  allowed, borne-off counts never. `ArgumentOutOfRangeException` on an
-  index outside 0–25, `ArgumentException` on `First >= Last`. The last
-  index is stored as its distance past `First + 1`, so
-  `default(CheckerSpan)` is the valid span `0-1` — never invalid once it
-  exists. `ToString` renders the `a-b` token head; internal `TrySplit`
-  recognizes that shape (unsigned decimal parts, no whitespace) and
-  leaves validation to the constructor, so `[12-7,…]` is an argument
-  error and `[off-3,…]` a format error.
-* `IPatternConstraint` — the element type of a pattern: **closed**, its
-  two members (`Place`, `IsSatisfiedBy`) internal, so no type outside
-  the library can implement it. The constraints are `CheckerRange` and
-  `CheckerSpanRange`; a consumer needing the detail pattern-matches on
-  those. `Place` (the `CheckerLocation` or `CheckerSpan`) is what the
-  duplicate check keys on — places of different kinds never compare
-  equal.
-* `CheckerRange` — a `readonly record struct`: an inclusive signed-count
-  constraint on one `CheckerLocation`. `Min` / `Max` are inclusive
-  bounds on the on-roll-relative checker count at the location
-  (negative = opponent; `null` = that side unbounded) — the **signed**
-  count, so on a point the bounds see both sides (`[6,0,3]` rejects an
-  opponent's blot). Validated at construction — each bound must lie in
-  the **location's own value interval**, so a wrong-signed bound on a
-  bar or a borne-off count (`[0,1,]`, `[25,,-1]`, `[off,-2,]`) is an
-  `ArgumentOutOfRangeException`, not a constraint that silently never
-  matches; `ArgumentException` on `Min > Max`. The `(int index, min,
-  max)` ctor remains as sugar for the board-location case. `Contains`
-  tests one signed count; its `IsSatisfiedBy` pairs that with
-  `CheckerLocation.ValueOn`; `ToString` renders the `[location,min,max]`
-  token (unbounded side → empty field).
-* `CheckerSpanRange` — a `readonly record struct`: a bound on **one
-  side's total** across a `CheckerSpan`, token `[a-b,min,max]`. With P
-  the on-roll player's checkers summed over the span and O the
-  opponent's (non-negative): a positive bound constrains the player,
-  `min ≤ P ≤ max`; a negative bound the opponent, `min ≤ −O ≤ max`
-  (`[13-18,,-2]` = opponent has ≥ 2 there); one of each is refused
-  (`ArgumentException`); bounds beyond ±N are
-  `ArgumentOutOfRangeException`. Formally, the bounds apply to **every
-  side whose interval holds them all**, which is what gives the zero
-  forms their meaning: `[a-b,0,0]` empty of both sides, `[a-b,,0]` no
-  player checkers, `[a-b,0,]` no opponent checkers, `[a-b,,]` nothing.
-  **The other side's checkers are ignored, never netted.** A bar
-  contributes nothing to the side that cannot sit on it, so either bar
-  may sit in a span with either sign (`[24-25,-2,-2]`). The constrained
-  sides are derived from the bounds when read (internal
-  `ConstrainedSides`), not stored, so `default(CheckerSpanRange)` is the
-  valid, unconstraining `[0-1,,]`. The `(first, last, min, max)` ctor is
-  sugar for the span form.
-* `BoardPattern` — an immutable, validated set of `IPatternConstraint`
-  elements over a `BoardPosition` in the frame of `IDecisionFilterData.Board`
-  (its slots are the grammar's board indices), exposed in construction
-  order as `Constraints` — an immutable list, so the pattern's
-  immutability holds through what it hands out. A place named by no
-  constraint is unconstrained; the empty pattern (`Empty`, `IsEmpty`)
-  matches every board (vacuous truth). The one cross-element invariant
-  the constructor enforces is **no two constraints on the same place**
-  (`ArgumentException`, keyed on `Place` value-equality, so the check
-  spans numeric locations, named locations and spans alike; a null
-  element is refused too); each element is already self-valid.
-  **Overlap is not duplication**: `[7,1,] [7-12,3,] [5-8,,-2]` is three
-  conditions. `Matches(BoardPosition)` ANDs every constraint; borne-off
-  values are read from the position per element (see the borne-off
-  pitfall).
-  * **Text form** — the bracket list: whitespace-separated
-    `[head,min,max]` tokens, each field comma-separated with an empty
-    bound field meaning "unbounded". The head is a board index, a named
-    borne-off location — `[off,min,max]` (on-roll player, bounds
-    `[0, N]`) / `[opp-off,min,max]` (opponent, bounds `[-N, 0]`,
-    negative per the grammar-wide sign rule: `[opp-off,,-2]` =
-    "opponent has ≥ 2 off", reading exactly like `[5,,-2]`) — or a span
-    `a-b` of board indices (`[7-12,3,]`), e.g.
-    `"[6,,0] [5,2,] [off,1,] [opp-off,,-2] [13-18,,-2]"`. Names parse
-    case-insensitively and render canonically lower-case. This is the
-    form the FilterPanel exposes; **parsing lives in this library**, not
-    the UI. `Parse` / `TryParse` read it (throwing vs.
-    return-value-on-failure), `ToBracketList` / `ToString` write it, and
-    the two round-trip. `Parse` surfaces `FormatException` (malformed
-    token, unknown head — a borne-off name inside a span among them),
-    `ArgumentOutOfRangeException` (index / bound, including wrong-signed
-    bar and off bounds), and `ArgumentException` (`Min > Max`, a span
-    whose start is not below its end, opposite-signed span bounds,
-    duplicate place); `TryParse` absorbs all of those into `false`.
-  * **Equality** — value-based over the constraint set, via
-    `IEquatable<BoardPattern>` (`Equals` + a consistent `GetHashCode`).
-    Two patterns are equal when they carry the same constraints **in any
-    order**: the constructor already treats order as insignificant, and
-    the no-duplicate-place invariant makes the constraints a set, so the
-    comparison is an exact set comparison and the hash an
-    order-independent (XOR) aggregate. Element comparison delegates to
-    each constraint's record-struct value equality — no second encoding
-    of "same constraint" anywhere. Patterns parsed from
-    the same bracket list are therefore always equal; the converse holds
-    only up to token order, because `ToBracketList` preserves
-    construction order and two equal patterns may render permuted lists.
-    No `==` / `!=` operators: it is a reference type, and by the
-    prevailing convention its operators keep reference semantics — call
-    `Equals`.
-  * **Serialization** — the type carries `[JsonConverter(typeof(
-    BoardPatternJsonConverter))]` on itself, so a bare `BoardPattern`
-    named to a serializer round-trips as its bracket-list string under
-    *any* `JsonSerializerOptions`; a consumer need not remember to
-    register the converter. `FilterConfig` no longer rides it: since
-    halheinrich/backgammon#269 the config stores its pattern as text, so
-    its canonical seam has nothing of this type to carry (see **Filtering**).
-* `BoardPatternJsonConverter` — the `JsonConverter<BoardPattern>` the
-  type declares. Writes the bracket-list string; reads it back through
-  `BoardPattern.Parse`, so deserialization stays on the validated path
-  and a malformed/out-of-range pattern in the JSON fails fast as a
-  `JsonException` rather than materializing an invalid object. A JSON
-  `null` reads as `null`. `public`, and that is load-bearing: the
-  type-level attribute is the only wiring point, and on the *reflection*
-  path accessibility is irrelevant (System.Text.Json instantiates the
-  attribute-named converter itself, and this was `internal` until
-  halheinrich/backgammon#129 leg 4), but a **consumer's** source generator
-  emits `new BoardPatternJsonConverter()` into its own assembly. Measured
-  on net10.0 / SDK 10.0.400: with an internal converter the generator
-  reports SYSLIB1220 then SYSLIB1030 and silently drops the type from that
-  consumer's metadata. Both are warnings, so nothing downstream fails —
-  which is why `XgFilterJsonContextTests` gates it here. Verified on the
-  real wire path by
-  `BoardPatternWireSafetyTests`, so the converter needs no public
-  presence. No in-tree consumer names a bare `BoardPattern` to a
-  serializer today (the config's member was the one wire it rode); the
-  type stays a declared wire unit, and whether it should remain one is a
-  later question, not this leg's.
+**The text form** is the bracket list: whitespace-separated `[head,min,max]`
+tokens, an empty bound meaning unbounded. The head is a board index in the
+frame of `IDecisionFilterData.Board` (0 the opponent's bar, 1–24 the points,
+25 the on-roll player's bar), a named borne-off location, or a span `a-b` of
+board indices. One sign rule runs through the grammar: positive counts are the
+on-roll player's, negative the opponent's.
+
+| Token | Means |
+|---|---|
+| `[5,2,]` | the on-roll player has two or more on the 5-point |
+| `[5,,-2]` | the opponent has two or more there |
+| `[6,0,3]` | up to three of the player's on the 6-point, and none of the opponent's |
+| `[0,,-2]` | the opponent has two or more on the bar |
+| `[off,1,]` | the on-roll player has one or more off |
+| `[opp-off,,-2]` | the opponent has two or more off |
+| `[7-12,3,]` | the on-roll player has three or more across 7 to 12 |
+| `[13-18,,-2]` | the opponent has two or more across 13 to 18 |
+| `[7-12,0,0]` | the span holds neither side's checkers |
+| `[7-12,,0]` | the span holds none of the on-roll player's; the opponent's are ignored |
+| `[7-12,0,]` | the span holds none of the opponent's; the player's are ignored |
+
+Names parse case-insensitively and render lower-case. `Parse` throws and
+`TryParse` absorbs (the doc on `Parse` says which exception means what);
+`ToBracketList` writes the form, and the two round-trip. An empty pattern
+matches every board, and blank text parses to it.
+
+* **The types.** `CheckerLocation` is the single source of truth for location
+  vocabulary: which places exist, the grammar's names, each place's value
+  interval and how its value is read. `CheckerSpan` is a contiguous run of at
+  least two board indices: a single index is a `CheckerLocation`, so each
+  constraint has one spelling. `IPatternConstraint` is **closed**, its members
+  internal, so its only kinds are `CheckerRange` (a signed count at one
+  location) and `CheckerSpanRange` (one side's total across a span); a
+  consumer needing the detail pattern-matches on those. `BoardPattern` is the
+  immutable, validated set of them, ANDed.
+* **The intervals have one owner.** The internal `CheckerSides` owns each
+  side's value interval and which board entries are whose. A location's
+  interval is the hull of the sides that can sit there, so a bound outside it
+  (`[0,1,]`, `[off,-2,]`) is a construction error rather than a constraint
+  that silently never matches. Nothing here spells `0` / `±N` as a side's
+  limit, and nothing restates N, which is `BoardPosition.CheckersPerSide`.
+* **A value is never invalid once it exists.** Each type validates at
+  construction, and each default is a valid value: `default(CheckerLocation)`
+  is `Board(0)`, and `CheckerSpan` stores its last index as a distance so that
+  its default is the span `0-1`, making `default(CheckerSpanRange)` the
+  unconstraining `[0-1,,]`.
+* **One cross-element invariant.** No two constraints on the same place, keyed
+  on `Place` value-equality, so the check spans numeric locations, named
+  locations and spans. Overlap is not duplication: `[7,1,] [7-12,3,]
+  [5-8,,-2]` is three conditions.
+* **A span's bounds apply to every side whose interval holds them all**, which
+  is what gives the zero forms their meaning, and the other side's checkers
+  are ignored, never netted. A positive and a negative bound together are
+  refused. A bar contributes nothing to the side that cannot sit on it, so
+  either bar may sit in a span with either sign. The constrained sides are
+  derived from the bounds when read, not stored.
+* **Equality** is over the constraint set, in any order; the hash is
+  order-independent and each element compares by its own record-struct
+  equality, so there is no second encoding of "same constraint". The text form
+  preserves construction order.
+* **Serialization.** The type names `BoardPatternJsonConverter` by attribute,
+  the only wiring point: it writes the bracket-list string and reads it
+  through `Parse`, so deserialization stays on the validated path and a bad
+  pattern fails as a `JsonException`. It is `public` because a consumer's
+  source generator must construct it (see "Serialization"); nothing registers
+  it on any options, and `BoardPatternWireSafetyTests` round-trips a bare
+  pattern through options that hold no converter. A `FilterConfig` stores its
+  pattern as text, so the converter serves only a bare `BoardPattern`. No
+  in-tree consumer names one to a serializer (searched, every member's `.cs`
+  and `.razor`, 2026-10-30); the type stays a declared wire unit.
 
 ### Iteration
 
-The top-level integration point. A sealed instance class constructed
-with `(DecisionFilterSet, PlayRanking, ILogger<FilteredDecisionIterator>,
-OpeningBook? openingBook = null)` — the first three required: the filters
-and null logger are refused, and so is an undefined ranking. The filters,
-the ranking and the book are configuration (see **The ranking in
-force**); the source or sources are the per-call argument. Yields only the
-decisions that pass the configured filter set under the configured
-ranking — from one parsed source (the filtering operation, below), or from
-a walk over XG-format files (`*.xg` match files plus `*.xgp` position
-files), `*.json` files, or named streams of either.
-
-Two output shapes are exposed: `DecisionRow` (CSV-flat, built for the
-ranking) via `IterateFile`, `IterateXgDirectory`, `IterateJsonDirectory`
-and `IterateXgStreams`, and `BgDecisionData` (diagram-shaped — the full
-candidate list, after-boards — and depending on no ranking; each is
-filtered through its view for the ranking) via `IterateFileDiagrams`,
-`IterateXgDirectoryDiagrams` and `IterateXgStreamDiagrams`. The
-JSON-directory source offers only the row shape — its diagram variant
-(`IterateJsonDirectoryDiagrams`) was deleted as dead code (zero consumers
-umbrella-wide); a caller wanting JSON documents as records reads them as
-`.json` stream entries.
+`FilteredDecisionIterator` is the integration point. Its configuration is the
+constructor's: the filter set, the ranking (see **The ranking in force**), a
+logger and an optional opening book. The source or sources are the per-call
+argument. Two output shapes are exposed: `DecisionRow`, CSV-flat and built for
+the ranking, and `BgDecisionData`, the full candidate list and after-boards,
+depending on no ranking and filtered through its view for it. The JSON
+directory walk offers rows only; a caller wanting JSON documents as records
+reads them as `.json` stream entries.
 
 **The filtering operation** (halheinrich/backgammon#373, Hal's ruling of
-2026-10-08: "a new producer-owned filtering operation over an
-already-parsed source owns the callback wiring and filter evaluation; the
-existing directory and stream entry points use it"). `IterateFile(XgFile
-file, string sourceName)` and `IterateFileDiagrams(XgFile file, string
-sourceName)` yield the decisions of one decoded file that pass the
-configured filters under the configured ranking, in the producer's order.
-They own everything filtering a parsed source takes — the producer call
-under the iterator's `XgIteratorOptions` (the ranking, and the caller's
-opening book if any) and logger, the filter set's four early-exit hints
-wired once to the producer's boundaries (the `_callbacks` built at
-construction), and `DecisionFilterSet.Matches` on each row or each
-record's view (`Passing`, stated once for both shapes) — so a caller
-holding a decoded file writes none of it. Arguments are checked at the
-call (null file; null or blank name); the rest is lazy, and a failure
-while iterating propagates. `sourceName` is every decision's identity, as
-in the walks: the file name with its extension.
+2026-10-08: "a new producer-owned filtering operation over an already-parsed
+source owns the callback wiring and filter evaluation; the existing directory
+and stream entry points use it"). `IterateFile(XgFile file, string
+sourceName)` and `IterateFileDiagrams` own everything filtering a parsed
+source takes: the producer call under the iterator's options, the filter set's
+four early-exit hints wired once, and `DecisionFilterSet.Matches` on each row
+or each record's view. A caller holding a decoded file writes none of it.
+Arguments are checked at the call; the rest is lazy, and a failure while
+iterating propagates. `sourceName` is every decision's identity, as in the
+walks: the file name with its extension.
 
-* *Where it lives, and why.* On `FilteredDecisionIterator`, beside the
-  walks, because it needs exactly the iterator's configuration — the
-  filters, the ranking, the book and the logger — and the iterator is
-  already the one object that states them. A separate type would have to
-  take the same four arguments, or take an iterator; either way the
-  configuration would be stated twice or the type would be the iterator
-  by another name. The walk is then literally "read each source, then
-  filter each decoded one": `IterateSources` hands each decoded file to
-  `IterateFile` / `IterateFileDiagrams` and adds only the read, the report
-  and the skip.
-* *The name and the shape.* The siblings' pattern, `Iterate` + the source
-  + `Diagrams` for the record shape, with the source here a parsed
-  `XgFile`. It takes `(XgFile, string)` rather than the converter's
-  `XgSourceDecoded` because a decoded outcome's `SourceName` is the path as
-  read, where the producer needs a file name, and because a file parsed
-  some other way is filtered the same.
-* *The opening book* is an optional constructor argument, the book alone
-  (`OpeningBook?`), never producer options: `XgIteratorOptions` carries a
-  ranking too, and a caller able to pass one could state a second ranking
-  that disagrees with the iterator's. ExtractFromXgToCsv's local mode
-  passes a book today; BgQuiz passes none, and its three-argument call is
-  unchanged. Optional rather than required because "no book" is a real
-  configuration, not a fallback that masks a missing setting, and because
-  the iterator's every caller but one has none.
-* *Two strategies, one rule set.* The operation is the streaming strategy:
-  it filters as it iterates and exits early where the filters allow. A
-  consumer that retains unfiltered decisions and refilters them when the
-  filter changes (ExtractFromXgToCsv's web mode) applies
-  `DecisionFilterSet.Matches` to each retained row or record view itself:
-  the filtering rules are this library's in both strategies, and only the
-  execution differs. The two agree because early exit never changes what
-  passes (**Early exit only saves work**, below).
+* *Where it lives, and why.* On `FilteredDecisionIterator`, because it needs
+  exactly the iterator's configuration, and the iterator is already the one
+  object that states it. A separate type would have to take the same four
+  arguments, or take an iterator; either way the configuration would be stated
+  twice or the type would be the iterator by another name.
+* *The name and the shape.* The siblings' pattern, `Iterate` + the source +
+  `Diagrams` for the record shape, with the source here a parsed `XgFile`. It
+  takes `(XgFile, string)` rather than the converter's `XgSourceDecoded`
+  because a decoded outcome's `SourceName` is the path as read, where the
+  producer needs a file name, and because a file parsed some other way is
+  filtered the same.
+* *The opening book* is an optional constructor argument, the book alone,
+  never producer options: `XgIteratorOptions` carries a ranking too, and a
+  caller able to pass one could state a second ranking that disagrees with the
+  iterator's. Optional rather than required because "no book" is a real
+  configuration, not a fallback that masks a missing setting:
+  ExtractFromXgToCsv's `LocalFolderProcessor` passes a book, and BgQuiz passes
+  none.
+* *Two strategies, one rule set.* The operation is the streaming strategy,
+  which ExtractFromXgToCsv uses: it filters as it iterates and exits early
+  where the filters allow. A consumer that retains unfiltered decisions and
+  refilters them when the filter changes, as BgQuiz does (`ProblemLoader`
+  loads with an empty set, `Selection` applies `Matches` to each view), runs
+  the same rules through a different execution. The two agree because early
+  exit never changes what passes.
 
-Two **input** sources are exposed, both shapes for each. The directory
-methods above walk a filesystem path. The stream methods —
-`IterateXgStreams` (`DecisionRow`) and `IterateXgStreamDiagrams`
-(`BgDecisionData`) — take a caller-supplied `IEnumerable<XgFileStream>`
-instead, reading each through `XgSourceReader.ReadStream`. This is the
-directory-free entry for callers that hold the bytes rather than a
-server path — e.g. a Blazor WASM client parsing browser-picked files
-that never leave the browser. The directory and stream paths are
-WASM-compatible by dependency (both `XgFilter_Lib` and its deps
-`BgDataTypes_Lib` / `ConvertXgToJson_Lib` are plain `net10.0`); the
-directory methods simply rely on `System.IO.Directory`, which compiles
-under `browser-wasm` but is never called by a remote consumer.
+**The walks.** Every directory and stream entry funnels through one generic
+private core, `IterateSources<T>`: read each source, then filter each decoded
+one through the operation above. So the read, the skip and log, and early exit
+are identical across every shape and every source. Directory walks discover
+through the producer's `XgFileReader.EnumerateXgFormatFiles`, or the `.json`
+pattern, and pass `Path.GetFileName`; stream walks take a caller-supplied
+`IEnumerable<XgFileStream>` for callers that hold the bytes rather than a
+server path, such as a Blazor WASM client parsing browser-picked files that
+never leave the browser. Both are WASM-compatible by dependency, every library
+involved being plain `net10.0`; the directory methods simply rely on
+`System.IO.Directory`, which a browser consumer does not call.
 
-All the directory and stream walk entry points funnel through a single
-generic private core, `IterateSources<T>`, which iterates `(string sourceName, Func<XgSourceRead> read)`
-pairs — so the read, filter-evaluation, failed-source skip+log, and
-early-exit pipeline is guaranteed identical across every shape *and* every
-source. (The parsed-file operations `IterateFile` and
-`IterateFileDiagrams` read nothing, take no `SourceReport` and do not go
-through it: they are what it calls.) Only the terminal yield and the
-per-source mapping differ:
-
-* directory paths map `p → (Path.GetFileName(p), () => XgSourceReader.ReadFile(p, format))`
-  via the thin `IterateFiles<T>` adapter (extension preserved by
-  `Path.GetFileName`), the format the walk's: `XgSourceFormat.Xg` for the
-  two XG-format walks, `XgSourceFormat.Json` for the JSON one;
-* streams map `XgFileStream → (FileName, () => XgSourceReader.ReadStream(FileName, Data, format))`
-  via `ToSources`, after `RequireValid` enforces the entry contract this
-  iterator owns, the format stated by the name's extension.
+**The read is the converter's** (`XgSourceReader`, Hal's ruling of 2026-10-08
+on halheinrich/backgammon#373): the one read of one source, under one failure
+policy, returning `XgSourceDecoded` or `XgSourceFailed`. The walk keeps no
+read and no catch of its own. A decoded source is iterated; a failed one is
+recorded and logged, and the walk continues with the next.
 
 **The stream entries' format is the name's extension, mapped once**
-(`FormatOf`, at the stream-entry boundary; both stream output shapes
-project through it): `XgSourceFormat.Xg` for a name the converter's
-`XgFileReader.IsXgFormatFile` recognizes (`.xg`, `.xgp`), and
-`XgSourceFormat.Json` for `.json`, both case-insensitively. Any other
-extension, or none, is a usage error (`ArgumentException`), thrown lazily
-when the walk reaches the entry and before its read is attempted. So one
-stream walk may mix XG files and JSON documents, each decoded as what it
-is, and the entry's name — unchanged — is every decision's identity. The
-converter infers nothing from a name (its ruling); this boundary is where
-the name is turned into a stated format, and nowhere else. Until this leg
-every stream was handed to the binary decoder, so a `.json` entry the
-type promised was always rejected. The XG-format extensions are the
-converter's (`XgFileReader.XgFormatExtensions`); the JSON one is stated
-once here, `JsonExtension`, and read by both `FormatOf` and the JSON
-directory walk's file pattern.
+(`FormatOf`, at the stream-entry boundary). A name the converter's
+`XgFileReader.IsXgFormatFile` recognizes is read as XG's binary file, and
+`.json` as the library's JSON document, both case-insensitively, so one stream
+walk may mix them. The converter infers nothing from a name (its ruling); this
+boundary is where the name becomes a stated format, and nowhere else. The
+XG-format extensions are the converter's; the JSON one is stated once here,
+`JsonExtension`.
 
-**The read is the converter's** (`XgSourceReader`, Hal's ruling of
-2026-10-08 on halheinrich/backgammon#373): the one read of one source, under
-one failure policy, returning `XgSourceDecoded` or `XgSourceFailed`. The
-walk keeps no read and no catch of its own. A decoded source is iterated; a
-failed one is recorded and logged, and the walk continues with the next. A
-cancellation (`OperationCanceledException`) is never an outcome, so it
-propagates out of the walk and leaves it incomplete — the old catch-all
-counted it as a rejected file. A usage error the read refuses propagates
-the same way.
+**A usage error is not a failed source.** A malformed file or stream content
+is a failed outcome: logged, skipped, recorded. A misused *stream entry*
+throws `ArgumentException` in two places, each owned once: `RequireValid`,
+when the walk reaches the entry, for what the iterator owns (a null or blank
+name, an extension naming no format it reads, a null `Data`), and
+`XgSourceReader.ReadStream`, when the attempt starts, for what the converter
+owns (a stream it cannot decode in place). Neither is ever recorded as a
+skipped file. `sourceName` **must carry its extension**: the producer's
+`DecisionId` stamping derives the `.xg`/`.xgp`/`.json` discrimination from it
+and throws on an extension-less name.
 
-The output shape is selected by the per-source filter the walk passes to
-`IterateSources`: `IterateFile` for rows, `IterateFileDiagrams` for
-records. Each makes the one producer call for its shape and hands the
-producer's output to the private `Passing`, which evaluates
-`DecisionFilterSet.Matches` through the shape's view — a row is its own
-view, a record is filtered through `ViewFor(ranking)` — under the one
-ranking. So the filter calls bind identically for either shape.
+**Logging.** A skipped source logs `LogWarning(failed.Exception, "Skipping
+{File}", sourceName)`, so the exception is captured on the entry, not
+stringified. The constructor's logger is also forwarded into the producer, so
+its per-decision warnings, notably an illegal-play skip, surface through this
+same pipeline rather than being swallowed there.
 
-The read is always deferred into the thunk and invoked by
-`IterateSources` in walk order, so a malformed *file/stream content* is a
-failed outcome, logged and skipped (iteration continues). A misused
-*stream entry* is a different category — a usage error — in two places,
-each owned once: `RequireValid` throws `ArgumentException` from the
-`ToSources` projection for what the iterator owns (a null/blank name, an
-extension naming no format it reads, a null `Data`), before the source is
-attempted; and
-`XgSourceReader.ReadStream` throws it for what the converter owns, a
-stream it cannot decode in place (not readable, not seekable, not at
-position 0), when the attempt starts. Neither is ever recorded as a
-skipped file. `sourceName` is passed straight through to the producer and
-**must carry its extension** — the producer's `DecisionId` stamping
-derives the `.xg`/`.xgp`/`.json` discrimination from
-`Path.GetExtension(sourceFile)` and throws on an extension-less name. The
-directory mapper preserves it; the stream mapper validates it.
+**Rejected sources, as data** (halheinrich/backgammon#368). Every walk entry
+takes an optional `SourceReport`, which a caller reads during or after the
+enumeration: how many sources were attempted, how many read, which were
+rejected and why, whether the walk reached the end, and the one conclusion the
+report draws itself, `AllRejected`, true only for a *completed* walk that
+attempted at least one source and read none. So an empty selection, a
+selection nobody finished reading, and readable files that yielded no matching
+decision are each told apart from one whose every file was refused. A caller
+that passes none gets the same behaviour. The warning stays as a trace of the
+same event and carries the same exception, so the report is the one source of
+the fact.
 
-Sources that fail to read are skipped and logged via
-`ILogger.LogWarning(failed.Exception, "Skipping {File}", sourceName)` —
-the failed outcome's exception (type, stack, inner) is captured on the
-log entry, not stringified. Iteration continues with the next source
-rather than aborting the run.
+* *Where it lives, and why.* A caller-supplied state object, the shape the
+  producer's `XgIteratorState` already has: the iterator is its only writer
+  and everyone else reads. State on the iterator was rejected because one
+  iterator may serve many enumerations
+  (`OneIteratorAcrossEnumerations_EachReportStandsAlone`), and a completed
+  report must stay unchanged beside the parse it describes (BgQuiz's
+  `LoadedProblems` holds one). A returned result type was rejected because
+  every consumer `foreach`es an `IEnumerable<T>`, and an enumerable that can
+  be walked twice has no one report to return. The one-walk rule is
+  mechanical, not advisory: a report is claimed by the first `MoveNext` of the
+  enumeration it was handed to and refuses every later claim, so nothing can
+  clear, append to or replace a record once made.
+* *What is recorded, and when.* Each count is recorded as its event happens,
+  and none is derived from another (halheinrich/backgammon#373, Hal's ruling
+  of 2026-10-08): an attempt as the read starts; a readable source when the
+  read decodes, before any decision is filtered, so a source whose decisions
+  all fail still counts; a rejection on the failed outcome; completion after
+  the last source. In a completed walk the attempted sources are exactly the
+  readable and the rejected ones. An attempt that ends in neither outcome, a
+  cancellation or a stream the read refused as a usage error, is attempted but
+  neither readable nor rejected, and the walk is incomplete.
+* *What is a rejection.* Exactly the converter's failed outcome. A source that
+  read is readable whatever the filters make of its decisions. A cancellation,
+  a usage error, a failure enumerating the caller's sources, and a producer,
+  filter or consumer failure all propagate, record no rejection, and leave the
+  report incomplete; its counts then describe the sources reached and claim
+  nothing about the rest.
 
-**Rejected sources, as data** (halheinrich/backgammon#368). Every
-directory and stream walk entry point takes an optional `SourceReport`
-(the parsed-file operations read nothing and take none); a caller that
-passes one reads,
-during or after the enumeration, how many sources the walk attempted
-(`AttemptedCount`), how many read (`ReadableCount`), which it rejected
-and why (`Rejected`, each a `SourceRejection` carrying the source name
-exactly as the caller gave it and the read's own exception), whether the
-walk reached the end of its sources (`IsComplete`), and the one
-conclusion the report draws itself, `AllRejected` — true only for a
-*completed* walk that attempted at least one source and read none, so an
-empty selection, a selection nobody finished reading, and readable files
-that yielded no matching decision are each told apart from one whose
-every file was refused. A caller that passes none gets the behaviour
-above unchanged; the warning stays as a trace of the same event and
-carries the same exception the report records, so the report is the one
-source of the fact and the log never a second one.
-
-*Where it lives, and why.* The report is a caller-supplied state
-object, the shape the producer's `XgIteratorState` already has: the
-caller creates one per enumeration and hands it in; the iterator is its
-only writer (internal mutators) and everyone else reads. State on the
-iterator was rejected because a consumer reuses one iterator across
-enumerations (BgQuiz's `WasmUploadedProblemSetSource`), so iterator
-state would be cleared or overwritten by the next walk — and the
-contract is that a completed report is retained unchanged beside the
-parse it describes (`CachedProblemSetSource`). A returned result type was
-rejected because every consumer `foreach`es an `IEnumerable<T>`, and an
-enumerable that can be walked twice has no one report to return. The
-one-walk rule is mechanical, not advisory: a report is claimed by the
-first `MoveNext` of the enumeration it was handed to and refuses every
-later claim with `InvalidOperationException` — the same report passed to
-a second call, or the same enumerable walked again — so nothing can
-clear, append to or replace a record once made. Claiming is lazy like
-the walk itself (obtaining an enumerable claims nothing).
-
-*What is recorded, and when.* Each count is recorded as its event
-happens, and none is derived from another (halheinrich/backgammon#373,
-Hal's ruling of 2026-10-08): an attempt as the read starts; a readable
-source when the read decodes, before any of its decisions is filtered, so
-a readable source whose decisions all fail the filters still counts, and
-so does one a consumer stopped partway through; a rejection on the failed
-outcome; completion after the last source. In a completed walk the
-attempted sources are exactly the readable and the rejected ones. An
-attempt that ends in neither outcome — a cancellation, or a stream the
-read refused as a usage error — is attempted but neither readable nor
-rejected, and the walk is incomplete. `ReadableCount` used to be derived
-as attempted minus rejected, which would have counted a cancelled attempt
-as readable once the walk stopped catching cancellations.
-`AllRejected` keeps its meaning: complete, at least one attempt, none
-readable.
-
-*What is a rejection.* Exactly the converter's failed outcome: the read
-returned `XgSourceFailed`. Its exception becomes the rejection's reason in
-one place (`SourceReport.Reject`, which takes the outcome), and the
-rejection is recorded before the skip is logged. A source that read is
-readable whatever the filters make of its decisions. A cancellation is
-never a rejection — the read propagates it, and so does the walk. A usage
-error (a blank or extension-less name, a null stream, a stream the read
-cannot decode in place — `ArgumentException`), a failure enumerating the
-caller's sources, a producer, filter or consumer failure all propagate,
-record no rejection, and leave the report incomplete; `AttemptedCount` and
-`Rejected` then describe the sources reached and claim nothing about the
-rest.
-
-The constructor-injected logger is also **forwarded into the producer**,
-beside the iterator's `XgIteratorOptions` — the ranking, and the caller's
-opening book or none: every `XgDecisionIterator.Iterate` /
-`IterateDiagramRequests` call, which the filtering operation makes for the
-walks and for its own callers alike, passes both, so each row is built for
-the ranking, each book hit is enriched when a book was supplied, and per-decision
-warnings the producer raises — notably an illegal-play skip — surface
-through this same pipeline alongside the file-level skip warnings above,
-rather than being swallowed inside the producer.
-
-XG-format file discovery (`*.xg` then `*.xgp`) is delegated to the
-producer's public `XgFileReader.EnumerateXgFormatFiles`, the single
-source of truth for the rule. The former private duplicate here has
-been deleted.
-
-Early-exit pipeline. At construction the iterator builds a single
-`XgIteratorCallbacks` record threading the filter set's four skip /
-advance predicates to the producer, which the filtering operation hands to
-every producer call — the one place they are wired:
+**Early exit.** At construction the iterator builds one `XgIteratorCallbacks`
+record threading the filter set's four predicates to the producer, the one
+place they are wired:
 
 ```
 SkipMatchAt    ← DecisionFilterSet.ShouldSkipMatch     (IMatchInfo)
@@ -1313,323 +904,204 @@ StopGameAfter  ← DecisionFilterSet.ShouldAdvanceGame   (IDecisionFilterData)
 StopMatchAfter ← DecisionFilterSet.ShouldAdvanceMatch  (IDecisionFilterData)
 ```
 
-The producer evaluates each predicate at its declared boundary (match
-header, game header, post-yield) and short-circuits its own iteration
-when the predicate returns `true`. The post-yield predicates see each
-decision through a view for the options' ranking — the same ranking the
-iterator filters under. The filtering operation's own work is reduced to
-a filter-and-yield: every item the producer yields is gated by
-`DecisionFilterSet.Matches` and yielded if it passes. No iterator
-state is observed; `XgIteratorState` is passed as `null`. The
-match-skip decision flows through `SkipMatchAt`, which the producer
-wires up internally.
+The producer evaluates each at its declared boundary and short-circuits its
+own iteration, and it sees each decision through a view for the same ranking
+the iterator filters under. The consumer has no imperative skip on the
+producer's surface: the producer owns iteration control, and the consumer owns
+the predicates, supplied once.
 
-The architectural ruling is that the consumer has no direct
-`SkipMatch` / `SkipGame` mutator on the producer's surface: all skip
-semantics are declarative, supplied once as the four pre-registered
-callbacks. The producer owns iteration control; the consumer owns
-the predicates; `XgIteratorState` remains a read-only observer for
-callers that want per-row context (this consumer does not).
-
-**Early exit only saves work** (halheinrich/backgammon#373, Hal's ruling
-of 2026-10-08). For any filter set whose filters honour the hint contract
-on `IDecisionFilter`, and any source, the filtering operation yields
-exactly the decisions `DecisionFilterSet.Matches` accepts from what the
-producer yields for that source with no callbacks, in the same order. Each
-vote guarantees no later decision in its scope passes its filter, and the
-set is an AND, so a cut drops only decisions the set would reject. That is
-what lets a consumer refilter retained, unfiltered decisions with `Matches`
-and agree with one that streams. The guarantee holds for `.xgp` sources
-too because the producer runs its stop callbacks only on decisions it
-yields to its caller, after the single-decision selection
-(halheinrich/backgammon#392, fixed in ConvertXgToJson_Lib); before that, a
-vote cast on an `.xgp`'s cube could make the selection fall back to it.
-`EarlyExitEquivalenceTests` enforces the guarantee; its doc comment says
-what it compares and over which sources.
+**Early exit only saves work** (halheinrich/backgammon#373, Hal's ruling of
+2026-10-08). For any filter set whose filters honour the hint contract, and
+any source, the filtering operation yields exactly the decisions
+`DecisionFilterSet.Matches` accepts from what the producer yields for that
+source with no callbacks, in the same order. Each vote guarantees no later
+decision in its scope passes its filter, and the set is an AND, so a cut drops
+only decisions the set would reject. That is what lets a consumer refilter
+retained decisions with `Matches` and agree with one that streams. It holds
+for `.xgp` sources too because the producer runs its stop callbacks only on
+decisions it yields to its caller, after the single-decision selection
+(halheinrich/backgammon#392). `EarlyExitEquivalenceTests` enforces the
+guarantee; its doc comment says what it compares and over which sources.
 
 ## Pitfalls
 
-* **`PositionTypeFilter` reads `data.Board`, never the XGID.** The board
-  is already a `BoardPosition` in the player on roll's frame; parsing the
-  XGID would re-derive it and risk perspective bugs. Classifiers take
-  `BoardPosition`.
+### Filters and facets
+
+* **Read the board from `data.Board`, never the XGID.** It is already a
+  `BoardPosition` in the player on roll's frame; parsing the XGID would
+  re-derive it and risk perspective bugs.
+* **A filter never chooses a ranking.** It reads the one the view or row was
+  built for. Building a view inside a filter, or giving `FilterConfig` a
+  ranking, would let one run judge "best" and "error" two ways (see **The
+  ranking in force**).
+* **The name and error facets are one filter; never split them.** Two filters
+  ANDed either drop a listed taker's error or agree with "some listed half in
+  range" only by a coincidence a reader must prove.
+  `DecisionFilterSet.ErrorRead` reads from the same rule, so the facets and
+  the by-error order cannot disagree.
 * **An active error range drops results with no error.** A decision with no
-  move recorded, a move the view's ranking does not score, and a double
-  never answered (the taker's half) have no error
-  (`PlayerResult.TryGetError` is false) and fail an active error range
-  through that half — never admitted as "zero error". Reading such a result
-  as 0 silently changes what "erred by more than x" means under depth first.
-* **The name and error facets are one filter; never split them.** Two
-  filters ANDed — "a listed player" and "the doubler's error in range", or
-  even the error filter handed the names — either drop a listed taker's
-  error or make the AND agree with "some listed half in range" only by a
-  coincidence a reader must prove. `PlayerErrorFilter` states the rule once,
-  and `DecisionFilterSet.ErrorRead` reads the error from the same rule, so
-  the facets and the by-error order cannot disagree.
-* **A filter never chooses a ranking.** It reads the one the view or row
-  was built for. Building a view inside a filter, or giving `FilterConfig`
-  a ranking, would let one run judge "best" and "error" two ways; the
-  ranking enters where views and rows are built (see **The ranking in
-  force**).
-* **A missing after-board is never substituted.** `AfterPlayerBoard` is
-  `null` exactly when the player's play is off the candidate list, and
-  both after-boards are `null` on a cube decision. Reading another board
-  in the missing one's place — the board before the play, the best play's,
-  `BoardPosition.Empty` — classifies a play that was not made;
-  `OffListPlay_NoPlayerAfterBoard_ReturnsFalse` is the pin.
-* **Facet activation gates live only in `FilterConfig`'s `FacetRules`
-  table.** `Build()` and `GetActiveFacets()` both iterate the one private
-  table of `(facet, predicate, factory)` triples; that shared predicate is
-  what makes the activity query drift-proof. Adding a facet's add/skip
-  check as an ad-hoc `if` in `Build()` (or a parallel rule in the query,
-  or in a consumer) re-creates exactly the two-encodings hazard the table
-  exists to kill — a new facet means a new `FilterFacet` member plus a new
-  table row, nothing else.
-* **Depth levels qualify only their own mode.** Each level list binds
-  exclusively to its paired toggle's clause: `EvaluationLevels` never
-  constrains rollout rows, `RolloutLevels` never constrains evaluations, and
-  a level list whose toggle is off is **inert** (no activation, no
-  constraint, no validation). Rollout-family level lists select on the
-  rollout's **inner** level — and checker rollouts never carry Roller-family
-  inner levels, so offering Roller-family choices as "rollout levels" in a UI
-  (or copying one mode's levels onto another's clause) recreates the
-  match-nothing defect the clause union was introduced to fix.
-* **The depth facet's clause union is derived in `Build()`, not the panel.**
-  `FilterConfig` stores raw user intent (three per-mode toggle+levels pairs);
-  the mapping to `AnalysisDepthFilter` clauses — one clause per enabled
-  toggle carrying its own level list, plus the "all toggles off = inactive"
-  rule — lives **only** in `FilterConfig` (the depth facet's private
-  `FacetRules` entry and its filter factory, both reached solely through
-  `Build()`). It is the single source of truth. The XgFilter_Razor panel
-  must bind the six raw inputs and let `Build()` derive the clauses;
-  re-encoding the derivation in the UI (e.g. pre-computing clauses or an
-  `AnalysisMode` list and stuffing it into the config) duplicates the SSOT
-  and will silently drift — for instance losing the inactive rule or the
-  inert-levels rule.
-* **The depth facet drops `Unknown`-mode rows whenever it is active.**
-  No selection produces mode `Unknown` (`Clause` rejects it at
-  construction), so any active depth facet excludes legacy/unstamped rows
-  (`AnalysisMode.Unknown`) — they pass only when the facet is inactive and
-  `AnalysisDepthFilter` is absent from the set. This is the same
-  drop-don't-pass posture an active error range applies to a result with no
-  error. Separately, a clause's level axis is unconstrained when its
-  list is empty (any level, including `Unknown`), so an unenriched book hit
-  rides through on the Book-rollouts toggle alone; checking any concrete
-  book-rollout level then excludes those `Unknown`-level hits — intended,
-  not a bug.
-* **`MatchScoreFilter` tokens are on-roll anchored; game headers are
-  player-anchored.** `MaNa` means the *player on roll* needs M — `4a5a`
-  and `5a4a` are different targets — but a game header's
-  `MatchStanding.Away1/Away2` are anchored to the file's player 1/player 2,
-  and both players roll within
-  a game. Any game-level (or coarser) gate must therefore admit a tuple
-  in **either orientation** and leave the orientation verdict to
-  `Matches`; comparing the header orientation only silently eats every
-  decision whose on-roll player is the file's player 2 (the shipped
-  4a5a/`Move1_0001.xgp` bug). The same trap applies mid-stream:
-  `ShouldAdvanceMatch`'s file-cut fires immediately, so it must treat
-  the *current* game's score (either orientation) as still-matchable,
-  not just future games.
-* **`MatchScoreFilter` has coupled constraints.** A money token matches
-  only a money session (the session's kind, never a length); a Crawford
-  target requires exactly one
-  side at 1-away and the other at `≥ 2`; away scores below 1 are
-  impossible. `MatchScoreToken.ParseScore` enforces all of these
-  fail-loud, and the gates rely on those invariants — adding parse
-  shortcuts that bypass validation will let impossible targets through
-  unchecked.
-* **Adding a validity rule means adding it in one place, not two.** A
-  facet's rule belongs on the facet that owns the semantic
-  (`PlayerErrorFilter.IsBoundFiniteNonNegative`,
-  `MoveNumberFilter.IsBoundAtLeastOne`, `MatchScoreToken.GetFault`);
-  `FilterConfig`'s `FieldRules` row only *routes* to it. Writing the
-  predicate inline in the table would let `GetInvalidFields()` and
-  `Build()` drift, and the swept agreement tests in `FilterConfigTests`
-  exist to catch exactly that.
-* **`IDecisionFilter.ShouldAdvanceGame` / `ShouldAdvanceMatch` default to
-  `false`.** A filter that *can* early-exit mid-game must override them.
-  Missing an override is silent — rows just stop being skipped.
-* **A hint is judged on every decision yielded, and must be sound for
-  each.** Don't gate the advance hints on `Matches` (in the wiring or in a
-  filter): the vote that ends a game is often cast on a decision the
-  filter rejects — `MoveNumberFilter`'s first move past the maximum — and
-  gating it loses the cut. And never vote true where a later decision could
-  still pass: the cut drops it silently, and the filtering operation then
-  disagrees with `Matches` over the same decisions. `EarlyExitEquivalenceTests`
-  is the pin for both; a new hint gets a case there.
-* **`PositionType` is multi-membership by design.** A position can satisfy
-  several structural categories at once (e.g. InnerBoard631 +
-  VsTwoPlusUp). `PositionTypeFilter` takes the union: a row passes when
-  *any* selected type matches. Contact-vs-race is a *separate* axis,
-  extracted into the `ContactType` enum, where the two members **are**
-  mutually exclusive and exhaustive — but that partition is a property of
-  that enum, not a filter-level contract on `PositionType`. Composing a
-  contact requirement with a structural one is AND across the set (a
-  `ContactTypeFilter` alongside a `PositionTypeFilter`), never OR within
-  one filter.
-* **Borne-off counts are the position's, never stored or re-derived
-  here.** The `[off,…]` / `[opp-off,…]` locations read
-  `BoardPosition.OnRollBorneOffCount` / `OpponentBorneOffCount`
-  (halheinrich/backgammon#295), the opponent's value signed negative;
-  `CheckerLocation.ValueOn` only reads and signs them. Don't plumb
-  off-count data into `IDecisionFilterData`, grow the board past its 26
-  slots, or count checkers against `BoardPosition.CheckersPerSide` here
-  to support them — the producer owns the count. A `BoardPosition` never
-  holds more than `CheckersPerSide` checkers a side, so the count always
-  lies within the location's interval. Related:
-  wrong-signed off bounds (`[off,-2,]`, `[opp-off,,2]`)
-  are construction/parse **errors**, not empty ranges — a consumer must not
-  "helpfully" flip signs before handing text to `Parse`; the sign rule is
-  validated here, and `TryParse` already absorbs the rejection.
-* **The bars hold one side each, and single-location tokens say so.**
-  Since halheinrich/backgammon#268, `[0,…]` (the opponent's bar) refuses
-  a positive bound and `[25,…]` (the on-roll player's bar) a negative
-  one — `[0,1,]` and `[25,,-1]` parsed before and are now errors, like a
-  wrong-signed off bound. A **stored** pattern holding one loads as an
-  invalid field (halheinrich/backgammon#269): the config and the
-  saved-filters file load whole, `GetInvalidFields` names
-  `FilterField.PositionPattern`, and `Build` throws — the
-  `…StoredBarRuleToken…` tests pin it. Spans are exempt: a span
-  may include either bar with either sign. The rule lives in
-  `CheckerLocation.Sides`; do not re-encode it in a parser or a UI.
-* **Never drop refused pattern text on the way into a config.** A
-  consumer that pre-judges the text and stores `null` when the grammar
-  refuses it (as the FilterPanel's buffer-to-config step once did) turns
-  an invalid filter into an inactive one — the silent-drop
-  halheinrich/backgammon#269 ruled out. Store the text as written and let
-  `GetInvalidFields` name it; `Build` cannot be reached with it. For the
-  same reason, don't canonicalize the text (parse and re-render) on set
-  or on write: the spelling is the user's and the round trip must return
-  it exactly.
-* **A span counts one side; a point sees both.** `[a-b,…]` totals the
-  side its bounds' sign names and ignores the other side's checkers —
-  `[6-7,0,3]` admits an opponent's blot on the 6-point, while `[6,0,3]`,
-  bounding the signed count on one point, rejects it. "Fixing" either to
-  match the other breaks a pinned contract: the span's by the
-  opposing-checkers invariance and P/O sweeps in `CheckerSpanRangeTests`,
-  the point's by the legacy-oracle sweep in
-  `BoardPatternCompatibilityTests`. A span never nets P against O; a pair
-  of opposite-signed span bounds is refused rather than read as a net
-  count.
-* **`==` is *not* value comparison on `FilterConfig` or `BoardPattern`.**
-  Both implement `IEquatable<T>` with value semantics, but neither
-  declares `==` / `!=`, so the operators keep reference semantics by the
-  prevailing convention for reference types — `a == b` on two equal-by-
-  content configs is `false`. Call `Equals`. (Hash-based and LINQ
-  collections reach the right one through `IEquatable<T>`, so
-  `HashSet`/`Contains`/`Distinct` behave by value.)
-* **`FilterConfig` is mutable *and* value-equal.** That combination is
-  fine for its purpose — comparing a panel's built config with the
-  last-committed one — but an instance must not be mutated while it is
-  in use as a key in a hash-based collection, since its hash changes
-  underneath the collection. Nothing does that today; keep it that way.
-* **A new facet must be added to equality too.** `Equals` /
-  `GetHashCode` enumerate the members by hand — unlike the facet
-  activation gates, there is no rule table to single-source them on.
-  The guard is in the tests: `MemberMutators_CoverEveryPublicMember`
-  reflects over `FilterConfig`'s public members and fails until the new
-  one has a mutator, and `Equals_IsSensitiveToEveryMember` then fails
-  until `Equals` accounts for it. Both must stay green, and neither
-  should be "fixed" by relaxing the expectation.
-* **`BoardPattern` equality ignores token order; `ToBracketList` does
-  not.** Equality is over the constraint *set*, but the text form
-  preserves construction order — so two equal patterns can render
-  different bracket lists. Comparing patterns by their text
-  (`a.ToBracketList() == b.ToBracketList()`) is therefore *stricter*
-  than `Equals` and will report a spurious difference for a permuted
-  pattern. Use `Equals`.
-* **`BoardPattern`'s JSON converter must stay declared on the type.** The
-  `[JsonConverter(typeof(BoardPatternJsonConverter))]` attribute on
-  `BoardPattern` is what makes a bare pattern round-trip under *any*
-  `JsonSerializerOptions` — the immutable type has no settable property
-  for its constructor parameter, so the default reflection serializer
-  cannot reconstruct it, and no options object anywhere registers the
-  converter. `FilterConfig` no longer depends on it (its member is text,
-  halheinrich/backgammon#269), so removing the attribute would not show
-  up there; `BoardPatternWireSafetyTests` and `XgFilterJsonContextTests`
-  are the pins. The same attribute must name a **public**
-  converter — see `BoardPatternJsonConverter` under **Patterns**.
-* **`NamedFilterCollection` owns only its identity — the rest is a closed
-  pattern upstream.** The document is a
-  `NamedCollection<FilterConfig, NamedFilterCollection>` specialization, and
-  the four parts it declares (private constructor, explicit `Create`, explicit
-  `CanonicalTypeInfo`, and a sealed public parameterless converter passing
-  `"filters"` / `"config"`, named by the type-level `[JsonConverter]`) are each
-  load-bearing. BgDataTypes_Lib's Pitfalls entry on the pattern says what
-  breaks if a part is skipped — SYSLIB1220 then SYSLIB1030 in a consumer's
-  context for an internal or non-parameterless converter, a runtime
-  `InvalidCastException` for a wrong `TSelf` — and is the reference; do not
-  re-derive it here. Two consequences are this repo's own: **the name rule, the
-  canonical sort, the snapshot round-trip, and the whole envelope are not
-  reimplementable here** — a local copy would be a second definition of what
-  the base already single-sources; and **the two wire names are a file
-  contract, not a detail**, fixed by every `xg-filters.json` on a user's disk
-  and pinned byte-for-byte by `NamedFilterCollectionSerializationTests`.
-  Changing either is a file migration. The base's `Get` / `TryGet` are the only
-  get pair: the domain-spelled `GetConfig` / `TryGetConfig` are gone and got no
-  forwarder, by ruling (2026-09-09, `halheinrich/backgammon#190`).
+  move recorded, a move the view's ranking does not score, and a double never
+  answered have no error (`PlayerResult.TryGetError` is false) and fail an
+  active range through that half. Reading such a result as 0 silently changes
+  what "erred by more than x" means under depth first.
+* **A missing after-board is never substituted.** `AfterPlayerBoard` is `null`
+  exactly when the player's play is off the candidate list
+  (halheinrich/backgammon#15), and both after-boards are `null` on a cube
+  decision. Reading another board in its place classifies a play that was not
+  made; `OffListPlay_NoPlayerAfterBoard_ReturnsFalse` is the pin.
+* **Facet activation gates live only in `FacetRules`.** An ad-hoc `if` in
+  `Build()`, a parallel rule in the query or a rule in a consumer re-creates
+  the two-encodings hazard the table exists to kill. A new facet means a new
+  `FilterFacet` member plus a new table row.
+* **A new facet must be added to equality too.** `Equals` / `GetHashCode`
+  enumerate the members by hand; there is no table to single-source them on.
+  The guard is in the tests: `MemberMutators_CoverEveryPublicMember` fails
+  until the new member has a mutator, and `Equals_IsSensitiveToEveryMember`
+  then fails until `Equals` accounts for it. Neither should be "fixed" by
+  relaxing the expectation.
+* **A validity rule has one home.** It belongs on the filter or grammar that
+  owns the semantic (`PlayerErrorFilter.IsBoundFiniteNonNegative`,
+  `MoveNumberFilter.IsBoundAtLeastOne`, `MatchScoreToken.GetFault`); the
+  `FieldRules` row only routes to it. An inline predicate lets
+  `GetInvalidFields()` and `Build()` drift, and the swept agreement tests in
+  `FilterConfigTests` exist to catch that. The gates rely on `ParseScore`'s
+  invariants in the same way, so a parse shortcut lets an impossible target
+  through unchecked.
+* **Depth levels qualify only their own mode.** Rollout-family lists select on
+  the rollout's **inner** level, a different quantity from an evaluation's
+  level. `AnalysisMode`'s remarks say which levels each mode carries: as that
+  library states it, Roller-family levels appear on cube rollouts and not on
+  checker rollouts, with no sample recorded here and no enforcement in the
+  producer. So copying one mode's levels onto another's clause, or offering
+  them as one list, recreates the match-nothing defect the clause union was
+  introduced to fix.
+* **The depth clause union is derived in `Build()`, not the panel.**
+  XgFilter_Razor binds the six raw inputs and lets `Build()` derive the
+  clauses. Pre-computing clauses in the UI duplicates the SSOT and will
+  silently drift, losing the inactive rule or the inert-levels rule.
+* **The depth facet drops `Unknown`-mode rows whenever it is active.** They
+  pass only when the facet is inactive and the filter absent from the set: the
+  same drop-don't-pass posture an active error range applies to a result with
+  no error. Separately, checking any concrete book-rollout level excludes an
+  unenriched book hit's `Unknown` level: intended, not a bug.
+* **Match-score tokens are on-roll anchored; game headers are
+  player-anchored.** `4a5a` and `5a4a` are different targets, but
+  `MatchStanding.Away1/Away2` are anchored to the file's players, and both
+  players roll within a game. A game-level or coarser gate must admit a tuple
+  in **either orientation** and leave the verdict to `Matches`: comparing the
+  header orientation alone silently eats every decision whose on-roll player
+  is the file's player 2 (the shipped `4a5a` / `Move1_0001.xgp` bug, pinned in
+  `MatchScoreFilterIntegrationTests`). The same trap applies mid-stream:
+  `ShouldAdvanceMatch`'s cut is immediate, so it must treat the *current*
+  game's score as still matchable.
+* **A hint is judged on every decision yielded, and must be sound for each.**
+  Don't gate the advance hints on `Matches`: the vote that ends a game is
+  often cast on a decision the filter rejects, and gating it loses the cut.
+  Never vote true where a later decision could still pass: the cut drops it
+  silently, and the operation then disagrees with `Matches`. A filter that can
+  exit early must override the default `false`, and missing an override is
+  equally silent, so a new hint gets a case in `EarlyExitEquivalenceTests`.
+
+### Equality and collections
+
+* **`==` is *not* value comparison on `FilterConfig` or `BoardPattern`.** Both
+  implement `IEquatable<T>` and neither declares `==`, so `a == b` on two
+  equal-by-content instances is `false`. Call `Equals`; `HashSet`, `Contains`
+  and `Distinct` reach it through `IEquatable<T>`. A `FilterConfig` is also
+  mutable, so it must not be mutated while it is a key in a hash-based
+  collection.
+* **Don't compare patterns by their text.** `ToBracketList` preserves
+  construction order, so two equal patterns can render different lists.
+  `a.ToBracketList() == b.ToBracketList()` is stricter than `Equals` and
+  reports a spurious difference for a permuted pattern.
 * **No public member hands out a live mutable collection or array** (the
   collection rider, Hal 2026-09-26 on halheinrich/backgammon#273). A list
-  behind `IReadOnlyList<T>` that is really the type's own `List<T>` or
-  array can be cast back and written, silently changing the object that
-  handed it out. Hand out an `ImmutableArray<T>`, boxed once, as
-  `BoardPattern.Constraints` does;
-  `PublicCollectionsTests` holds each site and sweeps the exported surface
-  for public members declared as arrays. `FilterConfig`'s `IList<T>`
-  members are mutable by design (the DTO a UI binds to) and are not behind
-  a read-only interface; `GetActiveFacets` / `GetInvalidFields` build a
-  fresh set per call, which nothing else holds.
-* **Shared `TestData` at `backgammon\TestData`, read in place.**
-  `TestPaths` resolves `xg/` and `FixtureFiles/` five levels above the test
-  output directory; nothing copies the corpus into `bin/`
-  (halheinrich/backgammon#447). Moving TestData or changing the output depth
-  breaks every corpus test. A test that needs only some readable source
-  synthesizes it (`SyntheticSources`) and gates; a `FixtureFiles` test
-  carries `RequiresFixtureFiles` and asserts it read something, so an empty
-  folder fails it; an `xg/` test may pass on an empty folder. A test that
-  modifies input stages its own files under `Path.GetTempPath()`.
-* **`XgFileStream` ownership + lazy-read hazard.** The stream entries
-  (`IterateXgStreams` / `IterateXgStreamDiagrams`) are `yield`-based, so
-  each `XgFileStream.Data` is read *during enumeration*, not at the call
-  site. The caller owns the stream and must keep it open, unread, and at
-  position 0 until enumeration reaches it — and it must be seekable, since
-  XG's decoder seeks to the payload its header locates. A stream disposed,
-  advanced or forward-only by then is refused by `XgSourceReader.ReadStream`
-  as a usage error (`ArgumentException`), which ends the walk; it is never
-  a skipped file. The boring-safe pattern, used by the tests and by BgQuiz,
-  is to buffer the bytes up front (`new MemoryStream(File.ReadAllBytes(path))`)
-  and hand each walk a fresh stream over them. The iterator does not
-  dispose streams, and does not restate the converter's stream check.
-  Separately, `FileName` **must** carry the extension of a format the
-  iterator reads (`.xg`, `.xgp`, `.json`): `RequireValid` throws
-  `ArgumentException` on a null/blank name and on any other extension or
-  none (a usage error, surfaced loudly) — distinct from a malformed
-  *content* stream, which is skip+logged like any unreadable file. The
-  extension is how the stream is decoded, so a name must not be "fixed up"
-  (say, to `.xg`) to get an entry past the check.
-* **A `SourceReport` serves one walk; make a new one per enumeration.** A
-  report is claimed by the first `MoveNext` of the enumeration it was
-  passed to and throws `InvalidOperationException` on any later claim —
-  passing it to a second call, or walking the same enumerable twice. Both
-  are the defect the rule prevents: a record of one walk silently
-  appended to by another. The claim is lazy, so a call that merely
-  obtains an enumerable neither claims nor fails; the failure comes at
-  the second walk's first step, like the stream-name validation. A
-  consumer that retains a completed report (BgQuiz's cached parse) must
-  not hand that same instance to the next walk.
-* **Only a failed read is a rejection — the walk catches nothing.**
-  `AllRejected`'s meaning ("every file in a completed selection was
-  unreadable") depends on `Rejected` holding exactly the sources whose
-  read failed. The failure policy is the converter's (`XgSourceReader`),
-  and a catch around it is the converter's own named pitfall: catching a
-  cancellation turns a cancelled run into a completed one (the walk did
-  exactly that before it adopted the read), and catching a usage error, a
-  source-enumeration failure or a filter failure to record it as a
-  rejection would turn a bug into a "file could not be read" notice. The
-  report's incomplete state is what tells a consumer such a walk never
-  finished. The report records at the points the pipeline has — attempt
-  before the read, readable on the decoded outcome, reject on the failed
-  outcome, complete after the loop — and the skip warning carries the same
-  exception instance (pinned), so the log and the record cannot drift.
-  Don't "simplify" `ReadableCount` back to attempted minus rejected: an
-  attempt that ends in a cancellation or a usage error is neither.
+  behind `IReadOnlyList<T>` that is really the type's own `List<T>` or array
+  can be cast back and written, silently changing the object that handed it
+  out. Hand out an `ImmutableArray<T>`, boxed once, as
+  `BoardPattern.Constraints` does; `PublicCollectionsTests` holds each site
+  and sweeps the exported surface for public members declared as arrays.
+  `FilterConfig`'s `IList<T>` members are mutable by design (the DTO a UI
+  binds to), and `GetActiveFacets` / `GetInvalidFields` build a fresh set per
+  call.
+
+### Patterns
+
+* **Borne-off counts are the position's, never stored or re-derived here.**
+  The `[off,…]` / `[opp-off,…]` locations read
+  `BoardPosition.OnRollBorneOffCount` / `OpponentBorneOffCount`
+  (halheinrich/backgammon#295); `CheckerLocation.ValueOn` only reads and signs
+  them. Don't plumb off-count data into `IDecisionFilterData`, grow the board
+  past its 26 slots, or count checkers here to support them.
+* **A wrong-signed bound on a one-sided place is an error, not an empty
+  range.** Since halheinrich/backgammon#268, `[0,…]` (the opponent's bar)
+  refuses a positive bound and `[25,…]` (the on-roll player's bar) a negative
+  one, like `[off,-2,]` and `[opp-off,,2]`. A consumer must not "helpfully"
+  flip signs before handing text to `Parse`, and the rule lives in
+  `CheckerLocation.Sides`: don't re-encode it in a parser or a UI. A
+  **stored** pattern holding one loads as an invalid field, and `Build`
+  throws; the `…StoredBarRuleToken…` tests pin it. Spans are exempt.
+* **Never drop refused pattern text on the way into a config.** A consumer
+  that pre-judges the text and stores `null` when the grammar refuses it turns
+  an invalid filter into an inactive one, the silent drop
+  halheinrich/backgammon#269 ruled out. Store the text as written and let
+  `GetInvalidFields` name it. For the same reason, don't canonicalize it on
+  set or on write: the round trip must return it exactly.
+* **A span counts one side; a point sees both.** `[6-7,0,3]` admits an
+  opponent's blot on the 6-point, while `[6,0,3]`, bounding the signed count
+  on one point, rejects it. "Fixing" either to match the other breaks a pinned
+  contract: the span's by the opposing-checkers invariance and P/O sweeps in
+  `CheckerSpanRangeTests`, the point's by the legacy-oracle sweep in
+  `BoardPatternCompatibilityTests`.
+
+### Serialization
+
+* **Don't register a converter on this library's seam.** An options-level
+  converter outranks a type attribute (BgDataTypes_Lib's Pitfalls entry, and
+  `OptionsLevelRegistration_OutranksTypeAttribute_SoConsumersMustTightenToo`,
+  which pins it), so a registration here would govern every read and mask the
+  removal of any attribute. The same precedence cuts both ways: a consumer
+  that registers a loose converter on its own options lowers the floor for
+  itself.
+* **`BoardPattern`'s JSON converter must stay declared on the type.** The
+  immutable type has no settable property for its constructor parameter, so
+  the default reflection serializer cannot reconstruct it, and no options
+  object anywhere registers the converter. A `FilterConfig` no longer depends
+  on it, so removing the attribute would not show up there:
+  `BoardPattern_PlainOptions_DoesNotThrowAndRoundTrips` is the pin.
+* **`NamedFilterCollection`'s parts are a closed pattern upstream.**
+  BgDataTypes_Lib's Pitfalls entry on the pattern says what breaks if a part
+  is skipped; do not re-derive it here. Two consequences are this repo's own.
+  The name rule, the canonical sort, the snapshot round-trip and the envelope
+  are not reimplementable here: a local copy would be a second definition of
+  what the base single-sources. And **the two wire names are a file
+  contract**, fixed by every `xg-filters.json` on a user's disk and pinned
+  byte-for-byte by `NamedFilterCollectionSerializationTests`: changing either
+  is a file migration. The base's `Get` / `TryGet` are the only get pair, by
+  ruling (2026-09-09, halheinrich/backgammon#190).
+
+### Iteration
+
+* **A stream is read during enumeration, not at the call.** The stream entries
+  are `yield`-based, so the caller must keep each `XgFileStream.Data` open,
+  unread and at position 0 until enumeration reaches it, and it must be
+  seekable, since XG's decoder seeks to the payload its header locates. One
+  that is not is refused as a usage error, which ends the walk; it is never a
+  skipped file. The boring-safe pattern is to buffer the bytes up front and
+  hand each walk a fresh stream over them, as the tests do and as BgQuiz does
+  through `PickedFile.OpenRead`. The iterator does not dispose streams.
+* **`FileName`'s extension is how the stream is decoded.** A name must not be
+  "fixed up" (say, to `.xg`) to get an entry past the check.
+* **A `SourceReport` serves one walk; make a new one per enumeration.**
+  Passing it to a second call, or walking the same enumerable twice, throws
+  `InvalidOperationException`. The claim is lazy, so the failure comes at the
+  second walk's first step, not at the call. A consumer that retains a
+  completed report must not hand that instance to the next walk.
+* **Only a failed read is a rejection, and the walk catches nothing.**
+  `AllRejected`'s meaning depends on `Rejected` holding exactly the sources
+  whose read failed. Catching a cancellation turns a cancelled run into a
+  completed one, and recording a usage error, a source-enumeration failure or
+  a filter failure as a rejection turns a bug into a "file could not be read"
+  notice. The report's incomplete state is what tells a consumer such a walk
+  never finished. Don't simplify `ReadableCount` to attempted minus rejected:
+  an attempt that ends in a cancellation or a usage error is neither.
