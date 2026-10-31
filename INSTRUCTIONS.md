@@ -383,7 +383,8 @@ meaning, the `DMP` rule for score tokens.
 BgDataTypes_Lib's `IJsonDocument<TSelf>`, whose contract states the restore
 policy, over the source-generated metadata, which carries **no converters and
 no policy at all**: every member that needs one carries it on its own type. So
-every enum member rides as a name array (`["InnerBoard631", ...]`),
+an enum value rides as its declared name (`DecisionType`'s `"CubeOnly"`), an
+enum collection as an array of those names (`["InnerBoard631", ...]`),
 `DiceRolls` as a token array (`["31","66"]`), the toggles as plain booleans,
 and `PositionPattern` as the text itself, no grammar consulted on the wire.
 
@@ -506,10 +507,12 @@ names and the bounds, says which half each facet reads:
   among the qualifying halves.
 
 So the name facet admits a listed taker's take or pass and never the
-opponent's no-double; adding a name never removes a decision (a take error of
-0.2 beside a doubling error of 0, under 0.1, passes for the taker alone and
-for both players); and an error range judges the listed player's half, not the
-unlisted doubler's. Where one listed half qualifies and the other does not,
+opponent's no-double, and an error range judges the listed player's half, not
+the unlisted doubler's. A further name on a list that holds some cannot remove
+a decision (a take error of 0.2 beside a doubling error of 0, under 0.1,
+passes for the taker alone and for both players); the first name can, since
+with no bounds an empty list admits every player's decision and one name
+excludes the others. Where one listed half qualifies and the other does not,
 the reading is the qualifying half's, even if the other's error is larger. A
 double offered and never answered passes the name facet for the listed taker
 and never satisfies a range through that half. Every other facet still reads a

@@ -40,7 +40,9 @@ namespace XgFilter_Lib.Filtering;
 /// <para>
 /// So the name facet admits a listed taker's take or pass, never the
 /// opponent's no-double (no double was offered, so there is no taker half);
-/// adding a name never removes a decision; and an error range judges the
+/// a further name on a list that holds some cannot remove a decision, though
+/// the first can (with no bounds, an empty list admits every player's
+/// decision and one name excludes the others); and an error range judges the
 /// listed player's half, not the unlisted doubler's. A double offered and
 /// never answered (<see cref="PlayerResultKind.NotRecorded"/>) passes the name
 /// facet for the listed taker and, having no error, never satisfies an active
