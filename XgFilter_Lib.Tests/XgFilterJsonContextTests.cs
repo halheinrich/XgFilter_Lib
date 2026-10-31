@@ -485,8 +485,7 @@ public class XgFilterJsonContextTests
 
         // And every wire unit is a declared root, not merely a type the walk
         // happened to reach — that is what lets a chained consumer ask for one
-        // by name, which ExtractFromXgToCsv's local-mode wire does for the
-        // enums it carries bare.
+        // by name.
         DeclaredRoots().Should().Equal(WireSurface());
     }
 
@@ -694,15 +693,14 @@ public class XgFilterJsonContextTests
     /// The arc's rule (1), and the one this leg had to measure rather than
     /// inherit: every type-level converter this library bundles must be
     /// public. Not for our own context — the generator runs in this assembly,
-    /// where <c>internal</c> resolves fine — but for a <em>consumer's</em>.
-    /// ExtractFromXgToCsv's <c>ProcessRequest</c> carries a
-    /// <see cref="FilterConfig"/>, so its generator walks into the four
-    /// enums the config carries (and, until halheinrich/backgammon#269 made
-    /// the pattern member text, into <see cref="BoardPattern"/>); with an
-    /// internal converter it emits SYSLIB1220 then SYSLIB1030 and drops the
-    /// type, leaving a metadata hole that only bites once trimming removes
-    /// the reflection fallback. Both diagnostics are warnings, so nothing
-    /// downstream would have failed — the gate has to live here, and it
+    /// where <c>internal</c> resolves fine — but for a <em>consumer's</em>: a
+    /// context in a consumer naming a <see cref="FilterConfig"/> walks into
+    /// the four enums the config carries; with an internal converter it emits
+    /// SYSLIB1220 then SYSLIB1030 and drops the type (recorded on the
+    /// halheinrich/backgammon#129 leg 4 commit, 08aec48, on net10.0 / SDK
+    /// 10.0.400), leaving a metadata hole that only bites once trimming
+    /// removes the reflection fallback. Both diagnostics are warnings, so a
+    /// consumer's build need not fail — the gate has to live here, and it
     /// holds every bundled converter, reached by a walk or named outright.
     /// </summary>
     [Fact]

@@ -416,9 +416,8 @@ public class FilterConfigTests
     {
         // The beta report's inexpressible selection, verbatim: Rollouts on
         // with no levels + Evaluations at XG Roller++. Rollout rows pass at
-        // ANY inner level (checker rollouts never carry Roller-family inner
-        // levels, so the old shared level set matched no rollouts at all);
-        // Roller++ evaluation rows pass; other evaluations do not.
+        // ANY inner level (the old shared level set matched no rollouts at
+        // all); Roller++ evaluation rows pass; other evaluations do not.
         var config = new FilterConfig
         {
             IncludeRollouts = true,
@@ -822,7 +821,7 @@ public class FilterConfigTests
     {
         // Activity is presence, not validity: a garbage score token and an
         // undefined enum value both count as active facets (they are filters
-        // the user has set, however broken); Build stays the point that throws.
+        // the user has set, however broken), and this query throws on neither.
         new FilterConfig { MatchScores = { "garbage" } }
             .GetActiveFacets().Should().Equal(FilterFacet.MatchScores);
         new FilterConfig { DecisionType = (DecisionTypeOption)999 }

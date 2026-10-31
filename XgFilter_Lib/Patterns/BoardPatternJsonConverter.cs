@@ -21,13 +21,16 @@ namespace XgFilter_Lib.Patterns;
 /// itself, and <c>internal</c> worked. The source generator emits
 /// <c>new BoardPatternJsonConverter()</c> into the <em>declaring</em>
 /// assembly instead, so a consumer's context that names
-/// <see cref="BoardPattern"/> cannot construct it. Measured on net10.0 /
-/// SDK 10.0.400: the generator reports SYSLIB1220 (no accessible
+/// <see cref="BoardPattern"/> cannot construct an internal one. Recorded on
+/// that leg's commit (08aec48, 2026-08-31; net10.0 / SDK 10.0.400), not
+/// re-run since: the generator reports SYSLIB1220 (no accessible
 /// parameterless constructor) and then SYSLIB1030 (did not generate
 /// serialization metadata) and <em>drops the type</em>, leaving a hole in
 /// the consumer's metadata that only surfaces once trimming removes the
 /// reflection fallback. Warnings, not errors — which is why this is a rule
-/// of the arc rather than something a build would have told us.
+/// of the arc, held by
+/// <c>XgFilterJsonContextTests.EveryBundledConverter_IsPubliclyConstructible</c>,
+/// rather than something a build would have told us.
 /// </para>
 ///
 /// <para>

@@ -31,7 +31,8 @@ namespace XgFilter_Lib.Filtering;
 /// <c>new NamedFilterCollectionJsonConverter()</c> into the <em>declaring</em>
 /// assembly of every context naming the document, so an internal converter
 /// fails a consumer's context with SYSLIB1220 then SYSLIB1030 and silently
-/// drops the type — measured on net10.0 / SDK 10.0.400. A converter factory
+/// drops the type (<see cref="Patterns.BoardPatternJsonConverter"/> gives the
+/// basis). A converter factory
 /// activating a closed converter at runtime is the reflection path this
 /// pattern exists to avoid, and the trim analyzer here rejects it.
 /// </para>

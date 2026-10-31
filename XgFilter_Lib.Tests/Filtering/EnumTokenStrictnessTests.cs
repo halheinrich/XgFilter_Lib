@@ -8,12 +8,13 @@ using XgFilter_Lib.Filtering;
 namespace XgFilter_Lib.Tests.Filtering;
 
 /// <summary>
-/// Pins the string-token-exact contract of a saved filter's enum members
+/// Pins the token kind of a saved filter's enum members
 /// (halheinrich/backgammon#164). A <see cref="FilterConfig"/> is a durable
 /// payload: it is written to disk and read back later, possibly across a
-/// release that renumbered an enum. Its reader is therefore the inverse of its
-/// writer — declaration names in, declaration names out, numeric ordinals
-/// rejected.
+/// release that renumbered an enum. So it writes declared names and reads
+/// names, never numbers; the matching rule, name matching on read being
+/// case-insensitive, is the owner's:
+/// <see cref="StrictJsonStringEnumConverter{TEnum}"/>'s doc.
 ///
 /// <para><see cref="AnalysisLevel"/> is the reason this matters rather than
 /// being theoretical. Its declaration order is contractual and its ply and
@@ -28,8 +29,9 @@ namespace XgFilter_Lib.Tests.Filtering;
 /// <c>StrictJsonStringEnumConverter</c>. The seam
 /// that reads a saved filter registers nothing of its own and has not since
 /// the halheinrich/backgammon#16 dedupe, which is deliberate: an options-level
-/// converter outranks a type attribute — measured, and pinned in
-/// BgDataTypes_Lib's own suite — so a registration here would both defeat the
+/// converter outranks a type attribute (BgDataTypes_Lib's
+/// <c>OptionsLevelRegistration_OutranksTypeAttribute_SoConsumersMustTightenToo</c>
+/// pins it), so a registration here would both defeat the
 /// attributes and mask their removal. Since halheinrich/backgammon#129 leg 4
 /// that seam is a source-generated
 /// <c>JsonTypeInfo</c> off <c>XgFilterJsonContext</c> rather than an options

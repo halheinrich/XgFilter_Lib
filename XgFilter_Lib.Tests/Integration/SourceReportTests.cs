@@ -195,8 +195,7 @@ public class SourceReportTests
     [Fact]
     public void OneIteratorAcrossEnumerations_EachReportStandsAlone()
     {
-        // BgQuiz's WasmUploadedProblemSetSource keeps one iterator and
-        // re-enumerates it per Start; each walk gets its own report, and an
+        // An iterator is reusable: each walk gets its own report, and an
         // earlier one is untouched by a later walk.
         var iterator = NewIterator();
         var first = new SourceReport();

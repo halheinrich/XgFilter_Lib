@@ -10,7 +10,7 @@ namespace XgFilter_Lib.Filtering;
 /// <summary>
 /// Serializable configuration for a <see cref="DecisionFilterSet"/>.
 /// Wire-friendly (default-constructible, mutable, JSON-round-trippable
-/// with <c>JsonStringEnumConverter</c>) so consumers can bind it to UI
+/// with each enum by its declared name) so consumers can bind it to UI
 /// state on one side and POST it across a process boundary to be
 /// materialized on the other.
 ///
@@ -200,9 +200,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <summary>
     /// Checked levels qualifying <see cref="IncludeRollouts"/> (OR semantics)
     /// — the <em>inner</em> level of the rollout's games, not the level of a
-    /// direct evaluation (checker rollouts never carry Roller-family inner
-    /// levels). Empty = any inner level, the common selection. Inert while
-    /// <see cref="IncludeRollouts"/> is off.
+    /// direct evaluation (<see cref="AnalysisMode"/>'s remarks say which levels
+    /// a rollout carries). Empty = any inner level, the common selection. Inert
+    /// while <see cref="IncludeRollouts"/> is off.
     /// </summary>
     public IList<AnalysisLevel> RolloutLevels { get; set; } = new List<AnalysisLevel>();
 
@@ -484,8 +484,10 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// Activity is presence, not validity: the predicates count entries and
     /// check flags without validating contents, so a malformed
     /// <see cref="MatchScores"/> token — or an undefined enum value such as a
-    /// corrupt <see cref="DecisionType"/> — still reports its facet active,
-    /// while <see cref="Build"/> remains the point that throws. That is the
+    /// corrupt <see cref="DecisionType"/> — still reports its facet active.
+    /// <see cref="Build"/> throws on the token; an undefined
+    /// <see cref="DecisionType"/> it builds, and the filter throws on its
+    /// first <see cref="DecisionFilterSet.Matches"/>. That is the
     /// posture a UI wants: garbage input is still an active filter to surface.
     /// Consequently this method never throws. <see cref="GetInvalidFields"/> is
     /// the companion query for the other axis — which values are wrong, as
@@ -922,9 +924,9 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// and from JSON: the source-generated metadata for this type, off
     /// <see cref="XgFilterJsonContext"/>. It carries <b>no converters and no
     /// policy at all</b>, and that is the point: every member that needs one
-    /// carries it on its own type, so a <see cref="FilterConfig"/> round-trips
-    /// identically through this metadata and under any
-    /// <see cref="JsonSerializerOptions"/> a consumer builds.
+    /// carries it on its own type, so each member keeps its token through this
+    /// metadata and under any <see cref="JsonSerializerOptions"/> that register
+    /// no converter of their own.
     /// <para>
     /// Each enum-typed member (<see cref="DecisionType"/>,
     /// <see cref="ContactTypes"/>, <see cref="PositionTypes"/>,
@@ -933,7 +935,8 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// attribute; the three depth level lists hold
     /// <see cref="AnalysisLevel"/>, which carries the equivalent attribute
     /// owned by <c>BgDataTypes_Lib</c>. All of them therefore serialize as
-    /// declaration names and reject numeric ordinals wherever they are read.
+    /// declaration names and reject numeric ordinals wherever those attributes
+    /// govern the read.
     /// <see cref="DiceRolls"/> is the same self-describing case with its own
     /// converter — <see cref="DiceRoll"/> as its two-digit token
     /// (<c>"31"</c>). <see cref="PositionPattern"/> is a plain string, the
@@ -944,17 +947,16 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <see cref="IncludeBookRollouts"/> are plain booleans.
     /// </para>
     /// <para>
-    /// A blanket options-level <see cref="JsonStringEnumConverter"/>
-    /// registration once stood here, which the type attributes made exactly
-    /// redundant (halheinrich/backgammon#16). Removing it was not merely
-    /// tidying: an options-level registration <i>outranks</i> a type attribute
-    /// — measured on net10.0, SDK 10.0.400 — so while it stood, it and not the
-    /// attributes governed every read through this seam, and it masked the
-    /// removal of any of them. With it gone, deleting an attribute fails the
-    /// strictness suite loudly instead of being silently covered for. That
-    /// emptiness is also what lets this seam be a bare
+    /// Nothing is registered on this seam, on purpose: an options-level
+    /// converter <i>outranks</i> a type attribute (observed on net10.0, SDK
+    /// 10.0.400; BgDataTypes_Lib's
+    /// <c>OptionsLevelRegistration_OutranksTypeAttribute_SoConsumersMustTightenToo</c>
+    /// pins it), so a registration here would govern every read and mask the
+    /// removal of any attribute. With none, deleting an attribute fails the
+    /// strictness suite loudly. That emptiness is also what lets this seam be
+    /// a bare
     /// <see cref="System.Text.Json.Serialization.Metadata.JsonTypeInfo{T}"/>
-    /// rather than an options object: there was no policy left for
+    /// rather than an options object: there is no policy for
     /// <c>[JsonSourceGenerationOptions]</c> to have to mirror
     /// (halheinrich/backgammon#129 leg 4).
     /// </para>

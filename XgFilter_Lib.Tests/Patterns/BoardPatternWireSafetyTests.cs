@@ -13,14 +13,15 @@ namespace XgFilter_Lib.Tests.Patterns;
 /// <see cref="JsonSerializerOptions"/> that does <strong>not</strong> register
 /// <see cref="BoardPatternJsonConverter"/> — mirroring the BgDataTypes_Lib
 /// convention for <c>CubeAction</c>/<c>BgDecisionData</c>, which "rely on the
-/// attribute alone so that removing it would fail." The only thing carrying the
-/// bracket-list wire form here is the type-level
+/// attribute alone so that removing it would fail." The only thing carrying a
+/// bare pattern's bracket-list wire form is the type-level
 /// <c>[JsonConverter(typeof(BoardPatternJsonConverter))]</c> on
-/// <see cref="BoardPattern"/>. Remove that attribute (or let any wire path lose
-/// the converter) and these tests go red — reproducing the
-/// <c>ExtractFromXgToCsv</c> 500, where the default reflection serializer cannot
-/// reconstruct the immutable <see cref="BoardPattern"/> (its constructor
-/// parameter has no matching settable property).
+/// <see cref="BoardPattern"/>. Remove that attribute and
+/// <see cref="BoardPattern_PlainOptions_DoesNotThrowAndRoundTrips"/> goes red —
+/// the <c>ExtractFromXgToCsv</c> 500's cause, where the default reflection
+/// serializer cannot reconstruct the immutable <see cref="BoardPattern"/> (its
+/// constructor parameter has no matching settable property). The config cases
+/// pin the text member that replaced that wire, which no attribute carries.
 /// </para>
 /// </summary>
 public class BoardPatternWireSafetyTests

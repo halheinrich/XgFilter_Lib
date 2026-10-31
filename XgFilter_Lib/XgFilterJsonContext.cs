@@ -50,10 +50,9 @@ namespace XgFilter_Lib;
 ///     property-graph walk from <see cref="FilterConfig"/> as well
 ///     (<see cref="BoardPattern"/> does not, since halheinrich/backgammon#269
 ///     the config carries its pattern as text), but all five are declared
-///     because a chained consumer resolves them <em>by name</em>:
-///     ExtractFromXgToCsv's local-mode wire crosses these enums as bare
-///     members of its own request shape, which is the whole point of
-///     halheinrich/backgammon#37's bundling.
+///     so that a chained consumer can resolve one <em>by name</em>. None does
+///     today: the in-tree wire that crosses these enums is ExtractFromXgToCsv's
+///     <c>ProcessRequest</c>, as members of its <see cref="FilterConfig"/>.
 ///   </description></item>
 /// </list>
 /// <see cref="NamedFilterCollection"/> is a member of both sets. Nothing
@@ -62,9 +61,8 @@ namespace XgFilter_Lib;
 ///
 /// <para>
 /// <b>Public, deliberately</b> — the arc's standing shape
-/// (<c>BgDataTypesJsonContext</c> is the precedent), and here it is
-/// load-bearing rather than conventional. The two consumers differ, and the
-/// measurement is what decides it:
+/// (<c>BgDataTypesJsonContext</c> is the precedent). The two consumers
+/// differ, and the second is what decides it:
 /// <list type="bullet">
 ///   <item><description>
 ///     XgFilter_Razor's <c>SavedFiltersStore</c> — and BgQuiz behind it —
@@ -82,7 +80,8 @@ namespace XgFilter_Lib;
 ///     <c>[FromBody]</c> under a bare <c>AddControllers()</c> — so
 ///     <see cref="FilterConfig"/> is named to two serializers this library
 ///     does not own. A consumer in that position needs metadata it can
-///     reach.
+///     reach; ExtractFromXgToCsv itself chains none today and runs those two
+///     on the type attributes alone.
 ///   </description></item>
 /// </list>
 /// It composes by chaining type-info resolvers — no consumer-side converter
@@ -109,9 +108,11 @@ namespace XgFilter_Lib;
 /// <c>IList&lt;AnalysisLevel&gt;</c> depth facets and an
 /// <c>IList&lt;DiceRoll&gt;</c>, each carrying that library's own bundled
 /// converter. The generator's property-graph walk reaches them and emits
-/// metadata for them <em>in this assembly</em> — measured: this context
+/// metadata for them <em>in this assembly</em>: this context
 /// resolves <c>AnalysisLevel</c>, <c>DiceRoll</c> and every collection
-/// spelling in the closure on its own, so the shipped entry points need no
+/// spelling in the closure on its own
+/// (<c>XgFilterJsonContextTests.ThisReposContextAlone_ResolvesTheFullClosure</c>),
+/// so the shipped entry points need no
 /// chain and there is no options object here for one to hang on. What that
 /// costs is a shadow: a consumer chaining
 /// <c>Combine(XgFilterJsonContext.Default, BgDataTypesJsonContext.Default)</c>

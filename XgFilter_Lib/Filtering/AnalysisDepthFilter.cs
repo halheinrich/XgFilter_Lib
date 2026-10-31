@@ -18,13 +18,15 @@ namespace XgFilter_Lib.Filtering;
 /// The union-of-clauses shape exists because a level selection qualifies only
 /// its own mode. For <see cref="AnalysisMode.Evaluation"/> the row's level is
 /// the level of the evaluation itself; for the rollout-family modes it is the
-/// <em>inner</em> level of the rollout's games — and checker rollouts never
-/// carry Roller-family inner levels. A single level set shared across all
+/// <em>inner</em> level of the rollout's games, a different quantity
+/// (<see cref="AnalysisMode"/>'s remarks say which levels each mode carries).
+/// A single level set shared across all
 /// selected modes (the previous conjunction design) therefore both made
 /// "(any rollout) OR (evaluation at XG Roller++)" inexpressible and let a
-/// level selection wrongly constrain rollout rows by inner level, matching
-/// nothing. Per-clause levels dissolve both defects: each mode is constrained
-/// only by the levels selected <em>for it</em>.
+/// level selection wrongly constrain rollout rows by inner level, which
+/// matched nothing in the live use a beta report corroborated (cbca4b3,
+/// 2026-07-30). Per-clause levels dissolve both defects: each mode is
+/// constrained only by the levels selected <em>for it</em>.
 /// </para>
 ///
 /// <para>
