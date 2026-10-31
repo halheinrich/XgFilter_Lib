@@ -6,8 +6,8 @@
 
 ## Stack
 
-C# / .NET 10 / Class Library / xUnit. Filtering, classification, and column
-projection for backgammon decision records produced by `ConvertXgToJson_Lib`.
+C# / .NET 10 / Class Library / xUnit. Filtering and classification for
+backgammon decision records produced by `ConvertXgToJson_Lib`.
 
 ## Solution
 
@@ -144,6 +144,12 @@ built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
 
 ### Enums
 
+`ContactType`, `DecisionTypeOption`, `PlayType` and `PositionType` carry
+BgDataTypes_Lib's `StrictJsonStringEnumConverter<TEnum>` by type-level
+attribute. This library's own copy was retired
+(halheinrich/backgammon#424, 2026-10-19: common code moves to one shared
+owner).
+
 * `PositionType` — structural board patterns a position can carry.
   Members: InnerBoard631, InnerBoard54321, VsTwoPlusUp,
   Holding1386Vs20. **Not** mutually exclusive: a single position may
@@ -205,7 +211,8 @@ built for one ranking and states it (`IDecisionFilterData.Ranking`), so:
   library, not the UI layer. The helper throws `ArgumentException`
   on undeclared values and on declared members without a
   `[Description]` — missed annotations surface loudly rather than
-  degrading to the raw identifier.
+  degrading to the raw identifier. It reflects on every call, with no
+  cache, which matters only on a hot UI render path.
 
 ### Filtering
 
@@ -254,7 +261,9 @@ surface, and are reachable from the test project via
   filter's qualifying error, or, in a set without one, the rule with no
   facet active — the doubler's error. It is defined for every decision,
   passing or not; callers read it for the decisions the set passes (the
-  by-error order).
+  by-error order). `Add` mutates the set and returns it, and
+  `FilterConfig.Build()` discards the return, so an `Add` changed to return
+  a new set would silently leave `Build` with an empty one.
 * `FilterConfig` — serializable, default-constructible, mutable DTO that
   bundles every filter's input. Owned by this lib; consumers fill it
   directly (no string-list parsing on the consumer side) and call
@@ -835,7 +844,7 @@ Everything in `Classification/` is `internal`. Consumers never touch a
 classifier directly — they pass `ContactType` / `PositionType` /
 `PlayType` enum values to the filters, which dispatch internally. These types are documented
 here because they're substantive internal machinery, not because they're
-on the public surface; they do not appear in the Public API block.
+on the public surface.
 `InternalsVisibleTo("XgFilter_Lib.Tests")` makes them reachable from
 the test project.
 
@@ -1048,10 +1057,6 @@ reintroduction-ready alternative to the named `PositionType` machinery.
   serializer today (the config's member was the one wire it rode); the
   type stays a declared wire unit, and whether it should remain one is a
   later question, not this leg's.
-
-### Projection
-
-Retired on 2026-10-20 (`halheinrich/backgammon#424`, `halheinrich/backgammon#297`): `ColumnSelector` and `Column` are gone because Extract's CSV is Extract's own (`CsvLayout`), so this library projects no CSV.
 
 ### Iteration
 
@@ -1342,328 +1347,6 @@ vote cast on an `.xgp`'s cube could make the selection fall back to it.
 `EarlyExitEquivalenceTests` enforces the guarantee; its doc comment says
 what it compares and over which sources.
 
-## Public API
-
-```csharp
-namespace XgFilter_Lib.Enums;
-
-public enum PlayType           { Make20Pt }
-public enum ContactType        { Contact, Race }
-public enum PositionType       { InnerBoard631, InnerBoard54321, VsTwoPlusUp, Holding1386Vs20 }
-public enum DecisionTypeOption { CheckerPlaysOnly, CubeOnly, Both }
-public enum FilterFacet          // declaration order == FilterConfig.Build()'s add order (Players + ErrorRange: one filter)
-{
-    Players, DecisionType, MatchScores, ErrorRange, MoveNumberRange,
-    ContactTypes, PositionTypes, PlayTypes, AnalysisDepth, DiceRolls,
-    PositionPattern,
-}
-public enum FilterField          // deliberately partial: one member per rule that can name it
-{
-    MatchScores, ErrorMin, ErrorMax, MoveNumberMin, MoveNumberMax, PositionPattern,
-}
-public enum MatchScoreTokenFault { None, Malformed, Retired }
-
-public static class EnumLabel
-{
-    public static string ToLabel<TEnum>(this TEnum value) where TEnum : struct, Enum;
-}
-
-// ContactType / DecisionTypeOption / PlayType / PositionType carry
-// BgDataTypes_Lib's StrictJsonStringEnumConverter<TEnum> by type-level
-// attribute. This library's own copy was retired (halheinrich/backgammon#424,
-// 2026-10-19: common code moves to one shared owner).
-```
-
-```csharp
-namespace XgFilter_Lib.Filtering;
-
-/// The hint contract: an advance hint receives any just-yielded decision,
-/// matching or not; a true vote guarantees no later decision in the game /
-/// match can pass this filter. So early exit never changes the result.
-public interface IDecisionFilter
-{
-    bool Matches(IDecisionFilterData data);
-    virtual bool ShouldAdvanceGame (IDecisionFilterData data) => false;
-    virtual bool ShouldAdvanceMatch(IDecisionFilterData data) => false;
-}
-
-/// The score-token grammar and vocabulary: spellings once, verdicts typed.
-public static class MatchScoreToken
-{
-    public const string MoneyWithJacoby    = "moneyJ";
-    public const string MoneyWithoutJacoby = "moneyNJ";
-    public const string DoubleMatchPoint   = "DMP";     // alias of 1a1a
-    public const string RetiredMoney       = "money";   // retired as a target
-
-    public static IReadOnlyList<string> RetiredMoneyReplacements { get; }
-
-    public static MatchScoreTokenFault GetFault(string? token);   // never throws
-}
-
-public sealed class DecisionFilterSet
-{
-    public DecisionFilterSet Add(IDecisionFilter filter);   // refuses a second name/error filter
-    public bool IsEmpty { get; }
-    public bool Matches          (IDecisionFilterData data);
-    public double? ErrorRead     (IDecisionFilterData data);   // the error the name/error facets read
-    public bool ShouldSkipMatch  (IMatchInfo match);
-    public bool ShouldSkipGame   (IGameInfo  game);
-    public bool ShouldAdvanceGame (IDecisionFilterData data);
-    public bool ShouldAdvanceMatch(IDecisionFilterData data);
-}
-
-public sealed class FilterConfig : IEquatable<FilterConfig>
-{
-    public IList<string>             Players              { get; set; }
-    public DecisionTypeOption        DecisionType         { get; set; }
-    public IList<string>             MatchScores          { get; set; }
-    public double?                   ErrorMin             { get; set; }
-    public double?                   ErrorMax             { get; set; }
-    public int?                      MoveNumberMin        { get; set; }
-    public int?                      MoveNumberMax        { get; set; }
-    public IList<ContactType>        ContactTypes         { get; set; }
-    public IList<PositionType>       PositionTypes        { get; set; }
-    public IList<PlayType>           PlayTypes            { get; set; }
-    public bool                      IncludeEvaluations   { get; set; }
-    public IList<AnalysisLevel>      EvaluationLevels     { get; set; }
-    public bool                      IncludeRollouts      { get; set; }
-    public IList<AnalysisLevel>      RolloutLevels        { get; set; }
-    public bool                      IncludeBookRollouts  { get; set; }
-    public IList<AnalysisLevel>      BookRolloutLevels    { get; set; }
-    public IList<DiceRoll>           DiceRolls            { get; set; }
-    public string?                   PositionPattern      { get; set; }   // bracket-list text, stored
-                                                                           // as written; BoardPattern
-                                                                           // judges it (see Filtering)
-
-    public DecisionFilterSet Build();   // throws the grammar's own exception on refused pattern text
-    public IReadOnlySet<FilterFacet> GetActiveFacets();   // presence
-    public IReadOnlySet<FilterField> GetInvalidFields();  // validity; no message
-
-    public string ToJson();
-    public static FilterConfig FromJson(string json);
-    public static bool TryFromJson(string? json, out FilterConfig config);
-
-    public bool Equals(FilterConfig? other);   // value equality over every
-    public override bool Equals(object? obj);  // member; list facets compare
-    public override int GetHashCode();         // as multisets. No == / !=.
-}
-
-/// The versioned saved-filters document: a NamedCollection specialization
-/// (BgDataTypes_Lib), immutable, name-keyed (OrdinalIgnoreCase), canonically
-/// sorted by name, storing each config as a serialized snapshot rather than
-/// the caller's instance. Wire format via a type-bundled converter —
-/// consumers register nothing. Reference equality; the library does no I/O.
-///
-/// Every member below is inherited: the base owns them, and its own docs are
-/// the reference for what each promises. All this type declares is a private
-/// constructor plus the two explicit INamedCollectionSpecialization members
-/// (Create, CanonicalTypeInfo), which are not public surface.
-[JsonConverter(typeof(NamedFilterCollectionJsonConverter))]
-public sealed class NamedFilterCollection
-    : NamedCollection<FilterConfig, NamedFilterCollection>,
-      INamedCollectionSpecialization<FilterConfig, NamedFilterCollection>
-{
-    public const int CurrentSchemaVersion = 1;
-
-    public static NamedFilterCollection Empty { get; }
-
-    public int                   Count { get; }
-    public IReadOnlyList<string> Names { get; }   // canonical order
-
-    public bool         Contains(string name);
-    public FilterConfig Get     (string name);    // KeyNotFoundException when absent
-    public bool         TryGet  (string name, out FilterConfig? config);
-
-    public NamedFilterCollection With   (string name, FilterConfig config);  // add or replace
-    public NamedFilterCollection Without(string name);                       // idempotent
-
-    public string ToJson();
-    public static NamedFilterCollection FromJson(string json);
-    public static bool TryFromJson(string? json, out NamedFilterCollection collection);
-}
-
-/// The document's wire identity: the closed converter, supplying the two
-/// property names ("filters", "config") that every xg-filters.json on disk
-/// already carries. The envelope itself is the base's. Sealed, public and
-/// parameterless because a consumer's source generator emits `new` on it (see
-/// Serialization); nothing needs to register it.
-public sealed class NamedFilterCollectionJsonConverter
-    : NamedCollectionJsonConverter<FilterConfig, NamedFilterCollection>;
-```
-
-```csharp
-namespace XgFilter_Lib;
-
-/// A named source supplied as a stream rather than a path. FileName must
-/// carry its extension, which states the format it is read in (.xg/.xgp:
-/// XG's binary file; .json: the library's JSON document; case-insensitive;
-/// anything else is a usage error); Data must be
-/// readable, seekable and at position 0 (XgSourceReader.ReadStream's
-/// precondition), is read once, and is owned/disposed by the caller. See
-/// the stream-ownership pitfall below.
-public readonly record struct XgFileStream(string FileName, Stream Data);
-
-/// One source a walk could not read: the name as the caller gave it, and
-/// the read's own exception as the reason (halheinrich/backgammon#368).
-public sealed record SourceRejection
-{
-    public SourceRejection(string sourceName, Exception reason);   // refuses blank / null
-    public string    SourceName { get; }
-    public Exception Reason     { get; }
-}
-
-/// What one walk did with its sources. Caller-created, iterator-written
-/// (the writers are internal), serves exactly one enumeration: claimed on
-/// its first MoveNext, refuses a second claim. See Iteration.
-public sealed class SourceReport
-{
-    public SourceReport();
-
-    public int                            AttemptedCount { get; }   // reads started
-    public int                            ReadableCount  { get; }   // reads decoded, recorded as each
-                                                                    //   decodes (never derived)
-    public IReadOnlyList<SourceRejection> Rejected       { get; }   // immutable, walk order
-    public bool                           IsComplete     { get; }   // the walk reached its end
-    public bool                           AllRejected    { get; }   // complete ∧ attempted > 0
-                                                                    //   ∧ readable == 0
-}
-
-public sealed class FilteredDecisionIterator
-{
-    public FilteredDecisionIterator(
-        DecisionFilterSet filters,
-        PlayRanking ranking,                  // required; Equity is the default an
-        ILogger<FilteredDecisionIterator> logger,    // app without the setting passes
-        OpeningBook? openingBook = null);     // the book alone: the ranking is stated once
-
-    // The filtering operation over one parsed source: the decisions that pass
-    // the filters under the ranking, the early-exit hints wired for the
-    // caller. Arguments checked at the call; lazy otherwise. Every walk below
-    // filters each decoded source through it.
-    public IEnumerable<DecisionRow>      IterateFile          (XgFile file, string sourceName);
-    public IEnumerable<BgDecisionData>   IterateFileDiagrams  (XgFile file, string sourceName);
-
-    // Every walk takes an optional report; null records nothing and
-    // behaves exactly as before. One fresh report per enumeration.
-
-    // Directory sources
-    public IEnumerable<DecisionRow>      IterateXgDirectory          (string xgDir,   SourceReport? report = null);
-    public IEnumerable<DecisionRow>      IterateJsonDirectory        (string jsonDir, SourceReport? report = null);
-    public IEnumerable<BgDecisionData>   IterateXgDirectoryDiagrams  (string xgDir,   SourceReport? report = null);
-
-    // Stream / file-list sources (directory-free; WASM-friendly)
-    public IEnumerable<DecisionRow>      IterateXgStreams      (IEnumerable<XgFileStream> files, SourceReport? report = null);
-    public IEnumerable<BgDecisionData>   IterateXgStreamDiagrams(IEnumerable<XgFileStream> files, SourceReport? report = null);
-}
-```
-
-```csharp
-namespace XgFilter_Lib.Patterns;
-
-public enum CheckerLocationKind { Board, PlayerOff, OpponentOff }
-
-public readonly record struct CheckerLocation
-{
-    public const int MaxBoardIndex = 25;   // on-roll player's bar
-
-    // N = BoardPosition.CheckersPerSide
-    public static CheckerLocation PlayerOff   { get; }   // "off";     values [0, N]
-    public static CheckerLocation OpponentOff { get; }   // "opp-off"; values [-N, 0]
-    public static CheckerLocation Board(int index);      // validated 0–25; values
-                                                         // [-N, 0] at 0, [0, N] at 25,
-                                                         // [-N, N] on the points
-    public CheckerLocationKind Kind       { get; }
-    public int?                BoardIndex { get; }       // null for the off locations
-
-    public override string ToString();   // "6" | "off" | "opp-off" (canonical lower-case)
-}
-
-public readonly record struct CheckerSpan
-{
-    public CheckerSpan(int first, int last);   // 0 ≤ first < last ≤ 25
-
-    public int First { get; }
-    public int Last  { get; }
-
-    public override string ToString();   // "7-12"
-}
-
-/// Closed: members internal, implemented only by the two constraints below.
-public interface IPatternConstraint;
-
-public readonly record struct CheckerRange : IPatternConstraint
-{
-    public CheckerLocation Location { get; }
-    public int?            Min      { get; }   // inclusive; null = unbounded
-    public int?            Max      { get; }   // inclusive; null = unbounded
-
-    public CheckerRange(int index, int? min, int? max);   // board-location sugar
-    public CheckerRange(CheckerLocation location, int? min, int? max);  // validates
-                                                        // bounds per location
-    public bool   Contains(int value);                  // the signed count
-    public override string ToString();   // "[location,min,max]"
-}
-
-public readonly record struct CheckerSpanRange : IPatternConstraint
-{
-    public CheckerSpan Span { get; }
-    public int?        Min  { get; }   // inclusive, on the side the sign names
-    public int?        Max  { get; }   // inclusive; null = unbounded
-
-    public CheckerSpanRange(int first, int last, int? min, int? max);   // sugar
-    public CheckerSpanRange(CheckerSpan span, int? min, int? max);      // refuses
-                                                    // opposite-signed bounds
-    public override string ToString();   // "[a-b,min,max]"
-}
-
-[JsonConverter(typeof(BoardPatternJsonConverter))]
-public sealed class BoardPattern : IEquatable<BoardPattern>
-{
-    public static BoardPattern Empty { get; }
-
-    public BoardPattern(IEnumerable<IPatternConstraint> constraints);   // rejects a
-                                                        // duplicate place or null element
-    public IReadOnlyList<IPatternConstraint> Constraints { get; }   // immutable
-    public bool IsEmpty { get; }
-    public bool Matches(BoardPosition board);
-
-    public static BoardPattern Parse(string text);
-    public static bool TryParse(string? text, out BoardPattern? pattern);
-    public string ToBracketList();
-    public override string ToString();   // == ToBracketList()
-
-    public bool Equals(BoardPattern? other);   // value equality over the
-    public override bool Equals(object? obj);  // constraint set, order-
-    public override int GetHashCode();         // insensitive. No == / !=.
-}
-
-/// The bracket-list wire format, bundled by the type-level [JsonConverter]
-/// above. Public so a consumer's source generator can construct it (see
-/// Serialization); nothing needs to register it.
-public sealed class BoardPatternJsonConverter : JsonConverter<BoardPattern>;
-```
-
-```csharp
-namespace XgFilter_Lib;
-
-/// The source-generated metadata for this library's whole wire surface
-/// (halheinrich/backgammon#129 leg 4). Both documents' IJsonDocument trios
-/// route through it — FilterConfig's forwards name it directly, and the
-/// collection's inherited trio reaches it through the specialization's
-/// CanonicalTypeInfo; a consumer that names FilterConfig or
-/// NamedFilterCollection to its own serializer chains it as a type-info
-/// resolver, most-derived-first. Metadata-only generation, per the arc's rule.
-[JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
-[JsonSerializable(typeof(FilterConfig))]
-[JsonSerializable(typeof(NamedFilterCollection))]
-[JsonSerializable(typeof(BoardPattern))]
-[JsonSerializable(typeof(ContactType))]
-[JsonSerializable(typeof(DecisionTypeOption))]
-[JsonSerializable(typeof(PlayType))]
-[JsonSerializable(typeof(PositionType))]
-public sealed partial class XgFilterJsonContext : JsonSerializerContext;
-```
-
 ## Pitfalls
 
 * **`PositionTypeFilter` reads `data.Board`, never the XGID.** The board
@@ -1950,15 +1633,3 @@ public sealed partial class XgFilterJsonContext : JsonSerializerContext;
   exception instance (pinned), so the log and the record cannot drift.
   Don't "simplify" `ReadableCount` back to attempted minus rejected: an
   attempt that ends in a cancellation or a usage error is neither.
-
-## Subproject-internal next steps
-
-* **`DecisionFilterSet` immutability.** `Add()` currently mutates and returns
-  `this`; an immutable variant (returns a new set) would eliminate the class of
-  caller-mutation bugs paid down in BgQuiz_Blazor's filter-pipeline
-  encapsulation arc. Touches `FilterConfig.Build()` (currently relies on Add
-  returns being discardable — would silently produce empty sets under naive
-  immutability) and all tests; non-trivial. Worth its own encapsulation-pass
-  session.
-* **`EnumLabel` reflection caching.** Per-call reflection has no cache today;
-  relevant only at hot UI render paths. Move when perf work begins.
