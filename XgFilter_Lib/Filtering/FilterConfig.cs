@@ -933,8 +933,8 @@ public sealed class FilterConfig : IEquatable<FilterConfig>, IJsonDocument<Filte
     /// <see cref="PlayTypes"/>) carries
     /// <see cref="StrictJsonStringEnumConverter{TEnum}"/> by type-level
     /// attribute; the three depth level lists hold
-    /// <see cref="AnalysisLevel"/>, which carries the equivalent attribute
-    /// owned by <c>BgDataTypes_Lib</c>. All of them therefore serialize as
+    /// <see cref="AnalysisLevel"/>, which carries the same converter on its own
+    /// declaration in <c>BgDataTypes_Lib</c>. All of them therefore serialize as
     /// declaration names and reject numeric ordinals wherever those attributes
     /// govern the read.
     /// <see cref="DiceRolls"/> is the same self-describing case with its own
