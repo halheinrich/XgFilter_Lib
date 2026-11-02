@@ -45,10 +45,10 @@ namespace XgFilter_Lib;
 /// <para>
 /// The same logger is forwarded into the producer, so its warning for each
 /// thing it leaves out of a decoded source — a game whose standing is
-/// refused, an illegal play, a corrupt candidate — surfaces through this
-/// pipeline alongside the file-level skip warnings above, and the iterator
-/// adds no line of its own. Those are facts about content, not decoding: the
-/// source stays decoded and the walk goes on within it. As data, they reach
+/// refused or a corrupt candidate — surfaces through this pipeline alongside
+/// the file-level skip warnings above, and the iterator adds no line of its
+/// own. Those are facts about content, not decoding: the source stays decoded
+/// and the walk goes on within it. As data, they reach
 /// a walk's <see cref="SourceReport"/>, as
 /// <see cref="SourceReport.Omissions"/> beside the forced plays'
 /// <see cref="SourceReport.ForcedPlayCount"/>, and the caller of

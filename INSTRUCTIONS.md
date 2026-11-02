@@ -870,10 +870,9 @@ and throws on an extension-less name.
 **Logging.** A skipped source logs `LogWarning(failed.Exception, "Skipping
 {File}", sourceName)`, so the exception is captured on the entry, not
 stringified. The constructor's logger is also forwarded into the producer, so
-its warning for each omission (a refused game, an illegal play, a corrupt
-candidate) surfaces through this same pipeline rather than being swallowed
-there. That line is the producer's alone: this library adds none, with a report
-or without.
+its warning for each omission (a refused game or a corrupt candidate) surfaces
+through this same pipeline rather than being swallowed there. That line is the
+producer's alone: this library adds none, with a report or without.
 
 **What a walk did, as data** (halheinrich/backgammon#368 for the decoding,
 halheinrich/backgammon#514 for the content). Every walk entry takes an optional

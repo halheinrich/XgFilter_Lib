@@ -112,19 +112,49 @@ internal static class SyntheticSources
     /// document and reads it back: the result is an ordinary parsed file,
     /// which <see cref="XgBytes"/> and <see cref="JsonBytes"/> write as usual.
     /// </summary>
-    public static XgFile WithRefusedGames(XgFile file, params int[] games)
+    public static XgFile WithRefusedGames(XgFile file, params int[] games) => Edited(file, records =>
     {
-        var document = JsonNode.Parse(XgFileReader.ToJson(file))!;
-        var records = document["records"]!.AsArray();
-        var headers = records.Where(record => (string?)record!["$type"] == "HeaderGame").ToList();
-        int length = (int)records.Single(record => (string?)record!["$type"] == "HeaderMatch")!["matchLength"]!;
+        var headers = records.Where(record => TypeOf(record) == "HeaderGame").ToList();
+        int length = (int)records.Single(record => TypeOf(record) == "HeaderMatch")!["matchLength"]!;
         foreach (int game in games)
             headers[game - 1]!["score1"] = length;
+    });
+
+    /// <summary>
+    /// <paramref name="file"/> with the first candidate of the 1-based
+    /// <paramref name="move"/> of the 1-based <paramref name="game"/> opening
+    /// from a point with no checker, a play the record refuses, so the walk
+    /// omits that move and keeps the decisions around it. The move must be
+    /// analysed, and from a position with no checker of the mover's on the
+    /// 2-point, as the opening has none. The edit is
+    /// <see cref="WithRefusedGames"/>'s: the producer's door to such a
+    /// candidate is internal.
+    /// </summary>
+    public static XgFile WithCorruptCandidate(XgFile file, int game, int move) => Edited(file, records =>
+    {
+        var header = records.Where(record => TypeOf(record) == "HeaderGame").ElementAt(game - 1);
+        var candidate = records
+            .SkipWhile(record => record != header)
+            .Skip(1)
+            .TakeWhile(record => TypeOf(record) != "HeaderGame")
+            .Where(record => TypeOf(record) == "Move")
+            .ElementAt(move - 1)!["analysis"]!["moves"]![0]!;
+        candidate[0] = 1;
+        candidate[1] = 0;
+    });
+
+    /// <summary><paramref name="file"/> with <paramref name="edit"/> applied to its JSON document's records, read back.</summary>
+    private static XgFile Edited(XgFile file, Action<JsonArray> edit)
+    {
+        var document = JsonNode.Parse(XgFileReader.ToJson(file))!;
+        edit(document["records"]!.AsArray());
 
         var edited = new MemoryStream(Encoding.UTF8.GetBytes(document.ToJsonString()));
         return XgSourceReader.ReadStream("edited.json", edited, XgSourceFormat.Json)
             .Match(decoded => decoded.File, failed => throw failed.Exception);
     }
+
+    private static string? TypeOf(JsonNode? record) => (string?)record!["$type"];
 
     /// <summary>The analysed-cube equities the synthesized cube decisions share; nothing here reads them.</summary>
     public static readonly XgCubeEquities Equities = new(NoDouble: 0.30, DoubleTake: 0.45, DoubleDrop: 1.0);

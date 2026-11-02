@@ -32,8 +32,8 @@ public class SourceReportContentTests
     //  The sources: one game per entry
     // -----------------------------------------------------------------------
 
-    /// <summary>One game of <see cref="Match"/>: what is recorded in it, and whether its header is refused.</summary>
-    private sealed record Game(Action<XgGameBuilder> Record, bool IsRefused = false);
+    /// <summary>One game of <see cref="Match"/>: what is recorded in it, whether its header is refused, and which move of it, if any, holds a corrupt candidate.</summary>
+    private sealed record Game(Action<XgGameBuilder> Record, bool IsRefused = false, int? CorruptMove = null);
 
     /// <summary>A game of <paramref name="count"/> decisions.</summary>
     private static Game Moves(int count) => new(game => game.WithMoves(count));
@@ -50,6 +50,9 @@ public class SourceReportContentTests
         .IllegalPlay(XgPlayer.Player2, new DiceRoll(5, 2))
         .Play(XgPlayer.Player2, new DiceRoll(3, 1), [new(8, 5), new(6, 5)]));
 
+    /// <summary>Moves 1 and 3 are decisions; move 2, a 3-1, holds a corrupt candidate.</summary>
+    private static Game AroundACorruptCandidate { get; } = new(game => game.WithMoves(3), CorruptMove: 2);
+
     /// <summary>A 5-point match of the <paramref name="games"/>, numbered in order.</summary>
     private static XgFile Match(params Game[] games)
     {
@@ -58,7 +61,11 @@ public class SourceReportContentTests
             game.Record(builder.AddGame());
 
         var refused = games.Index().Where(g => g.Item.IsRefused).Select(g => g.Index + 1).ToArray();
-        return SyntheticSources.WithRefusedGames(builder.Build(), refused);
+        var file = SyntheticSources.WithRefusedGames(builder.Build(), refused);
+        foreach (var (index, game) in games.Index())
+            if (game.CorruptMove is int move)
+                file = SyntheticSources.WithCorruptCandidate(file, index + 1, move);
+        return file;
     }
 
     /// <summary>What the producer records for <paramref name="file"/> alone: the walk's facts, unfolded.</summary>
@@ -216,19 +223,42 @@ public class SourceReportContentTests
 
     [Theory]
     [MemberData(nameof(Walks))]
-    public void AnIllegalPlay_IsAnOmission_WithTheDecisionsAroundItKept(string walk)
+    public void ACorruptCandidate_IsAnOmission_WithTheDecisionsAroundItKept(string walk)
     {
         var report = new SourceReport();
 
-        var ids = Run(walk, NewIterator(), report, ("illegal.xg", Match(AroundAnIllegalPlay)));
+        var ids = Run(walk, NewIterator(), report, ("corrupt.xg", Match(AroundACorruptCandidate)));
 
         ids.Should().HaveCount(2);
         var omission = report.Omissions.Should().ContainSingle().Subject;
-        omission.Kind.Should().Be(XgOmissionKind.IllegalPlay);
+        omission.Kind.Should().Be(XgOmissionKind.CorruptCandidate);
         omission.Game.Should().Be(1);
         omission.MoveNumber.Should().Be(2);
-        omission.Roll.Should().Be(new DiceRoll(5, 2));
+        omission.Roll.Should().Be(new DiceRoll(3, 1));
         report.ReadableCount.Should().Be(1);
+    }
+
+    [Theory]
+    [MemberData(nameof(Walks))]
+    public void AnIllegalPlay_PassesBySilently_WithTheDecisionsAroundItKept(string walk)
+    {
+        // Hal's rulings: "Skip decisions where an illegal play was made"; "Do
+        // not report illegal plays; they occur and are legit."
+        var file = Match(AroundAnIllegalPlay);
+        var logger = new RecordingLogger<FilteredDecisionIterator>();
+        var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, logger);
+        var report = new SourceReport();
+
+        var ids = Run(walk, iterator, report, ("illegal.xg", file));
+
+        var around = XgDecisionIterator.IterateDiagramRequests(file, NameIn(walk, "illegal.xg")).ToList();
+        around.Select(d => d.MoveNumber).Should().Equal(1, 3);
+        ids.Should().Equal(around.Select(d => d.Id.ToString()));
+        report.Omissions.Should().BeEmpty();
+        report.ForcedPlayCount.Should().Be(0);
+        logger.Entries.Should().BeEmpty();
+        report.ReadableCount.Should().Be(1);
+        report.Rejected.Should().BeEmpty();
     }
 
     [Theory]
@@ -389,9 +419,9 @@ public class SourceReportContentTests
         // header. A refused header reaches no filter, so game 3 still reports.
         var builder = XgFileBuilder.ForMatch(5, "P1", "P2");
         builder.AddGame().WithForcedPlays(1);
-        builder.AddGame(score1: 1).WithForcedPlays(2).IllegalPlay(XgPlayer.Player1, new DiceRoll(5, 2));
+        builder.AddGame(score1: 1).WithMoves(1).WithForcedPlays(2);
         builder.AddGame().WithMoves(1);
-        var file = SyntheticSources.WithRefusedGames(builder.Build(), 3);
+        var file = SyntheticSources.WithRefusedGames(SyntheticSources.WithCorruptCandidate(builder.Build(), game: 2, move: 1), 3);
         var filters = new FilterConfig { MatchScores = { "5a5a" } }.Build();
         var everything = new SourceReport();
         var skipping = new SourceReport();
@@ -436,7 +466,7 @@ public class SourceReportContentTests
         // Several yields after each find, so a report that folded a source's
         // running totals at every update would count them again.
         var first = Match(Forced(2), Refused, Moves(3), Refused, Moves(2));
-        var second = Match(Moves(3), Forced(3), Moves(3), AroundAnIllegalPlay, Moves(1));
+        var second = Match(Moves(3), Forced(3), Moves(3), AroundACorruptCandidate, Moves(1));
         var report = new SourceReport();
 
         _ = StreamWalk(diagrams, NewIterator(), report, ("first.xg", first), ("second.xg", second)).ToList();

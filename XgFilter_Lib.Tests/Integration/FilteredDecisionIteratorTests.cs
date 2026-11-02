@@ -518,25 +518,25 @@ public class FilteredDecisionIteratorTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void IterateJsonDirectory_IllegalPlay_ProducerWarningSurfacesThroughSuppliedLogger()
+    public void IterateJsonDirectory_RefusedGame_ProducerWarningSurfacesThroughSuppliedLogger()
     {
         // The iterator threads its ctor logger into XgDecisionIterator, so a
-        // producer-level event — here XG's illegal-play marker — must reach the
-        // caller's logger. This is distinct from the iterator's own "Skipping"
-        // catch: the "Illegal play" warning originates *inside* the producer and
-        // only lands if _logger was forwarded. The message's file/game/move/roll
-        // content is pinned by the producer's own tests; here we assert only that
-        // the forwarding happens.
+        // producer-level event — here a game whose standing is refused — must
+        // reach the caller's logger. This is distinct from the iterator's own
+        // "Skipping" catch: the "Invalid standing" warning originates *inside*
+        // the producer and only lands if _logger was forwarded. The message's
+        // file/game/reason content is pinned by the producer's own tests; here
+        // we assert only that the forwarding happens.
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(tempDir);
 
         try
         {
-            // Materialise a synthetic illegal-play file via the library's own
+            // Materialise a synthetic refused-game file via the library's own
             // JSON round-trip (XgFileReader.ToJson) so it flows through the
             // real file-read path rather than bypassing it.
-            var json = XgFileReader.ToJson(BuildFileWithIllegalPlay());
-            File.WriteAllText(Path.Combine(tempDir, "illegal.json"), json);
+            var json = XgFileReader.ToJson(SyntheticSources.WithRefusedGames(SyntheticSources.TwoGameMatch(), 2));
+            File.WriteAllText(Path.Combine(tempDir, "refused.json"), json);
 
             var spyLogger = new RecordingLogger<FilteredDecisionIterator>();
             var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
@@ -544,8 +544,8 @@ public class FilteredDecisionIteratorTests
             _ = iterator.IterateJsonDirectory(tempDir).ToList();
 
             spyLogger.Entries.Should().Contain(
-                e => e.Level == LogLevel.Warning && e.Message.Contains("Illegal play"),
-                "the producer's illegal-play warning must surface through the iterator's supplied logger");
+                e => e.Level == LogLevel.Warning && e.Message.Contains("Invalid standing"),
+                "the producer's refused-game warning must surface through the iterator's supplied logger");
         }
         finally
         {
@@ -555,15 +555,15 @@ public class FilteredDecisionIteratorTests
 
     [Fact]
     [Trait("Category", "RequiresFixtureFiles")]
-    public void IterateXgDirectory_RealFixtureWithIllegalPlay_ProducerWarningSurfacesThroughSuppliedLogger()
+    public void IterateXgDirectory_RealFixtureWithARefusedGame_ProducerWarningSurfacesThroughSuppliedLogger()
     {
         // Companion to the synthetic test above, on the primary production
         // path: the real binary .xg read rather than the JSON detour. The
-        // FixtureFiles corpus includes a tournament file that carries XG's
-        // illegal-play marker, so walking it must surface the producer's
-        // "Illegal play" warning through the iterator's supplied logger.
+        // FixtureFiles corpus includes a tournament file holding a game whose
+        // standing is refused, so walking it must surface the producer's
+        // "Invalid standing" warning through the iterator's supplied logger.
         const string knownCarrier =
-            "Avi Cohen (6.86) - Max Stockslager (10.55) 2023-02-09_18122.xg";
+            "2024-07-03_Jonathan_Hardigree_vs_Michael_Mesich_29046.xg";
 
         var spyLogger = new RecordingLogger<FilteredDecisionIterator>();
         var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spyLogger);
@@ -572,9 +572,9 @@ public class FilteredDecisionIteratorTests
 
         spyLogger.Entries.Should().Contain(
             e => e.Level == LogLevel.Warning
-                 && e.Message.Contains("Illegal play")
+                 && e.Message.Contains("Invalid standing")
                  && e.Message.Contains(knownCarrier),
-            $"the real fixture '{knownCarrier}' carries an illegal play whose warning must " +
+            $"the real fixture '{knownCarrier}' holds a refused game whose warning must " +
             "surface through the supplied logger on the binary .xg read path");
     }
 
@@ -639,25 +639,6 @@ public class FilteredDecisionIteratorTests
         rows.Select(r => (r.SourceFile, r.Game)).Should().OnlyHaveUniqueItems(
             "StopGameAfter=true after a yield must cut the rest of the game");
     });
-
-    // -----------------------------------------------------------------------
-    //  Illegal-play fixture — one game, the illegal marker between two legal
-    //  moves. Mirrors ConvertXgToJson_Lib's producer fixture; the file is
-    //  round-tripped through JSON so it reaches the iterator via a real read.
-    // -----------------------------------------------------------------------
-
-    private static XgFile BuildFileWithIllegalPlay()
-    {
-        var builder = XgFileBuilder.ForMatch(7, "P1", "P2");
-        builder.AddGame()
-            .Play(XgPlayer.Player1, new DiceRoll(3, 1), MakeFivePoint)
-            .IllegalPlay(XgPlayer.Player2, new DiceRoll(5, 2))
-            .Play(XgPlayer.Player2, new DiceRoll(3, 1), MakeFivePoint);
-        return builder.Build();
-    }
-
-    /// <summary>8/5 6/5 — the classic 3-1, legal for either side from the opening.</summary>
-    private static Play MakeFivePoint => [new(8, 5), new(6, 5)];
 
     // -----------------------------------------------------------------------
     //  Spy filters used by the early-exit pipeline tests
