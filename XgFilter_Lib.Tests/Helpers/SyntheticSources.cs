@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Nodes;
 using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
@@ -81,6 +82,50 @@ internal static class SyntheticSources
         return board;
     }
 
+    /// <summary>
+    /// One checker of each side, player 1's on the 24-point: a 3-1 reaches one
+    /// position however it is played, so the play from here is forced.
+    /// </summary>
+    public static IReadOnlyList<int> OneCheckerOn24 { get; } = Board((24, 1), (1, -1));
+
+    /// <summary>The one play of a 3-1 from <see cref="OneCheckerOn24"/>.</summary>
+    private static readonly Play ForcedPlay = [new(24, 21), new(21, 20)];
+
+    /// <summary>
+    /// Records <paramref name="plays"/> analysed forced plays in
+    /// <paramref name="game"/>, each from <see cref="OneCheckerOn24"/>: the
+    /// walk counts them and yields no decision.
+    /// </summary>
+    public static XgGameBuilder WithForcedPlays(this XgGameBuilder game, int plays)
+    {
+        for (int i = 0; i < plays; i++)
+            game.AtPosition(OneCheckerOn24).Play(XgPlayer.Player1, new DiceRoll(3, 1), ForcedPlay);
+        return game;
+    }
+
+    /// <summary>
+    /// <paramref name="file"/> with the 1-based <paramref name="games"/>'
+    /// headers saying player 1 has already won the match, a standing the
+    /// session refuses, so the walk omits each of those games whole and keeps
+    /// the numbers of the rest. The public builder refuses such a header and
+    /// its door is internal to the producer, so this edits the file's JSON
+    /// document and reads it back: the result is an ordinary parsed file,
+    /// which <see cref="XgBytes"/> and <see cref="JsonBytes"/> write as usual.
+    /// </summary>
+    public static XgFile WithRefusedGames(XgFile file, params int[] games)
+    {
+        var document = JsonNode.Parse(XgFileReader.ToJson(file))!;
+        var records = document["records"]!.AsArray();
+        var headers = records.Where(record => (string?)record!["$type"] == "HeaderGame").ToList();
+        int length = (int)records.Single(record => (string?)record!["$type"] == "HeaderMatch")!["matchLength"]!;
+        foreach (int game in games)
+            headers[game - 1]!["score1"] = length;
+
+        var edited = new MemoryStream(Encoding.UTF8.GetBytes(document.ToJsonString()));
+        return XgSourceReader.ReadStream("edited.json", edited, XgSourceFormat.Json)
+            .Match(decoded => decoded.File, failed => throw failed.Exception);
+    }
+
     /// <summary>The analysed-cube equities the synthesized cube decisions share; nothing here reads them.</summary>
     public static readonly XgCubeEquities Equities = new(NoDouble: 0.30, DoubleTake: 0.45, DoubleDrop: 1.0);
 
@@ -99,6 +144,20 @@ internal static class SyntheticSources
             .CubeDecision(XgPlayer.Player1, Equities, doublerAction: CubeAction.NoDouble)
             .Play(XgPlayer.Player1, OpeningMoves[0].Dice, OpeningMoves[0].Played,
                 [new XgPlayCandidate(OpeningMoves[0].Played, equity: 0.1, ply: 2)]);
+        return builder.Build();
+    }
+
+    /// <summary>
+    /// A position as XG saves one to an <c>.xgp</c>, holding player 1's
+    /// analysed cube decision and then a forced play: under an <c>.xgp</c>
+    /// name the walk counts the play and yields the cube.
+    /// </summary>
+    public static XgFile PositionWithAForcedPlay()
+    {
+        var builder = XgFileBuilder.ForMatch(5, "P1", "P2");
+        builder.AddGame(initialPosition: OneCheckerOn24)
+            .CubeDecision(XgPlayer.Player1, Equities, doublerAction: CubeAction.NoDouble)
+            .Play(XgPlayer.Player1, new DiceRoll(3, 1), ForcedPlay);
         return builder.Build();
     }
 

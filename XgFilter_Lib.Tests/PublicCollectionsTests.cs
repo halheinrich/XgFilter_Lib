@@ -2,6 +2,7 @@ using System.Reflection;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Patterns;
+using XgFilter_Lib.Tests.Helpers;
 
 namespace XgFilter_Lib.Tests;
 
@@ -86,6 +87,25 @@ public class PublicCollectionsTests
 
         ShouldBeImmutable(report.Rejected);
         ShouldBeImmutable(new SourceReport().Rejected);
+    }
+
+    [Fact]
+    public void SourceReport_Omissions_AreImmutable()
+    {
+        // Grown by the iterator during a walk, from an observer whose own list
+        // grows too, so the list handed out is neither that list nor one
+        // anybody can write through.
+        var report = new SourceReport();
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet(), BgDataTypes_Lib.PlayRanking.Equity,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<FilteredDecisionIterator>.Instance);
+        var file = SyntheticSources.WithRefusedGames(SyntheticSources.TwoGameMatch(), 2);
+
+        _ = iterator.IterateXgStreams([SyntheticSources.XgEntry("refused.xg", file)], report).ToList();
+
+        report.Omissions.Should().ContainSingle();
+        ShouldBeImmutable(report.Omissions);
+        ShouldBeImmutable(new SourceReport().Omissions);
     }
 
     // -----------------------------------------------------------------------

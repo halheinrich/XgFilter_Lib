@@ -24,8 +24,9 @@ namespace XgFilter_Lib;
 /// <para>
 /// Filters, the ranking, a logger and, optionally, the producer's opening
 /// book are configured at construction; per-call parameters are the source
-/// or sources under iteration and, for a walk, optionally a
-/// <see cref="SourceReport"/>. Every source a walk takes is read through the converter's
+/// or sources under iteration and, optionally, a
+/// <see cref="SourceReport"/> for a walk or an <see cref="XgIteratorState"/>
+/// for one parsed source. Every source a walk takes is read through the converter's
 /// one read of one source, <see cref="XgSourceReader"/>, in the format the
 /// entry point states — <see cref="XgSourceFormat.Xg"/> for the XG-format
 /// walks, <see cref="XgSourceFormat.Json"/> for the JSON one — and its
@@ -42,9 +43,17 @@ namespace XgFilter_Lib;
 /// </para>
 ///
 /// <para>
-/// The same logger is forwarded into the producer, so per-decision warnings
-/// it raises — notably an illegal-play skip — surface through this pipeline
-/// alongside the file-level skip warnings above.
+/// The same logger is forwarded into the producer, so its warning for each
+/// thing it leaves out of a decoded source — a game whose standing is
+/// refused, an illegal play, a corrupt candidate — surfaces through this
+/// pipeline alongside the file-level skip warnings above, and the iterator
+/// adds no line of its own. Those are facts about content, not decoding: the
+/// source stays decoded and the walk goes on within it. As data, they reach
+/// a walk's <see cref="SourceReport"/>, as
+/// <see cref="SourceReport.Omissions"/> beside the forced plays'
+/// <see cref="SourceReport.ForcedPlayCount"/>, and the caller of
+/// <see cref="IterateFile"/> or <see cref="IterateFileDiagrams"/> through the
+/// <see cref="XgIteratorState"/> it passes (halheinrich/backgammon#514).
 /// </para>
 ///
 /// <para>
@@ -150,10 +159,24 @@ public sealed class FilteredDecisionIterator
     /// each source it decodes through this operation.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Lazy, like the walks: arguments are checked at the call, and the file
     /// is iterated as the result is enumerated. A failure while iterating —
     /// the producer refusing the file's contents, a filter throwing — is not
     /// caught: it propagates to the enumerating caller.
+    /// </para>
+    /// <para>
+    /// A caller with no walk, and so no <see cref="SourceReport"/>, learns what
+    /// the file held that its decisions do not through
+    /// <paramref name="state"/>; passing one changes no decision. Its
+    /// <see cref="XgIteratorState.Omissions"/> and
+    /// <see cref="XgIteratorState.ForcedPlayCount"/> cover what the walk of
+    /// this file has examined so far, so a game a filter's early exit skipped
+    /// says nothing, and each omission reaches the logger with or without a
+    /// state. A state may be reused: it resets at the first <c>MoveNext</c> of
+    /// each enumeration, so a caller holding one across files reads each
+    /// file's facts while, or just after, it enumerates that file.
+    /// </para>
     /// </remarks>
     /// <param name="file">The parsed source.</param>
     /// <param name="sourceName">
@@ -164,14 +187,18 @@ public sealed class FilteredDecisionIterator
     /// another (one decision each), and refuses any other extension when it
     /// stamps the first decision.
     /// </param>
+    /// <param name="state">
+    /// The producer's observer, handed to it unchanged, or null, the default,
+    /// when the caller does not need it.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="file"/> or <paramref name="sourceName"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="sourceName"/> is empty or white space.</exception>
-    public IEnumerable<DecisionRow> IterateFile(XgFile file, string sourceName)
+    public IEnumerable<DecisionRow> IterateFile(XgFile file, string sourceName, XgIteratorState? state = null)
     {
         ArgumentNullException.ThrowIfNull(file);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         return Passing(
-            XgDecisionIterator.Iterate(file, sourceName, state: null, _callbacks, _options, _logger),
+            XgDecisionIterator.Iterate(file, sourceName, state, _callbacks, _options, _logger),
             static row => row);
     }
 
@@ -183,17 +210,18 @@ public sealed class FilteredDecisionIterator
     /// for the configured ranking (<see cref="BgDecisionData.ViewFor"/>), and
     /// the record itself, which depends on no ranking, is yielded.
     /// </summary>
-    /// <remarks>Lazy, and uncaught while iterating, as <see cref="IterateFile"/>.</remarks>
+    /// <remarks>Lazy, uncaught while iterating, and observed through <paramref name="state"/>, as <see cref="IterateFile"/>.</remarks>
     /// <param name="file">The parsed source.</param>
     /// <param name="sourceName">The source's file name with its extension; see <see cref="IterateFile"/>.</param>
+    /// <param name="state">The producer's observer, or null; see <see cref="IterateFile"/>.</param>
     /// <exception cref="ArgumentNullException"><paramref name="file"/> or <paramref name="sourceName"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="sourceName"/> is empty or white space.</exception>
-    public IEnumerable<BgDecisionData> IterateFileDiagrams(XgFile file, string sourceName)
+    public IEnumerable<BgDecisionData> IterateFileDiagrams(XgFile file, string sourceName, XgIteratorState? state = null)
     {
         ArgumentNullException.ThrowIfNull(file);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         return Passing(
-            XgDecisionIterator.IterateDiagramRequests(file, sourceName, state: null, _callbacks, _options, _logger),
+            XgDecisionIterator.IterateDiagramRequests(file, sourceName, state, _callbacks, _options, _logger),
             record => record.ViewFor(_options.Ranking));
     }
 
@@ -206,6 +234,35 @@ public sealed class FilteredDecisionIterator
         produced.Where(item => _filters.Matches(view(item)));
 
     /// <summary>
+    /// One decoded source's <paramref name="decisions"/>, with
+    /// <paramref name="report"/> kept up to date with the source's
+    /// <paramref name="state"/>: before each decision goes out, so a consumer
+    /// reading the report at a yield sees everything examined so far, and on
+    /// leaving the source. The second is what a yield cannot do, because
+    /// filtering consumes records with nothing yielded, so what the producer
+    /// walked past before the source's end, or before a filter or a logger
+    /// threw, stays on the report. The <c>finally</c> catches nothing, and on
+    /// an early stop it reads what is there and advances nothing, so a report
+    /// is never finished by reading on.
+    /// </summary>
+    private static IEnumerable<T> Reporting<T>(
+        IEnumerable<T> decisions, XgIteratorState state, SourceReport report)
+    {
+        try
+        {
+            foreach (var item in decisions)
+            {
+                report.Observe(state);
+                yield return item;
+            }
+        }
+        finally
+        {
+            report.Observe(state);
+        }
+    }
+
+    /// <summary>
     /// Iterates every XG-format file in <paramref name="xgDir"/> — both
     /// <c>*.xg</c> (match files) and <c>*.xgp</c> (position files) — and
     /// returns the subset of decisions that match the configured filters,
@@ -213,9 +270,10 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     /// <param name="xgDir">The directory to walk.</param>
     /// <param name="report">
-    /// Where this walk records the sources it attempted and rejected, or null
-    /// to record nothing. A fresh report per enumeration; see
-    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// Where this walk records the sources it attempted and rejected and what
+    /// it left out of those it decoded, or null to record nothing. A fresh
+    /// report per enumeration; see <see cref="SourceReport"/> for the one-walk
+    /// contract.
     /// </param>
     public IEnumerable<DecisionRow> IterateXgDirectory(string xgDir, SourceReport? report = null) =>
         IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, IterateFile, report);
@@ -227,9 +285,10 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     /// <param name="jsonDir">The directory to walk.</param>
     /// <param name="report">
-    /// Where this walk records the sources it attempted and rejected, or null
-    /// to record nothing. A fresh report per enumeration; see
-    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// Where this walk records the sources it attempted and rejected and what
+    /// it left out of those it decoded, or null to record nothing. A fresh
+    /// report per enumeration; see <see cref="SourceReport"/> for the one-walk
+    /// contract.
     /// </param>
     public IEnumerable<DecisionRow> IterateJsonDirectory(string jsonDir, SourceReport? report = null) =>
         IterateFiles(Directory.EnumerateFiles(jsonDir, "*" + JsonExtension), XgSourceFormat.Json, IterateFile, report);
@@ -246,9 +305,10 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     /// <param name="xgDir">The directory to walk.</param>
     /// <param name="report">
-    /// Where this walk records the sources it attempted and rejected, or null
-    /// to record nothing. A fresh report per enumeration; see
-    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// Where this walk records the sources it attempted and rejected and what
+    /// it left out of those it decoded, or null to record nothing. A fresh
+    /// report per enumeration; see <see cref="SourceReport"/> for the one-walk
+    /// contract.
     /// </param>
     public IEnumerable<BgDecisionData> IterateXgDirectoryDiagrams(string xgDir, SourceReport? report = null) =>
         IterateFiles(XgFileReader.EnumerateXgFormatFiles(xgDir), XgSourceFormat.Xg, IterateFileDiagrams, report);
@@ -279,9 +339,10 @@ public sealed class FilteredDecisionIterator
     /// </remarks>
     /// <param name="files">The named streams to walk, lazily.</param>
     /// <param name="report">
-    /// Where this walk records the sources it attempted and rejected, or null
-    /// to record nothing. A fresh report per enumeration; see
-    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// Where this walk records the sources it attempted and rejected and what
+    /// it left out of those it decoded, or null to record nothing. A fresh
+    /// report per enumeration; see <see cref="SourceReport"/> for the one-walk
+    /// contract.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="files"/> is null.</exception>
     public IEnumerable<DecisionRow> IterateXgStreams(
@@ -302,9 +363,10 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     /// <param name="files">The named streams to walk, lazily.</param>
     /// <param name="report">
-    /// Where this walk records the sources it attempted and rejected, or null
-    /// to record nothing. A fresh report per enumeration; see
-    /// <see cref="SourceReport"/> for the one-walk contract.
+    /// Where this walk records the sources it attempted and rejected and what
+    /// it left out of those it decoded, or null to record nothing. A fresh
+    /// report per enumeration; see <see cref="SourceReport"/> for the one-walk
+    /// contract.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="files"/> is null.</exception>
     public IEnumerable<BgDecisionData> IterateXgStreamDiagrams(
@@ -407,7 +469,7 @@ public sealed class FilteredDecisionIterator
     private IEnumerable<T> IterateFiles<T>(
         IEnumerable<string> paths,
         XgSourceFormat format,
-        Func<XgFile, string, IEnumerable<T>> filter,
+        Func<XgFile, string, XgIteratorState?, IEnumerable<T>> filter,
         SourceReport? report) =>
         IterateSources(
             paths.Select(path => (Path.GetFileName(path),
@@ -427,7 +489,9 @@ public sealed class FilteredDecisionIterator
     /// <paramref name="sources"/> name; a failed source is recorded and
     /// logged, and the walk goes on with the next. The walk catches nothing:
     /// the read's failure policy is the converter's, so a cancellation, and a
-    /// usage error the read refuses, propagate.
+    /// usage error the read refuses, propagate. What the producer leaves out
+    /// of a decoded source is no failure of the read: that source stays
+    /// decoded, and the report takes the omissions as content.
     ///
     /// <para>
     /// Contract: <c>sourceName</c> is passed straight through to the producer
@@ -445,11 +509,16 @@ public sealed class FilteredDecisionIterator
     /// <c>MoveNext</c>, so a report reused across walks fails on the second
     /// walk's first step); one attempt per source as its read starts; one
     /// readable source per decoded outcome, before its decisions are
-    /// filtered; one rejection per failed outcome, before the skip is logged
-    /// and carrying the outcome's own exception, so the log is a trace of the
-    /// record and never a second source of it; and completion after the last
-    /// source. Nothing else is recorded. A read interrupted before either
-    /// outcome — a cancellation, or a usage error thrown by the
+    /// filtered; what the producer's observer holds for a decoded source,
+    /// before each decision goes out and on leaving it
+    /// (<see cref="Reporting{T}"/>), from a fresh <see cref="XgIteratorState"/>
+    /// per source so nothing leaks between them; one rejection per failed
+    /// outcome, before the skip is logged and carrying the outcome's own
+    /// exception, so the log is a trace of the record and never a second
+    /// source of it; and completion after the last source. Nothing else is
+    /// recorded. With no report the producer gets no state, and its omissions
+    /// reach the logger alone. A read interrupted before either outcome — a
+    /// cancellation, or a usage error thrown by the
     /// <paramref name="sources"/> projection or by the read — adds neither a
     /// readable source nor a rejection. A later failure, in the producer, a
     /// filter or the consumer's loop, leaves the walk, and the report,
@@ -460,7 +529,7 @@ public sealed class FilteredDecisionIterator
     /// </summary>
     private IEnumerable<T> IterateSources<T>(
         IEnumerable<(string sourceName, Func<XgSourceRead> read)> sources,
-        Func<XgFile, string, IEnumerable<T>> filter,
+        Func<XgFile, string, XgIteratorState?, IEnumerable<T>> filter,
         SourceReport? report)
     {
         report?.Claim();
@@ -471,11 +540,15 @@ public sealed class FilteredDecisionIterator
             var decisions = read().Match(
                 decoded =>
                 {
+                    if (report is null)
+                        return filter(decoded.File, sourceName, null);
+
                     // Readable from the moment it decodes, before any of its
                     // decisions is filtered, so a source none of whose
                     // decisions match still counts.
-                    report?.Decoded();
-                    return filter(decoded.File, sourceName);
+                    report.Decoded();
+                    var state = new XgIteratorState();
+                    return Reporting(filter(decoded.File, sourceName, state), state, report);
                 },
                 failed =>
                 {

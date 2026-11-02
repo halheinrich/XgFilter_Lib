@@ -38,7 +38,8 @@ signatures; this table says where to start.
 | filter bytes held in memory | `IterateXgStreams`, `IterateXgStreamDiagrams`, over `XgFileStream` entries |
 | filter a file already decoded | `IterateFile`, `IterateFileDiagrams` |
 | filter records already held | `set.Matches(record.ViewFor(ranking))` |
-| learn what a walk could not read | pass a fresh `SourceReport` |
+| learn what a walk could not read, and what it left out of what it could | pass a fresh `SourceReport` |
+| learn what filtering one decoded file left out | pass an `XgIteratorState` to `IterateFile` or `IterateFileDiagrams` |
 | read the error the facets judged, for an order by error | `DecisionFilterSet.ErrorRead` |
 | save filters by name | `NamedFilterCollection` |
 | write a position predicate | `BoardPattern`; the token table is under "Patterns" |
@@ -64,6 +65,7 @@ foreach (BgDecisionData decision in iterator.IterateXgDirectoryDiagrams(folder, 
 
 if (report.AllRejected)
     Tell(report.Rejected);                 // every file refused, each with its reason
+Tell(report.Omissions);                    // games and plays left out of the files that read
 ```
 
 ## Stack
@@ -105,7 +107,8 @@ kinds of test read differently:
 * `TestData/FixtureFiles` tests carry the `RequiresFixtureFiles` trait and
   fail on an empty folder, each asserting it read something:
   `BoardPatternCorpusOracleTests`, two methods of
-  `FilteredDecisionIteratorTests`, one of `FilteredDecisionIteratorFileTests`.
+  `FilteredDecisionIteratorTests`, one of `FilteredDecisionIteratorFileTests`,
+  one of `SourceReportContentTests`.
 * `TestData/xg` tests sweep whatever it holds, carry no trait, and pass
   vacuously when it is empty: the three methods of
   `FilteredDecisionIteratorTests` on race and contact, which check invariants.
@@ -127,11 +130,15 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
 * **ConvertXgToJson_Lib** — `XgSourceReader` (the one read of one source, with
   its outcome pair `XgSourceDecoded` / `XgSourceFailed` and the
   `XgSourceFormat` the caller states), `XgDecisionIterator` and its
-  `XgIteratorCallbacks` / `XgIteratorOptions`, `OpeningBook`, `XgFileReader`
+  `XgIteratorCallbacks` / `XgIteratorOptions`, its observer `XgIteratorState`
+  with the `XgOmission`s it records, `OpeningBook`, `XgFileReader`
   (XG-format discovery) and the opaque `Models.XgFile`. Tests additionally use
   `XgFileBuilder` / `XgGameBuilder`, the producer's one public path to an
   in-memory `XgFile`, and `XgFileWriter` to synthesize fixtures; the XG record
   model behind them is internal to the producer and cannot be hand-built.
+  A game the session refuses has no public door either, so
+  `SyntheticSources.WithRefusedGames` edits a built file's JSON document and
+  reads it back.
 
 ## Layout
 
@@ -140,9 +147,9 @@ nullable, `TreatWarningsAsErrors`, XML doc generation) and
 `Directory.Packages.props` (Central Package Management — no inline `Version=`
 anywhere). What is repo-wide policy versus a per-project decision is settled
 by the boundary comment in `Directory.Build.props` itself. `XgFilter_Lib.slnx`
-also carries the `BgDataTypes_Lib`, `BgDataTypes_Lib.TestSupport` and
-`ConvertXgToJson_Lib` project files, so the dependency chain builds from this
-solution rather than from packages.
+also carries the `BgDataTypes_Lib`, `BgDataTypes_Lib.TestSupport`, `BgMoveGen`
+and `ConvertXgToJson_Lib` project files, so the dependency chain builds from
+this solution rather than from packages.
 
 **`XgFilter_Lib/`** — the library. Four areas plus the top level:
 
@@ -172,8 +179,8 @@ solution rather than from packages.
 - **Top level** — `FilteredDecisionIterator`, the integration point;
   `XgFileStream`, the named stream its directory-free entries take;
   `SourceReport` with its `SourceRejection` entries, the caller-supplied
-  record of what one walk attempted and rejected; and `XgFilterJsonContext`,
-  the source-generated metadata of the wire surface.
+  record of what one walk attempted, rejected and left out; and
+  `XgFilterJsonContext`, the source-generated metadata of the wire surface.
 
 **`XgFilter_Lib.Tests/`** — xUnit, mirroring the library's folders, plus
 `XgFilterJsonContextTests` and `PublicCollectionsTests` at its root. Reaches
@@ -778,13 +785,23 @@ reads them as `.json` stream entries.
 2026-10-08: "a new producer-owned filtering operation over an already-parsed
 source owns the callback wiring and filter evaluation; the existing directory
 and stream entry points use it"). `IterateFile(XgFile file, string
-sourceName)` and `IterateFileDiagrams` own everything filtering a parsed
-source takes: the producer call under the iterator's options, the filter set's
-four early-exit hints wired once, and `DecisionFilterSet.Matches` on each row
-or each record's view. A caller holding a decoded file writes none of it.
-Arguments are checked at the call; the rest is lazy, and a failure while
-iterating propagates. `sourceName` is every decision's identity, as in the
-walks: the file name with its extension.
+sourceName, XgIteratorState? state = null)` and `IterateFileDiagrams` own
+everything filtering a parsed source takes: the producer call under the
+iterator's options, the filter set's four early-exit hints wired once, and
+`DecisionFilterSet.Matches` on each row or each record's view. A caller holding
+a decoded file writes none of it. Arguments are checked at the call; the rest
+is lazy, and a failure while iterating propagates. `sourceName` is every
+decision's identity, as in the walks: the file name with its extension.
+
+* *What a per-file caller learns.* The optional `state` is the producer's own
+  observer, handed straight through, so no new type stands between a caller and
+  what the producer left out of the file (halheinrich/backgammon#514). A
+  `SourceReport` is the wrong shape here: its attempted and readable counts
+  mean nothing with no walk, and a report for one file would break "a report
+  serves one walk". The state is the other way round: it resets at the first
+  `MoveNext` of each enumeration and may be reused, so a caller holding one
+  across files reads each file's facts while, or just after, it enumerates
+  that file. Passing one changes no decision.
 
 * *Where it lives, and why.* On `FilteredDecisionIterator`, because it needs
   exactly the iterator's configuration, and the iterator is already the one
@@ -853,20 +870,30 @@ and throws on an extension-less name.
 **Logging.** A skipped source logs `LogWarning(failed.Exception, "Skipping
 {File}", sourceName)`, so the exception is captured on the entry, not
 stringified. The constructor's logger is also forwarded into the producer, so
-its per-decision warnings, notably an illegal-play skip, surface through this
-same pipeline rather than being swallowed there.
+its warning for each omission (a refused game, an illegal play, a corrupt
+candidate) surfaces through this same pipeline rather than being swallowed
+there. That line is the producer's alone: this library adds none, with a report
+or without.
 
-**Rejected sources, as data** (halheinrich/backgammon#368). Every walk entry
-takes an optional `SourceReport`, which a caller reads during or after the
-enumeration: how many sources were attempted, how many read, which were
-rejected and why, whether the walk reached the end, and the one conclusion the
-report draws itself, `AllRejected`, true only for a *completed* walk that
-attempted at least one source and read none. So an empty selection, a
-selection nobody finished reading, and readable files that yielded no matching
-decision are each told apart from one whose every file was refused. A caller
-that passes none gets the same behaviour. The warning stays as a trace of the
-same event and carries the same exception, so the report is the one source of
-the fact.
+**What a walk did, as data** (halheinrich/backgammon#368 for the decoding,
+halheinrich/backgammon#514 for the content). Every walk entry takes an optional
+`SourceReport`, which a caller reads during or after the enumeration. It holds
+two kinds of fact, and neither bears on the other:
+
+* **About decoding:** how many sources were attempted, how many read, which
+  were rejected and why, whether the walk reached the end, and the one
+  conclusion the report draws itself, `AllRejected`, true only for a
+  *completed* walk that attempted at least one source and read none. So an
+  empty selection, a selection nobody finished reading, and readable files that
+  yielded no matching decision are each told apart from one whose every file
+  was refused.
+* **About content:** what the walk left out of the sources it decoded,
+  `Omissions`, in walk order, and `ForcedPlayCount`, the sum over those
+  sources. Forced plays are a count, never an omission.
+
+A caller that passes none gets the same behaviour. The rejection's warning
+stays as a trace of the same event and carries the same exception, so the
+report is the one source of the fact.
 
 * *Where it lives, and why.* A caller-supplied state object, the shape the
   producer's `XgIteratorState` already has: the iterator is its only writer
@@ -895,6 +922,34 @@ the fact.
   filter or consumer failure all propagate, record no rejection, and leave the
   report incomplete; its counts then describe the sources reached and claim
   nothing about the rest.
+* *Decoded stays decoded.* A source with omissions, or with every game omitted,
+  was read: it counts in `ReadableCount`, never in `Rejected`, and `AllRejected`
+  stays false for it. There is no third state (contract 6568618972 on
+  halheinrich/backgammon#514). A consumer that wants to say "processed with
+  omissions" reads `Omissions`, each of which names its source.
+* *Content covers what the walk examined, and no more.* A game a filter's early
+  exit skipped, the rest of a game or match after one cut it short, the rest of
+  a source a consumer stopped in and a source never reached all say nothing, so
+  an empty `Omissions` says the walk found nothing, not that the sources are
+  clean. Only a completed walk under an empty filter set leaves nothing out of
+  its reach, and even that walk ends an `.xgp` at the one play it selects. A
+  game-skip hint cannot hide a refused game, since the producer omits it at its
+  header before asking that hint; a match skip or a cut of the match can.
+* *How the report stays truthful during a walk.* Each decoded source gets a fresh
+  `XgIteratorState`, read into the report by `SourceReport.Observe` before each
+  decision goes out and on leaving the source, in `Reporting<T>`'s `finally`.
+  Both are needed. A yield alone would lose what the producer walked past after
+  the last yield, since `Passing` filters with `Where`, so records are consumed
+  with nothing yielded, up to a source's end or a filter's throw. The `finally`
+  catches nothing and advances nothing: an early stop reads what is there and
+  leaves `IsComplete` false, and a report is never finished by reading on.
+* *Each update adds only what is new.* `Observe` remembers how much of the
+  current source's observer the report holds, and `Decoded` restarts that for
+  each source. It copies each new `XgOmission` as it stands, its complete
+  reason included, into the report's own `ImmutableList`: the state's `Omissions`
+  is a view of a list that grows during its enumeration, so handing that out
+  would change a list a consumer kept. `Omissions` therefore has `Rejected`'s
+  shape: a list handed out stays as it was, and a later read returns more.
 
 **Early exit.** At construction the iterator builds one `XgIteratorCallbacks`
 record threading the filter set's four predicates to the producer, the one
@@ -924,7 +979,9 @@ retained decisions with `Matches` and agree with one that streams. It holds
 for `.xgp` sources too because the producer runs its stop callbacks only on
 decisions it yields to its caller, after the single-decision selection
 (halheinrich/backgammon#392). `EarlyExitEquivalenceTests` enforces the
-guarantee; its doc comment says what it compares and over which sources.
+guarantee; its doc comment says what it compares and over which sources. The
+guarantee is about decisions. What a walk reports about content does depend on
+early exit, since a record cut away is a record not examined.
 
 ## Pitfalls
 
@@ -1108,3 +1165,19 @@ guarantee; its doc comment says what it compares and over which sources.
   notice. The report's incomplete state is what tells a consumer such a walk
   never finished. Don't simplify `ReadableCount` to attempted minus rejected:
   an attempt that ends in a cancellation or a usage error is neither.
+* **An omission is content; it never touches the decoding facts.** Moving a
+  source with every game omitted into `Rejected`, or out of `ReadableCount`,
+  makes `AllRejected` say "no file could be read" of files that read perfectly
+  well. Say what was left out from `Omissions` instead; `AllRejected` is false
+  for such a walk, so a consumer that tells its user only about `AllRejected`
+  tells them nothing. An omission's `Reason` is text for a reader, can hold a
+  line break, and is no stable format: show it as one entry, branch on `Kind`,
+  and parse nothing.
+* **An empty `Omissions` is not a clean bill of health.** It covers what the
+  walk examined, and the filters decide that (see "What a walk did, as data").
+* **Never bring a report up to date by reading on.** Draining a game or a source
+  to finish the omissions runs the producer and the filters past where the
+  consumer stopped, and reports records the walk was never asked to examine. An
+  update only at a yield, or only at a source's normal end, is wrong the other
+  way: it loses what the producer found before a filter threw or the source
+  ended. Keep both updates in `Reporting<T>`, the second in its `finally`.

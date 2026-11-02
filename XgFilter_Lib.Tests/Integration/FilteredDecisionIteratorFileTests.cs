@@ -1,5 +1,6 @@
 using System.Text.Json;
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
 using Microsoft.Extensions.Logging;
@@ -14,7 +15,8 @@ namespace XgFilter_Lib.Tests.Integration;
 /// <see cref="FilteredDecisionIterator.IterateFile"/> and
 /// <see cref="FilteredDecisionIterator.IterateFileDiagrams"/>: what it yields,
 /// that every walk filters each decoded source through it, how it checks its
-/// arguments, and that the caller's opening book reaches the producer
+/// arguments, what it left out reaching a caller through its state, and that
+/// the caller's opening book reaches the producer
 /// through it. All but the opening-book test synthesize their sources
 /// (<see cref="SyntheticSources"/>) and gate; that one needs the real book,
 /// which no public surface can synthesize, and is local-only.
@@ -190,6 +192,101 @@ public class FilteredDecisionIteratorFileTests
 
         Call(shape, file, null!).Should().Throw<ArgumentNullException>().Which.ParamName.Should().Be("sourceName");
         Call(shape, file, "  ").Should().Throw<ArgumentException>().Which.ParamName.Should().Be("sourceName");
+    }
+
+    // -----------------------------------------------------------------------
+    //  What the operation left out reaches a caller through its state
+    // -----------------------------------------------------------------------
+
+    /// <summary>A 5-point match of a played game, a game of forced plays, and a game the session refuses.</summary>
+    private static XgFile PlayedForcedRefused()
+    {
+        var builder = XgFileBuilder.ForMatch(5, "P1", "P2");
+        builder.AddGame().WithMoves(2);
+        builder.AddGame().WithForcedPlays(3);
+        builder.AddGame().WithMoves(1);
+        return SyntheticSources.WithRefusedGames(builder.Build(), 3);
+    }
+
+    private static List<string> Operate(string shape, FilteredDecisionIterator iterator, XgFile file, string name, XgIteratorState? state = null) =>
+        shape switch
+        {
+            nameof(FilteredDecisionIterator.IterateFile) => [.. iterator.IterateFile(file, name, state).Select(r => r.Id.ToString())],
+            nameof(FilteredDecisionIterator.IterateFileDiagrams) => [.. iterator.IterateFileDiagrams(file, name, state).Select(d => d.Id.ToString())],
+            _ => throw new ArgumentOutOfRangeException(nameof(shape), shape, null),
+        };
+
+    [Theory]
+    [MemberData(nameof(Shapes))]
+    public void AState_IsHandedToTheProducer_AndChangesNoDecision(string shape)
+    {
+        var file = PlayedForcedRefused();
+        var iterator = NewIterator(new DecisionFilterSet());
+        var state = new XgIteratorState();
+
+        var observed = Operate(shape, iterator, file, "match.xg", state);
+        var unobserved = Operate(shape, iterator, file, "match.xg");
+
+        observed.Should().HaveCount(2).And.Equal(unobserved);
+        state.MatchInfo.Should().NotBeNull();
+        state.ForcedPlayCount.Should().Be(3);
+        var omission = state.Omissions.Should().ContainSingle().Subject;
+        omission.Game.Should().Be(3);
+        omission.Kind.Should().Be(XgOmissionKind.InvalidStanding);
+        omission.SourceFile.Should().Be("match.xg");
+    }
+
+    [Theory]
+    [MemberData(nameof(Shapes))]
+    public void OneStateAcrossTwoFiles_StartsAfreshAtEachEnumeration(string shape)
+    {
+        var iterator = NewIterator(new DecisionFilterSet());
+        var state = new XgIteratorState();
+
+        _ = Operate(shape, iterator, PlayedForcedRefused(), "first.xg", state);
+        var fromTheFirst = state.Omissions;
+        state.ForcedPlayCount.Should().Be(3);
+
+        _ = Operate(shape, iterator, SyntheticSources.TwoGameMatch(), "second.xg", state);
+
+        state.Omissions.Should().BeEmpty("the second file left nothing out");
+        state.ForcedPlayCount.Should().Be(0);
+        fromTheFirst.Should().ContainSingle("a list kept from the first file stays as that walk recorded it");
+    }
+
+    [Theory]
+    [MemberData(nameof(Shapes))]
+    public void AState_CoversWhatTheFilteredWalkExamined(string shape)
+    {
+        // Game 2's forced plays sit at 1-0, which the filter's header vote skips.
+        var builder = XgFileBuilder.ForMatch(5, "P1", "P2");
+        builder.AddGame().WithForcedPlays(1);
+        builder.AddGame(score1: 1).WithForcedPlays(2);
+        var file = builder.Build();
+        var filters = new FilterConfig { MatchScores = { "5a5a" } }.Build();
+        var state = new XgIteratorState();
+
+        _ = Operate(shape, NewIterator(new DecisionFilterSet()), file, "match.xg", state);
+        state.ForcedPlayCount.Should().Be(3, "the control: unfiltered, the walk examines game 2");
+
+        _ = Operate(shape, NewIterator(filters), file, "match.xg", state);
+        state.ForcedPlayCount.Should().Be(1);
+    }
+
+    [Theory]
+    [MemberData(nameof(Shapes))]
+    public void TheProducersWarning_ReachesTheLogger_OnceWithOrWithoutAState(string shape)
+    {
+        var file = PlayedForcedRefused();
+        var logger = new RecordingLogger<FilteredDecisionIterator>();
+        var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, logger);
+
+        _ = Operate(shape, iterator, file, "match.xg");
+        logger.Entries.Should().ContainSingle();
+        _ = Operate(shape, iterator, file, "match.xg", new XgIteratorState());
+
+        logger.Entries.Should().HaveCount(2);
+        logger.Entries.Should().OnlyContain(e => e.Level == LogLevel.Warning && e.Message.Contains("game 3"));
     }
 
     // -----------------------------------------------------------------------

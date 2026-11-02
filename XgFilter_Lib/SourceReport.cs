@@ -5,13 +5,27 @@ namespace XgFilter_Lib;
 
 /// <summary>
 /// What one <see cref="FilteredDecisionIterator"/> walk did with its sources,
-/// as data: how many it attempted to read, which it rejected and why, and
-/// whether it reached the end (halheinrich/backgammon#368). The caller
+/// as data: how many it attempted to read, which it rejected and why, whether
+/// it reached the end (halheinrich/backgammon#368), and what it left out of
+/// the sources it did read (halheinrich/backgammon#514). The caller
 /// creates one, hands it to the walk entry point (a directory or stream
 /// walk) it is about to enumerate, and
 /// reads it during or after the enumeration; the iterator is its only
 /// writer. A caller that passes none gets exactly the behaviour it always
-/// had — a rejected source is logged and skipped, and the walk goes on.
+/// had — a rejected source is logged and skipped, an omission is logged, and
+/// the walk goes on.
+///
+/// <para>
+/// <b>Two kinds of fact.</b> <see cref="AttemptedCount"/>,
+/// <see cref="ReadableCount"/>, <see cref="Rejected"/>,
+/// <see cref="IsComplete"/> and <see cref="AllRejected"/> are about
+/// <em>decoding</em>: whether a source could be read at all.
+/// <see cref="Omissions"/> and <see cref="ForcedPlayCount"/> are about
+/// <em>content</em>: what the walk found inside the sources that decoded.
+/// Neither kind bears on the other. A source with omissions, or with every
+/// game omitted, is decoded: it counts as readable, never as rejected, and
+/// <see cref="AllRejected"/> stays false for it. There is no third state.
+/// </para>
 ///
 /// <para>
 /// <b>A report serves one walk.</b> It is claimed by the first
@@ -49,10 +63,26 @@ namespace XgFilter_Lib;
 /// </para>
 ///
 /// <para>
+/// <b>Content covers what the walk examined, and no more.</b> At every
+/// decision the walk yields, and once it has stopped however it stopped,
+/// <see cref="Omissions"/> and <see cref="ForcedPlayCount"/> hold exactly what
+/// the walk has examined so far, whether any decision passed the filters or
+/// not, and the walk never reads on to finish them. A record it did not
+/// examine says nothing: a match or game a filter's early exit skipped, the
+/// rest of a game or match after one cut it short, the rest of a source a
+/// consumer stopped in, a source never reached. So the decoding facts do not
+/// depend on the filters and these do, and an empty list says the walk found
+/// nothing, not that the sources are clean. Only a completed walk under an
+/// empty filter set leaves nothing out of its reach, and even that walk ends
+/// an <c>.xgp</c> at the one play it selects.
+/// </para>
+///
+/// <para>
 /// <b>Complete means the walk reached the end of its sources.</b> A consumer
 /// that stopped early, or whose walk threw, holds a partial report:
-/// <see cref="AttemptedCount"/>, <see cref="ReadableCount"/> and
-/// <see cref="Rejected"/> are true of the sources reached, and nothing is
+/// <see cref="AttemptedCount"/>, <see cref="ReadableCount"/>,
+/// <see cref="Rejected"/>, <see cref="Omissions"/> and
+/// <see cref="ForcedPlayCount"/> are true of what was reached, and nothing is
 /// claimed about the rest. The one
 /// conclusion the report draws itself, <see cref="AllRejected"/>, is drawn
 /// only from a completed walk over at least one source, so an empty
@@ -68,7 +98,13 @@ namespace XgFilter_Lib;
 public sealed class SourceReport
 {
     private ImmutableList<SourceRejection> _rejected = [];
+    private ImmutableList<XgOmission> _omissions = [];
     private bool _claimed;
+
+    // How much of the current source's observer this report already holds,
+    // so each update adds only what is new. Restarted per decoded source.
+    private int _sourceOmissionsTaken;
+    private int _sourceForcedPlaysTaken;
 
     /// <summary>
     /// The number of sources whose read was started, rejected ones included.
@@ -97,6 +133,28 @@ public sealed class SourceReport
     public IReadOnlyList<SourceRejection> Rejected => _rejected;
 
     /// <summary>
+    /// What the walk has left out of the sources it decoded, in walk order:
+    /// each omitted game and each omitted checker play, as the producer
+    /// recorded it (<see cref="XgOmission"/>, whose
+    /// <see cref="XgOmission.SourceFile"/> is the name the walk gave the
+    /// source and whose <see cref="XgOmission.Reason"/> is text for a reader,
+    /// which may hold a line break). About content, and covering only what
+    /// the walk examined (see the class remarks). Immutable: the list handed
+    /// out never changes, and a later read after another omission hands out a
+    /// longer one.
+    /// </summary>
+    public IReadOnlyList<XgOmission> Omissions => _omissions;
+
+    /// <summary>
+    /// How many analysed checker plays of the sources the walk decoded it has
+    /// passed by as forced, a dance included: the sum over those sources.
+    /// Information, not a problem: a forced play is no decision and never an
+    /// omission (<see cref="XgIteratorState.ForcedPlayCount"/>). About content,
+    /// and covering only what the walk examined (see the class remarks).
+    /// </summary>
+    public int ForcedPlayCount { get; private set; }
+
+    /// <summary>
     /// True once the walk has reached the end of its sources. False while it
     /// is in progress, after it stopped early, and after it threw.
     /// </summary>
@@ -108,7 +166,9 @@ public sealed class SourceReport
     /// not vacuous: false for an empty selection (nothing was attempted) and
     /// false for a partial walk (nothing is concluded about sources not
     /// reached), so a consumer can say "no file could be read" only when that
-    /// is what happened.
+    /// is what happened. About decoding alone: a source with every game
+    /// omitted was read, so a walk of only such sources is not all rejected,
+    /// and what it left out is on <see cref="Omissions"/>.
     /// </summary>
     public bool AllRejected => IsComplete && AttemptedCount > 0 && ReadableCount == 0;
 
@@ -134,9 +194,37 @@ public sealed class SourceReport
 
     /// <summary>
     /// Records that the source just attempted was read: the converter's read
-    /// decoded it. Called before its decisions are iterated.
+    /// decoded it. Called before its decisions are iterated. It also starts
+    /// this source's <see cref="Observe"/> bookkeeping, since each decoded
+    /// source has an observer of its own.
     /// </summary>
-    internal void Decoded() => ReadableCount++;
+    internal void Decoded()
+    {
+        ReadableCount++;
+        _sourceOmissionsTaken = 0;
+        _sourceForcedPlaysTaken = 0;
+    }
+
+    /// <summary>
+    /// Brings <see cref="Omissions"/> and <see cref="ForcedPlayCount"/> up to
+    /// date with <paramref name="source"/>, the observer of the source decoded
+    /// last, adding only what is new since the last call for that source, so
+    /// the iterator may call this as often as the report must be current.
+    /// Copies each new <see cref="XgOmission"/> across: the observer's own
+    /// list grows during its enumeration and is never handed out from here.
+    /// </summary>
+    internal void Observe(XgIteratorState source)
+    {
+        var omissions = source.Omissions;
+        if (omissions.Count > _sourceOmissionsTaken)
+        {
+            _omissions = _omissions.AddRange(omissions.Skip(_sourceOmissionsTaken));
+            _sourceOmissionsTaken = omissions.Count;
+        }
+
+        ForcedPlayCount += source.ForcedPlayCount - _sourceForcedPlaysTaken;
+        _sourceForcedPlaysTaken = source.ForcedPlayCount;
+    }
 
     /// <summary>
     /// Records that the source just attempted could not be read: the
