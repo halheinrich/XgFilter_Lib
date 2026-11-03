@@ -1,4 +1,5 @@
 using System.Reflection;
+using ConvertXgToJson_Lib.TestSupport;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Lib.Patterns;
@@ -99,7 +100,7 @@ public class PublicCollectionsTests
         var iterator = new FilteredDecisionIterator(
             new DecisionFilterSet(), BgDataTypes_Lib.PlayRanking.Equity,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<FilteredDecisionIterator>.Instance);
-        var file = SyntheticSources.WithRefusedGames(SyntheticSources.TwoGameMatch(), 2);
+        var file = XgFileEdits.WithRefusedGames(SyntheticSources.TwoGameMatch(), 2);
 
         _ = iterator.IterateXgStreams([SyntheticSources.XgEntry("refused.xg", file)], report).ToList();
 

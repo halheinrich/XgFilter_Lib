@@ -2,6 +2,7 @@ using BgDataTypes_Lib;
 using BgDataTypes_Lib.TestSupport;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
+using ConvertXgToJson_Lib.TestSupport;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Filtering;
@@ -61,10 +62,10 @@ public class SourceReportContentTests
             game.Record(builder.AddGame());
 
         var refused = games.Index().Where(g => g.Item.IsRefused).Select(g => g.Index + 1).ToArray();
-        var file = SyntheticSources.WithRefusedGames(builder.Build(), refused);
+        var file = XgFileEdits.WithRefusedGames(builder.Build(), refused);
         foreach (var (index, game) in games.Index())
             if (game.CorruptMove is int move)
-                file = SyntheticSources.WithCorruptCandidate(file, index + 1, move);
+                file = XgFileEdits.WithCorruptCandidate(file, index + 1, move);
         return file;
     }
 
@@ -421,7 +422,7 @@ public class SourceReportContentTests
         builder.AddGame().WithForcedPlays(1);
         builder.AddGame(score1: 1).WithMoves(1).WithForcedPlays(2);
         builder.AddGame().WithMoves(1);
-        var file = SyntheticSources.WithRefusedGames(SyntheticSources.WithCorruptCandidate(builder.Build(), game: 2, move: 1), 3);
+        var file = XgFileEdits.WithRefusedGames(XgFileEdits.WithCorruptCandidate(builder.Build(), game: 2, move: 1), 3);
         var filters = new FilterConfig { MatchScores = { "5a5a" } }.Build();
         var everything = new SourceReport();
         var skipping = new SourceReport();

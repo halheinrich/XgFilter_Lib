@@ -137,8 +137,9 @@ https://github.com/halheinrich/XgFilter_Lib — branch `main`.
   in-memory `XgFile`, and `XgFileWriter` to synthesize fixtures; the XG record
   model behind them is internal to the producer and cannot be hand-built.
   A game the session refuses has no public door either, so
-  `SyntheticSources.WithRefusedGames` edits a built file's JSON document and
-  reads it back.
+  `ConvertXgToJson_Lib.TestSupport`'s `XgFileEdits` (`WithRefusedGames`,
+  `WithCorruptCandidate`) edits a built file's JSON document and reads it
+  back.
 
 ## Layout
 
@@ -147,8 +148,8 @@ nullable, `TreatWarningsAsErrors`, XML doc generation) and
 `Directory.Packages.props` (Central Package Management — no inline `Version=`
 anywhere). What is repo-wide policy versus a per-project decision is settled
 by the boundary comment in `Directory.Build.props` itself. `XgFilter_Lib.slnx`
-also carries the `BgDataTypes_Lib`, `BgDataTypes_Lib.TestSupport`, `BgMoveGen`
-and `ConvertXgToJson_Lib` project files, so the dependency chain builds from
+also carries the `BgDataTypes_Lib`, `BgDataTypes_Lib.TestSupport`, `BgMoveGen`,
+`ConvertXgToJson_Lib` and `ConvertXgToJson_Lib.TestSupport` project files, so the dependency chain builds from
 this solution rather than from packages.
 
 **`XgFilter_Lib/`** — the library. Four areas plus the top level:

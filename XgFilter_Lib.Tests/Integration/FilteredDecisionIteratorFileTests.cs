@@ -3,6 +3,7 @@ using BgDataTypes_Lib;
 using BgDataTypes_Lib.TestSupport;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
+using ConvertXgToJson_Lib.TestSupport;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Filtering;
@@ -205,7 +206,7 @@ public class FilteredDecisionIteratorFileTests
         builder.AddGame().WithMoves(2);
         builder.AddGame().WithForcedPlays(3);
         builder.AddGame().WithMoves(1);
-        return SyntheticSources.WithRefusedGames(builder.Build(), 3);
+        return XgFileEdits.WithRefusedGames(builder.Build(), 3);
     }
 
     private static List<string> Operate(string shape, FilteredDecisionIterator iterator, XgFile file, string name, XgIteratorState? state = null) =>

@@ -2,6 +2,7 @@ using BgDataTypes_Lib;
 using BgDataTypes_Lib.TestSupport;
 using ConvertXgToJson_Lib;
 using ConvertXgToJson_Lib.Models;
+using ConvertXgToJson_Lib.TestSupport;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Classification;
@@ -535,7 +536,7 @@ public class FilteredDecisionIteratorTests
             // Materialise a synthetic refused-game file via the library's own
             // JSON round-trip (XgFileReader.ToJson) so it flows through the
             // real file-read path rather than bypassing it.
-            var json = XgFileReader.ToJson(SyntheticSources.WithRefusedGames(SyntheticSources.TwoGameMatch(), 2));
+            var json = XgFileReader.ToJson(XgFileEdits.WithRefusedGames(SyntheticSources.TwoGameMatch(), 2));
             File.WriteAllText(Path.Combine(tempDir, "refused.json"), json);
 
             var spyLogger = new RecordingLogger<FilteredDecisionIterator>();
