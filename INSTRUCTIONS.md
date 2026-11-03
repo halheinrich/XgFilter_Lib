@@ -1170,9 +1170,9 @@ early exit, since a record cut away is a record not examined.
   makes `AllRejected` say "no file could be read" of files that read perfectly
   well. Say what was left out from `Omissions` instead; `AllRejected` is false
   for such a walk, so a consumer that tells its user only about `AllRejected`
-  tells them nothing. An omission's `Reason` is text for a reader, can hold a
-  line break, and is no stable format: show it as one entry, branch on `Kind`,
-  and parse nothing.
+  tells them nothing. What an omission's `Reason` is lives in
+  `XgOmission.Reason`'s doc; here, show it as one entry, branch on `Kind`, and
+  parse nothing.
 * **An empty `Omissions` is not a clean bill of health.** It covers what the
   walk examined, and the filters decide that (see "What a walk did, as data").
 * **Never bring a report up to date by reading on.** Draining a game or a source

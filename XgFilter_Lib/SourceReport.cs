@@ -137,8 +137,9 @@ public sealed class SourceReport
     /// each omitted game and each omitted checker play, as the producer
     /// recorded it (<see cref="XgOmission"/>, whose
     /// <see cref="XgOmission.SourceFile"/> is the name the walk gave the
-    /// source and whose <see cref="XgOmission.Reason"/> is text for a reader,
-    /// which may hold a line break). About content, and covering only what
+    /// source; <see cref="XgOmission.Reason"/> documents what its text is).
+    /// Show a reason as one entry, branch on <see cref="XgOmission.Kind"/>,
+    /// and parse nothing. About content, and covering only what
     /// the walk examined (see the class remarks). Immutable: the list handed
     /// out never changes, and a later read after another omission hands out a
     /// longer one.
