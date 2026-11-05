@@ -39,7 +39,8 @@ namespace XgFilter_Lib;
 /// and why, how many were attempted, whether the walk finished — passes a
 /// fresh <see cref="SourceReport"/> to the entry point and reads it during
 /// or after the enumeration (halheinrich/backgammon#368); the warning stays
-/// as a trace of the same event, carrying the same exception.
+/// as a trace of the same event, naming the file and the reason while the
+/// rejection carries the exception.
 /// </para>
 ///
 /// <para>
@@ -556,7 +557,10 @@ public sealed class FilteredDecisionIterator
                     // propagates and still leaves the walk incomplete, but the
                     // source that failed to read is already on the report.
                     report?.Reject(sourceName, failed);
-                    _logger.LogWarning(failed.Exception, "Skipping {File}", sourceName);
+                    // The exception is left out of the warning on purpose, as an
+                    // experiment for halheinrich/backgammon#523; the rejection
+                    // above still carries it.
+                    _logger.LogWarning("Skipping {File}: {Reason}", sourceName, failed.Exception.Message);
                     return [];
                 });
 

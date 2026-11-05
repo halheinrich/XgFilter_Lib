@@ -868,9 +868,10 @@ skipped file. `sourceName` **must carry its extension**: the producer's
 `DecisionId` stamping derives the `.xg`/`.xgp`/`.json` discrimination from it
 and throws on an extension-less name.
 
-**Logging.** A skipped source logs `LogWarning(failed.Exception, "Skipping
-{File}", sourceName)`, so the exception is captured on the entry, not
-stringified. The constructor's logger is also forwarded into the producer, so
+**Logging.** A skipped source logs `LogWarning("Skipping {File}: {Reason}",
+sourceName, failed.Exception.Message)`: the file and the failure's message, with
+no exception on the entry (an experiment, halheinrich/backgammon#523). The
+exception lives on the rejection. The constructor's logger is also forwarded into the producer, so
 its warning for each omission (a refused game or a corrupt candidate) surfaces
 through this same pipeline rather than being swallowed there. That line is the
 producer's alone: this library adds none, with a report or without.
@@ -892,8 +893,8 @@ two kinds of fact, and neither bears on the other:
   sources. Forced plays are a count, never an omission.
 
 A caller that passes none gets the same behaviour. The rejection's warning
-stays as a trace of the same event and carries the same exception, so the
-report is the one source of the fact.
+stays as a trace of the same event, naming the file and the reason while the
+rejection carries the exception, so the report is the one source of the fact.
 
 * *Where it lives, and why.* A caller-supplied state object, the shape the
   producer's `XgIteratorState` already has: the iterator is its only writer

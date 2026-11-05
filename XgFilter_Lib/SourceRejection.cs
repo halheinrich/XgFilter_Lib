@@ -16,7 +16,8 @@ namespace XgFilter_Lib;
 /// be opened, a <see cref="System.Text.Json.JsonException"/> for a JSON source
 /// that does not parse) and its message names the check that failed, so a
 /// consumer can show it, log it, or branch on it without parsing any text.
-/// It is the same exception the iterator's skip warning carries.
+/// The iterator's skip warning names the file and the exception's message and
+/// carries no exception; this record is where the exception lives.
 /// </para>
 /// </summary>
 public sealed record SourceRejection

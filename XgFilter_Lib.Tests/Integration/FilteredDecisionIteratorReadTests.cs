@@ -126,8 +126,9 @@ public class FilteredDecisionIteratorReadTests
     public void AFailedSource_IsRecordedWithTheExceptionThatFailedItsRead(string shape)
     {
         // The read's failure policy fails the source with the stream's own
-        // exception; the rejection carries that instance, and so does the
-        // skip warning — one fact, recorded once, traced once.
+        // exception; the rejection carries that instance. The skip warning
+        // names the file and the failure's message and carries no exception
+        // (an experiment, halheinrich/backgammon#523).
         var failure = new IOException("the disk failed");
         var spy = new RecordingLogger<FilteredDecisionIterator>();
         var report = new SourceReport();
@@ -138,8 +139,8 @@ public class FilteredDecisionIteratorReadTests
         var rejection = report.Rejected.Should().ContainSingle().Which;
         rejection.SourceName.Should().Be("failing.xg");
         rejection.Reason.Should().BeSameAs(failure);
-        spy.Entries.Should().ContainSingle(e => e.Message == "Skipping failing.xg")
-            .Which.Exception.Should().BeSameAs(failure);
+        spy.Entries.Should().ContainSingle(e => e.Message == "Skipping failing.xg: the disk failed")
+            .Which.Exception.Should().BeNull();
         report.AttemptedCount.Should().Be(1);
         report.IsComplete.Should().BeTrue();
         report.AllRejected.Should().BeTrue();
