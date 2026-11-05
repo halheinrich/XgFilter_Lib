@@ -300,7 +300,8 @@ public class SourceReportTests
     public void TheSkipWarning_StaysAsATraceOfTheSameEvent()
     {
         // The report is the source of the fact; the log line is a trace of
-        // it, carrying the very exception the report records.
+        // it, carrying the report's failure message but no exception (an
+        // experiment, halheinrich/backgammon#523).
         var spy = new RecordingLogger<FilteredDecisionIterator>();
         var iterator = new FilteredDecisionIterator(new DecisionFilterSet(), PlayRanking.Equity, spy);
         var report = new SourceReport();
@@ -309,7 +310,8 @@ public class SourceReportTests
 
         var skip = spy.Entries.Should().ContainSingle(e => e.Message.Contains("malformed.xg")).Which;
         skip.Level.Should().Be(LogLevel.Warning);
-        skip.Exception.Should().BeSameAs(report.Rejected[0].Reason);
+        skip.Exception.Should().BeNull();
+        skip.Message.Should().Contain(report.Rejected[0].Reason.Message);
     }
 
     [Fact]

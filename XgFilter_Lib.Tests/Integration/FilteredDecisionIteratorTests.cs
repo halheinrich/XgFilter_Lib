@@ -447,8 +447,10 @@ public class FilteredDecisionIteratorTests
             "the one malformed stream should produce exactly one skip warning naming it")
             .Which;
         skip.Level.Should().Be(LogLevel.Warning);
-        skip.Exception.Should().NotBeNull(
-            "the skip warning must carry the original exception, not a stringified message");
+        skip.Exception.Should().BeNull(
+            "the skip warning carries no exception object (an experiment, halheinrich/backgammon#523)");
+        skip.Message.Should().MatchRegex(@"malformed\.xg: .+",
+            "the skip warning names the failure's message after the file");
     }
 
     // -----------------------------------------------------------------------
@@ -505,8 +507,10 @@ public class FilteredDecisionIteratorTests
                 "the one malformed file should produce exactly one skip warning naming it")
                 .Which;
             skip.Level.Should().Be(LogLevel.Warning);
-            skip.Exception.Should().NotBeNull(
-                "the skip warning must carry the original exception, not a stringified message");
+            skip.Exception.Should().BeNull(
+                "the skip warning carries no exception object (an experiment, halheinrich/backgammon#523)");
+            skip.Message.Should().MatchRegex(@"malformed\.xg: .+",
+                "the skip warning names the failure's message after the file");
         }
         finally
         {
